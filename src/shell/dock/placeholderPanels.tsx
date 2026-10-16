@@ -8,6 +8,7 @@
  * tab 内容区仍为占位（内容加载 T0.7 / T1.x 接入）。
  */
 import { useWorkspaceStore, type OpenTabKind } from '@/shell/workspace-store'
+import { BlueprintTab } from '@/shell/workspace/BlueprintTab'
 
 /** 通用占位块 */
 function Placeholder({ title, note }: { title: string; note: string }) {
@@ -115,9 +116,13 @@ export function WorkspacePanel() {
       </div>
       <div className="workspace-body">
         {active ? (
-          <Placeholder title={active.title} note={KIND_NOTES[active.kind]} />
+          active.kind === 'blueprint' ? (
+            <BlueprintTab assetPath={active.assetPath} />
+          ) : (
+            <Placeholder title={active.title} note={KIND_NOTES[active.kind]} />
+          )
         ) : (
-          <div className="dock-panel-placeholder">双击文件系统中的资产打开（T0.7 接入）。</div>
+          <div className="dock-panel-placeholder">双击文件系统中的资产打开。</div>
         )}
       </div>
     </div>

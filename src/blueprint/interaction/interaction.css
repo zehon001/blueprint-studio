@@ -1,0 +1,343 @@
+/*
+ * Blueprint Studio v2 —— 画布交互层样式（T2.2，PLAN §8.2）
+ *
+ * 约定：所有颜色 / 间距 / 字号一律引用 src/shell/theme/theme.css 的 token（var(--xxx)），
+ * 禁止硬编码色值。本文件由交互组件（NodeSearchMenu / PinDragMenu / SelectionToolbar /
+ * ValidationBar / BlueprintEditorPanel）import，作用于 .bp-editor 作用域。
+ */
+
+/* ============ 编辑器容器（交互叠加层定位基准） ============ */
+
+.bp-editor {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 连线被拒 / 非法操作：画布抖动（UE 风格反馈） */
+.bp-editor.bp-shake .react-flow {
+  animation: bp-shake 0.3s ease-in-out;
+}
+
+@keyframes bp-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* ============ 弹出菜单（右键搜索 / 引脚兼容菜单 / 连线菜单，§8.2） ============ */
+
+.bp-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 260px;
+  max-width: 340px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.bp-menu-header {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.bp-menu-search {
+  display: block;
+  width: calc(100% - var(--space-4));
+  margin: var(--space-2);
+  padding: 4px 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+}
+
+.bp-menu-search:focus {
+  outline: 1px solid var(--focus-ring);
+}
+
+.bp-menu-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding-bottom: var(--space-1);
+}
+
+.bp-menu-section {
+  padding: var(--space-1) var(--space-2) 2px;
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+  user-select: none;
+}
+
+.bp-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px var(--space-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.bp-menu-item--active {
+  background: var(--selection);
+}
+
+.bp-menu-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.bp-menu-item-texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.bp-menu-item-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-menu-item-sub {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-menu-empty {
+  padding: var(--space-3) var(--space-2);
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  user-select: none;
+}
+
+.bp-menu-item--danger {
+  color: var(--error);
+}
+
+/* ============ 选中工具条（对齐 / 分布，§8.2 第 5 条） ============ */
+
+.bp-sel-toolbar {
+  position: absolute;
+  top: var(--space-2);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.45);
+}
+
+.bp-sel-toolbar-count {
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  user-select: none;
+}
+
+.bp-sel-btn {
+  padding: 2px var(--space-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bp-sel-btn:hover {
+  background: var(--bg-input);
+  border-color: var(--border-strong);
+}
+
+.bp-sel-btn:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.bp-sel-btn:disabled:hover {
+  background: transparent;
+  border-color: transparent;
+}
+
+/* ============ 校验条（保存即校验，PLAN §8.5） ============ */
+
+.bp-valbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border-strong);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  color: var(--text);
+}
+
+.bp-valbar-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2);
+  user-select: none;
+}
+
+.bp-valbar-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.bp-valbar-dot--dirty {
+  background: var(--warning);
+}
+
+.bp-valbar-dot--saved {
+  background: var(--success);
+}
+
+.bp-valbar-dot--error {
+  background: var(--error);
+}
+
+.bp-valbar-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-valbar-btn {
+  padding: 2px var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bp-valbar-btn:hover {
+  background: var(--bg-panel-header);
+}
+
+.bp-valbar-toggle {
+  padding: 2px var(--space-1);
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+
+.bp-valbar-toggle:hover {
+  color: var(--text);
+}
+
+.bp-valbar-list {
+  max-height: 160px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.bp-valbar-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 3px var(--space-2);
+  font-size: var(--font-xs);
+  cursor: default;
+}
+
+.bp-valbar-row--jump {
+  cursor: pointer;
+}
+
+.bp-valbar-row--jump:hover {
+  background: var(--selection);
+}
+
+.bp-valbar-severity {
+  flex: none;
+  font-weight: 600;
+}
+
+.bp-valbar-severity--error {
+  color: var(--error);
+}
+
+.bp-valbar-severity--warning {
+  color: var(--warning);
+}
+
+.bp-valbar-graph {
+  flex: none;
+  padding: 0 4px;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+}
+
+.bp-valbar-message {
+  min-width: 0;
+  color: var(--text-dim);
+}
+
+/* ============ 轻提示（toast） ============ */
+
+.bp-toast {
+  position: absolute;
+  top: var(--space-6);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 55;
+  max-width: 60%;
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg-panel-header);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.bp-toast--error {
+  border-color: var(--error);
+  color: var(--error);
+}

@@ -13,6 +13,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -30,7 +31,11 @@ import {
   type DockTabsNode,
   type DropTarget,
 } from './tree'
+import { PopoutPlaceholder } from '@/shell/windows/PopoutApp'
+import { popoutPanel, recallPopout, usePopoutsStore } from '@/shell/windows/popout'
+import { ToastHost } from '@/shell/windows/toast'
 import './dock.css'
+import '@/shell/windows/windows.css'
 
 /** 拖拽启动位移阈值（px）：低于阈值视为点击（仅激活页签） */
 const DRAG_THRESHOLD = 5
@@ -279,15 +284,19 @@ function SplitView({
   )
 }
 
-/** tabs 组：页签条（拖动=移动面板 / 点击=激活）+ 操作区（拆出窗口 / 关闭）+ 页面体 */
+/** tabs 组：页签条（拖动=移动面板 / 点击=激活）+ 操作区（拆出窗口 ⊞ / 合回 ⊟ / 关闭）+ 页面体 */
 function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: string | null }) {
   const setTabActive = useDockStore((s) => s.setTabActive)
   const closePanel = useDockStore((s) => s.closePanel)
   const beginDrag = useContext(DragContext)
+  // 已拆出面板集合（T0.4：主窗该页签显示「已拆出」占位，弹窗关闭 / 合回后自动恢复）
+  const popoutSessions = usePopoutsStore((s) => s.sessions)
+  const poppedPanelIds = useMemo(() => new Set(Object.keys(popoutSessions)), [popoutSessions])
 
   const activeIdx = Math.min(Math.max(node.active, 0), Math.max(node.panels.length - 1, 0))
   const activePanelId = node.panels[activeIdx]
   const activeDef = activePanelId !== undefined ? getPanel(activePanelId) : undefined
+  const activePopped = activePanelId !== undefined && poppedPanelIds.has(activePanelId)
 
   const onTabDown = (e: ReactPointerEvent<HTMLDivElement>, panelId: string, index: number): void => {
     setTabActive(node.id, index)
@@ -303,10 +312,12 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
       <div className="dock-tabs-bar">
         {node.panels.map((panelId, i) => {
           const def = getPanel(panelId)
+          const popped = poppedPanelIds.has(panelId)
           const cls = [
             'dock-tab',
             i === activeIdx ? 'active' : '',
             dragPanelId === panelId ? 'dragging' : '',
+            popped ? 'dock-tab-popped' : '',
           ]
             .filter(Boolean)
             .join(' ')
@@ -315,16 +326,37 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
               key={panelId}
               className={cls}
               onPointerDown={(e) => onTabDown(e, panelId, i)}
-              title={def?.title ?? panelId}
+              title={def ? `${def.title}${popped ? '（已拆出）' : ''}` : panelId}
             >
               <span className="dock-tab-label">{def?.title ?? panelId}</span>
             </div>
           )
         })}
         <div className="dock-tabs-actions">
-          <button type="button" className="dock-btn" disabled title="拆出窗口（T0.4 接入）">
-            ⊞
-          </button>
+          {activePopped ? (
+            <button
+              type="button"
+              className="dock-btn"
+              title={activeDef ? `合回「${activeDef.title}」` : '合回主窗'}
+              onClick={() => {
+                if (activePanelId !== undefined) recallPopout(activePanelId)
+              }}
+            >
+              ⊟
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="dock-btn"
+              disabled={activePanelId === undefined}
+              title={activeDef ? `拆出「${activeDef.title}」到独立窗口` : '拆出窗口'}
+              onClick={() => {
+                if (activePanelId !== undefined) popoutPanel(activePanelId)
+              }}
+            >
+              ⊞
+            </button>
+          )}
           <button
             type="button"
             className="dock-btn"
@@ -341,13 +373,16 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
       <div className="dock-tabs-body">
         {node.panels.map((panelId, i) => {
           const def = getPanel(panelId)
+          const popped = poppedPanelIds.has(panelId)
           return (
             <div
               key={panelId}
               className="dock-tab-page"
               style={{ display: i === activeIdx ? undefined : 'none' }}
             >
-              {def ? (
+              {popped ? (
+                <PopoutPlaceholder panelId={panelId} />
+              ) : def ? (
                 <def.component />
               ) : (
                 <div className="dock-panel-placeholder">未知面板：{panelId}</div>
@@ -363,12 +398,13 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
   )
 }
 
-/** 编辑器外壳：顶栏 + dock 区 */
+/** 编辑器外壳：顶栏 + dock 区（+ T0.4 全局 toast 容器） */
 export default function DockShell() {
   return (
     <div className="shell">
       <Toolbar />
       <DockRoot />
+      <ToastHost />
     </div>
   )
 }

@@ -1,0 +1,144 @@
+/*
+ * 多窗口拆合样式（T0.4）—— 全部视觉取自 src/shell/theme/theme.css 的 token，
+ * 禁止硬编码颜色 / 间距。
+ */
+
+/* ===== 弹窗模式根（editor.html?panel=…） ===== */
+.popout-app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-md);
+}
+
+.popout-header {
+  flex: none;
+  height: var(--panel-header-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.popout-link-dot {
+  flex: none;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+}
+
+.popout-link-dot.on {
+  background: var(--success);
+  border-color: var(--success);
+}
+
+.popout-title {
+  font-size: var(--font-sm);
+  font-weight: 600;
+}
+
+.popout-status {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.popout-history {
+  margin-left: auto;
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+  white-space: nowrap;
+}
+
+.popout-recall-btn {
+  flex: none;
+  height: calc(var(--panel-header-h) - var(--space-2));
+  padding: 0 var(--space-2);
+  font-size: var(--font-xs);
+  font-family: var(--font-ui);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.popout-recall-btn:hover {
+  color: var(--text);
+  background: var(--bg-input);
+  border-color: var(--border-strong);
+}
+
+.popout-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: auto;
+}
+
+.popout-body > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 主窗 dock「已拆出」占位页签内的元素 */
+.popout-lost-hint {
+  color: var(--warning);
+}
+
+.popout-placeholder-btn {
+  margin-top: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-sm);
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.popout-placeholder-btn:hover {
+  border-color: var(--accent);
+}
+
+/* 页签「已拆出」角标（⧉ 借用 warning 色提示分离态） */
+.dock-tab-popped::after {
+  content: '⧉';
+  margin-left: var(--space-1);
+  color: var(--warning);
+  font-size: var(--font-xs);
+}
+
+/* ===== toast 提示 ===== */
+.bps-toast-stack {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+.bps-toast {
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+}

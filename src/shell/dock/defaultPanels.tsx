@@ -13,10 +13,10 @@ import { loadPersistedLayout } from './persist'
 import { listPanels, registerPanel } from './registry'
 import { useDockStore } from './store'
 import { makeTabs, type DockNode } from './tree'
+import { registerFileSystemPanel } from '@/panels/file-system'
 import {
   ConsolePanelPlaceholder,
   EventsPanelPlaceholder,
-  FileSystemPanelPlaceholder,
   InspectorPanelPlaceholder,
   UiTreePanelPlaceholder,
   WorkspacePanel,
@@ -31,7 +31,7 @@ export const PANEL_ID_EVENTS = 'events'
 export const PANEL_ID_CONSOLE = 'console'
 
 /* 面板注册（模块副作用；每面板一行） */
-registerPanel({ id: PANEL_ID_FILE_SYSTEM, title: '文件系统', component: FileSystemPanelPlaceholder, defaultArea: 'left' })
+registerFileSystemPanel() // T0.7 文件系统（id: 'file-system'，与占位一致）
 registerPanel({ id: PANEL_ID_UI_TREE, title: 'UI 树', component: UiTreePanelPlaceholder, defaultArea: 'left' })
 registerPanel({ id: PANEL_ID_WORKSPACE, title: '工作区', component: WorkspacePanel, defaultArea: 'center', singleton: true })
 registerPanel({ id: PANEL_ID_INSPECTOR, title: '检视器', component: InspectorPanelPlaceholder, defaultArea: 'right' })

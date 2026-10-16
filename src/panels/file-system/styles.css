@@ -1,0 +1,284 @@
+/*
+ * 文件系统面板样式（T0.7）—— 颜色 / 间距 / 圆角 / 字号全部引用 theme.css 的 token，
+ * 禁止硬编码色值；结构性尺寸用 calc() 基于 token 推导。类名前缀 fs-。
+ */
+
+/* ===== 面板骨架（填充 dock 的 tab 页） ===== */
+
+.fs-panel {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  user-select: none;
+}
+
+.fs-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--panel-header-h);
+  padding: 0 var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+}
+
+.fs-header-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+.fs-header-btn {
+  flex: none;
+  height: calc(var(--panel-header-h) - var(--space-2));
+  padding: 0 var(--space-2);
+  font-size: var(--font-xs);
+  font-family: var(--font-ui);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.fs-header-btn:hover {
+  background: var(--bg-input);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.fs-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-1) 0 var(--space-6);
+}
+
+.fs-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-6);
+  color: var(--text-disabled);
+  text-align: center;
+  line-height: 1.8;
+}
+
+/* ===== 树行 ===== */
+
+.fs-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--space-5);
+  padding-right: var(--space-2);
+  white-space: nowrap;
+  cursor: default;
+  border-radius: var(--radius-sm);
+}
+
+.fs-row:hover {
+  background: var(--bg-input);
+}
+
+.fs-row.selected {
+  background: var(--selection);
+}
+
+/* 目录拖放落点高亮（拖入导入） */
+.fs-row.dragover {
+  background: var(--selection);
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
+.fs-chevron {
+  flex: none;
+  width: var(--space-4);
+  text-align: center;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+
+.fs-chevron:hover {
+  color: var(--text);
+}
+
+/* 扩展名图标字符（等宽小徽标） */
+.fs-icon {
+  flex: none;
+  min-width: calc(var(--space-6));
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.fs-icon.dir {
+  color: var(--accent);
+}
+
+.fs-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 行内重命名编辑框（Enter 确认 Esc 取消） */
+.fs-rename-input {
+  flex: 1;
+  min-width: 0;
+  height: var(--space-5);
+  box-sizing: border-box;
+  padding: 0 var(--space-1);
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  outline: none;
+}
+
+/* ===== 弹窗输入（小模态） ===== */
+
+.fs-modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 遮罩用 ::before 单独降透明度（token 无半透明黑，用 bg-app + opacity 组合） */
+.fs-modal-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--bg-app);
+  opacity: 0.55;
+}
+
+.fs-modal {
+  position: relative;
+  min-width: 240px;
+  max-width: calc(100% - var(--space-8));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.fs-modal-title {
+  color: var(--text);
+  font-size: var(--font-md);
+}
+
+.fs-modal-label {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+.fs-modal-input {
+  height: var(--space-6);
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  outline: none;
+}
+
+.fs-modal-input.mono {
+  font-family: var(--font-mono);
+}
+
+.fs-modal-input:focus {
+  border-color: var(--accent);
+}
+
+.fs-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.fs-btn {
+  height: var(--space-6);
+  padding: 0 var(--space-3);
+  font-size: var(--font-sm);
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.fs-btn:hover {
+  border-color: var(--accent);
+}
+
+.fs-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.fs-btn.primary:hover {
+  background: var(--accent-hover);
+}
+
+/* ===== toast（面板内浮动提示） ===== */
+
+.fs-toast {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  z-index: 950;
+  max-width: calc(100% - var(--space-8));
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+  background: var(--bg-panel-header);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  white-space: pre-line;
+}
+
+.fs-toast.success {
+  border-color: var(--success);
+}
+
+.fs-toast.error {
+  border-color: var(--error);
+}
+
+.fs-toast.info {
+  border-color: var(--accent);
+}

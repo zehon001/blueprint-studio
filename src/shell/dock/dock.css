@@ -398,3 +398,35 @@ body.dock-dragging * {
   min-height: 0;
   display: flex;
 }
+
+/* 工作区 tab 内容（PM 胶水：BlueprintTab 加载/错误态 + 蓝图面板撑满） */
+.workspace-tab-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: var(--font-sm);
+}
+.workspace-tab-loading.workspace-tab-error {
+  color: var(--error);
+}
+.workspace-tab-create {
+  padding: var(--space-1) var(--space-3);
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-sm);
+}
+.workspace-tab-create:hover {
+  background: var(--accent-hover);
+}
+.workspace-bp-panel {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
