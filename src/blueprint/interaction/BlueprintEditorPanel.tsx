@@ -10,33 +10,42 @@
  *   <BlueprintEditorPanel asset={irAsset} assetPath="logic/main.bp.json" onSave={...} />
  *
  * 后续任务接线方式：
- *  - T2.7 注释框：store.addComment 占位 action 落地 + My Blueprint「注释」分节接入；
+ *  - T2.7 注释框：已完成——画布右键「添加注释」（搜索菜单内伪条目拦截）、CommentLayer
+ *    挂载为画布 children、注释右键菜单（kind 'comment'）、My Blueprint「注释」分节双击定位；
  *  - T5.4 运行观察：BPEdgeData.flowing 开关；
  *  - T6.4 插件节点：useBlueprintStore.getState().setSpecs(以 editorSpecMap() 为基线合并)。
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { registerShortcut } from '../../shell/keymap/registry';
 import { serializeIR, validateIR } from '../../ir/validate';
 import type { ValidationIssue } from '../../ir/validate';
-import type { IRAsset } from '../../ir/types';
+import type { IRAsset, IRComment, NodeSpec } from '../../ir/types';
 import { NODE_CATEGORIES } from '../../nodes';
 import { BPGraphCanvas, headVariantFor, nodeSizeFor } from '../view';
 import type { FlowEdge, FlowNode } from '../view';
-import { useBlueprintStore } from '../store/blueprint-store';
+import { useBlueprintStore, EMPTY_SELECTION } from '../store/blueprint-store';
 // T2.3 结构面板（左栏 + 顶部图签）与 T2.4 蓝图检视器（右栏）
 import { MyBlueprint } from '../my-blueprint/MyBlueprint';
 import { GraphTabs } from '../my-blueprint/GraphTabs';
 import { Details } from '../details/Details';
+// T2.7 注释框（图层 + 右键菜单 + 选中 id 换算）
+import {
+  CommentContextMenu,
+  CommentLayer,
+  COMMENT_SELECTION_PREFIX,
+  commentSelectionId,
+} from '../comment';
 // 交互层样式统一在本面板 import（叶子组件不 import，保证 node:test 可挂载冒烟）
 import './interaction.css';
 import '../my-blueprint/my-blueprint.css';
 import '../details/details.css';
+import '../comment/comment.css';
 import { NodeSearchMenu, EdgeContextMenu } from './NodeSearchMenu';
 import { PinDragMenu } from './PinDragMenu';
 import { SelectionToolbar } from './SelectionToolbar';
 import { ValidationBar } from './ValidationBar';
-import { computeAlignedPositions, type AlignEntry, type AlignMode } from './logic';
+import { computeAlignedPositions, type AlignEntry, type AlignMode, type SpecEntry } from './logic';
 import { useCanvasInteractions } from './useCanvasInteractions';
 
 export interface BlueprintEditorPanelProps {
@@ -49,6 +58,24 @@ export interface BlueprintEditorPanelProps {
   /** 附加类名（dock 面板内控制尺寸用） */
   className?: string;
 }
+
+/* ---------------- T2.7：画布右键搜索菜单里的「添加注释」伪条目 ---------------- */
+
+/** 伪条目 spec id（仅存在于右键搜索菜单；searchPick 拦截，不进节点库与最近使用） */
+const COMMENT_PICK_ID = 'comment.add';
+
+/** 「添加注释」伪条目（UE5：右键菜单含 Add Comment；用伪 spec 复用搜索菜单 UI） */
+const COMMENT_MENU_SPEC: NodeSpec = {
+  id: COMMENT_PICK_ID,
+  title: '添加注释',
+  category: '注释',
+  keywords: ['comment', '注释', '框'],
+  inputs: [],
+  outputs: [],
+};
+
+/** 空注释列表常量（选择器恒定返回同引用，避免无谓重渲染） */
+const NO_COMMENTS: IRComment[] = [];
 
 /** 蓝图编辑器面板：store + view + interactions 组装（自带 ReactFlowProvider） */
 export function BlueprintEditorPanel(props: BlueprintEditorPanelProps) {
@@ -145,6 +172,12 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
   const searchPick = useCallback((specId: string): void => {
     const st = useBlueprintStore.getState();
     if (st.menu?.kind !== 'search') return;
+    if (specId === COMMENT_PICK_ID) {
+      // T2.7：右键菜单「添加注释」→ 在光标处创建默认尺寸注释框
+      st.addComment(st.menu.flow);
+      st.closeMenu();
+      return;
+    }
     st.addNode(specId, st.menu.flow);
     st.closeMenu();
   }, []);
@@ -209,11 +242,55 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
     [interactions],
   );
 
+  /* ---------------- T2.7：My Blueprint「注释」双击 → 切图 + 选中 + 居中定位 ---------------- */
+
+  const focusComment = useBlueprintStore((s) => s.focusComment);
+  useEffect(() => {
+    if (!focusComment) return;
+    const st = useBlueprintStore.getState();
+    const comment = st.asset?.graphs[focusComment.graphName]?.comments?.find(
+      (c) => c.id === focusComment.commentId,
+    );
+    if (!comment) return;
+    if (st.graphName !== focusComment.graphName) st.switchGraph(focusComment.graphName);
+    st.setSelection({ nodeIds: [commentSelectionId(comment.id)], edgeIds: [] });
+    const { bounds } = comment;
+    void rf.setCenter(bounds.x + bounds.w / 2, bounds.y + bounds.h / 2, {
+      zoom: Math.max(rf.getZoom(), 1),
+      duration: 300,
+    });
+  }, [focusComment, rf]);
+
   /* ---------------- 渲染 ---------------- */
 
-  const searchEntries = useBlueprintStore((s) =>
-    [...s.specs.values()].map((spec) => ({ spec, pin: null })),
+  const searchEntries = useMemo<SpecEntry[]>(() => {
+    const entries: SpecEntry[] = [...specs.values()].map((spec) => ({ spec, pin: null }));
+    // 「添加注释」伪条目追加在分类浏览尾部（搜索「注释」可直达；pick 在 searchPick 拦截）
+    return [...entries, { spec: COMMENT_MENU_SPEC, pin: null }];
+  }, [specs]);
+
+  const commentList = useBlueprintStore(
+    (s) => s.asset?.graphs[s.graphName]?.comments ?? NO_COMMENTS,
   );
+
+  /** 右键菜单指向的注释（菜单开着但注释已被删 → 不渲染菜单） */
+  const commentOfMenu: IRComment | null =
+    menu?.kind === 'comment' ? (commentList.find((c) => c.id === menu.commentId) ?? null) : null;
+
+  /**
+   * T2.7：画布 handlers 包装——注释选择 RF 不感知，空白单击时补齐「取消注释选中」
+   * （UE 同款：点空白取消全部选中；节点 / 连线取消由交互钩子的 onSelectionChange 负责）。
+   */
+  const canvasHandlers = {
+    ...interactions.handlers,
+    onPaneClick: () => {
+      interactions.handlers.onPaneClick();
+      const st = useBlueprintStore.getState();
+      if (st.selection.nodeIds.some((id) => id.startsWith(COMMENT_SELECTION_PREFIX))) {
+        st.setSelection(EMPTY_SELECTION);
+      }
+    },
+  };
 
   return (
     <div className={`bp-editor${shaking ? ' bp-shake' : ''}${className ? ` ${className}` : ''}`}>
@@ -229,8 +306,11 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
             <BPGraphCanvas
               nodes={interactions.nodes}
               edges={interactions.edges}
-              {...interactions.handlers}
-            />
+              {...canvasHandlers}
+            >
+              {/* T2.7 注释框图层：视口内最底层（ViewportPortal），节点点击 / 框选不受影响 */}
+              <CommentLayer />
+            </BPGraphCanvas>
             {menu?.kind === 'search' ? (
               <NodeSearchMenu
                 screen={menu.screen}
@@ -261,6 +341,13 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
                 selectedEdgeCount={selection.edgeIds.length}
                 onDisconnectOne={edgeDisconnectOne}
                 onDisconnectSelected={edgeDisconnectSelected}
+                onClose={closeMenu}
+              />
+            ) : null}
+            {menu?.kind === 'comment' && commentOfMenu ? (
+              <CommentContextMenu
+                comment={commentOfMenu}
+                screen={menu.screen}
                 onClose={closeMenu}
               />
             ) : null}

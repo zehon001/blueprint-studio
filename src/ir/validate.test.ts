@@ -596,3 +596,70 @@ test('deserializeIR：合法输入通过，缺省的 params/pinDefaults/position
     position: { x: 0, y: 0 },
   });
 });
+
+/* ============================================================
+ * comments（ADR-006，T2.7）：结构校验纳入注释框
+ * ============================================================ */
+
+/** 带指定 comments 的资产（comments 结构错误样本的基底） */
+function assetWithComments(comments: unknown): IRAsset {
+  const a = asset({ main: graph([node('n1', 'event.start')], []) });
+  (a.graphs['main'] as unknown as { comments?: unknown }).comments = comments;
+  return a;
+}
+
+test('comments（ADR-006）：含注释资产 validateIR 不产生任何 issue（纯视觉容器不参与校验）', () => {
+  const a = assetWithComments([
+    { id: 'c1', text: '初始化逻辑', color: '#4f8cc9', bounds: { x: 0, y: 0, w: 400, h: 300 } },
+    { id: 'c2', text: '无颜色注释', bounds: { x: -100, y: -50, w: 200, h: 120 } },
+  ]);
+  assert.deepEqual(validateIR(a, builtinSpecMap), []);
+});
+
+test('deserializeIR：comments 结构错误 → 抛出中文错误（非数组 / 缺 id / 缺 text / bounds 缺字段 / color 非字符串）', () => {
+  // comments 非数组
+  assert.throws(
+    () => deserializeIR(JSON.stringify(assetWithComments('注释'))),
+    /IR 结构错误：图「main」的 comments 必须是数组/,
+  );
+  // 注释缺 id / id 为空
+  assert.throws(
+    () => deserializeIR(JSON.stringify(assetWithComments([{ text: 'x', bounds: { x: 0, y: 0, w: 1, h: 1 } }]))),
+    /第 1 条注释缺少 id/,
+  );
+  assert.throws(
+    () => deserializeIR(JSON.stringify(assetWithComments([{ id: '', text: 'x', bounds: { x: 0, y: 0, w: 1, h: 1 } }]))),
+    /缺少 id/,
+  );
+  // 缺 text
+  assert.throws(
+    () => deserializeIR(JSON.stringify(assetWithComments([{ id: 'c1', bounds: { x: 0, y: 0, w: 1, h: 1 } }]))),
+    /注释「c1」缺少 text/,
+  );
+  // bounds 缺失 / 四字段不齐（w / h / x / y 逐个验证）
+  assert.throws(
+    () => deserializeIR(JSON.stringify(assetWithComments([{ id: 'c1', text: 'x' }]))),
+    /注释「c1」缺少 bounds/,
+  );
+  for (const key of ['x', 'y', 'w', 'h']) {
+    const bad = [{ id: 'c1', text: 'x', bounds: { x: 1, y: 2, w: 3, h: 4 } }];
+    delete (bad[0].bounds as Record<string, unknown>)[key];
+    assert.throws(
+      () => deserializeIR(JSON.stringify(assetWithComments(bad))),
+      new RegExp(`bounds\\.${key} 必须是数字`),
+      `bounds 缺 ${key} 应被拒绝`,
+    );
+  }
+  // bounds 非对象
+  assert.throws(
+    () => deserializeIR(JSON.stringify(assetWithComments([{ id: 'c1', text: 'x', bounds: [0, 0, 1, 1] }]))),
+    /缺少 bounds/,
+  );
+  // color 非字符串
+  assert.throws(
+    () => deserializeIR(JSON.stringify(assetWithComments([
+      { id: 'c1', text: 'x', color: 42, bounds: { x: 0, y: 0, w: 1, h: 1 } },
+    ]))),
+    /color 必须是字符串/,
+  );
+});

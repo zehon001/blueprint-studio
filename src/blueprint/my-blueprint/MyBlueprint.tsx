@@ -6,7 +6,7 @@
  *    拖拽落图本期简化为右键插入（TODO(T2.3+)：HTML5 drag 拖入画布生成 Get/Set）；
  *  - 函数：名 / 参数数；双击打开函数图；右键 插入调用到当前图 / 删除函数；
  *  - 事件：名 / 参数数；双击跳转事件入口节点；右键 在当前图创建事件节点；
- *  - 注释：占位（T2.7 接入）。
+ *  - 注释（T2.7）：全部图的注释框列表；双击定位到画布注释框；右键 删除；＋ 新建。
  *
  * 资产修改全部经 useBlueprintStore 的 action（内部入命令栈，可撤销）。
  * 本组件不 import 样式（node:test 可挂载冒烟）：my-blueprint.css 由
@@ -14,7 +14,7 @@
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import type { IRParamSpec, IRValueType } from '../../ir/types';
+import type { IRComment, IRParamSpec, IRValueType } from '../../ir/types';
 import { pinColor } from '../../shell/theme/tokens';
 import { Menu } from '../../panels/file-system/Menu';
 import type { MenuItem } from '../../panels/file-system/Menu';
@@ -319,6 +319,11 @@ export function MyBlueprint({ className }: { className?: string }) {
   const variableNames = asset.variables.map((v) => v.name);
   const functionNames = orderedGraphNames(asset).filter((n) => n !== asset.entry);
   const eventNames = asset.events.map((e) => e.name);
+  // T2.7：全部图的注释框（注释按图存放；分节内跨图列出，双击定位到所在图）
+  const commentRows: Array<{ graphName: string; comment: IRComment }> = [];
+  for (const [name, graph] of Object.entries(asset.graphs)) {
+    for (const comment of graph.comments ?? []) commentRows.push({ graphName: name, comment });
+  }
 
   /* ---------- 跳转 ---------- */
 
@@ -338,6 +343,11 @@ export function MyBlueprint({ className }: { className?: string }) {
     }
     if (hit.graphName !== st.graphName) st.switchGraph(hit.graphName);
     st.setSelection({ nodeIds: [hit.nodeId], edgeIds: [] });
+  };
+
+  /** 双击注释 → 画布定位（面板监听 focusComment：切图 + 选中 + 居中） */
+  const jumpToComment = (commentId: string): void => {
+    useBlueprintStore.getState().requestCommentFocus(commentId);
   };
 
   /* ---------- 行右键菜单 ---------- */
@@ -378,6 +388,15 @@ export function MyBlueprint({ className }: { className?: string }) {
   const eventMenu = (name: string): MenuItem[] => [
     { label: '跳转到事件节点', onSelect: () => jumpToEvent(name) },
     { label: '在当前图创建事件节点', onSelect: () => void useBlueprintStore.getState().insertEventNode(name) },
+  ];
+
+  const commentMenu = (commentId: string): MenuItem[] => [
+    { label: '定位到注释框', onSelect: () => jumpToComment(commentId) },
+    {
+      label: '删除注释',
+      danger: true,
+      onSelect: () => useBlueprintStore.getState().removeComments([commentId]),
+    },
   ];
 
   /* ---------- 分节开关（点 ＋ 时顺带展开） ---------- */
@@ -525,9 +544,28 @@ export function MyBlueprint({ className }: { className?: string }) {
           ) : null}
         </Section>
 
-        {/* ---------------- 注释（T2.7 接入） ---------------- */}
-        <Section title="注释" collapsed={collapsed.comments} onToggle={() => toggleSection('comments')}>
-          <div className="bp-mb-empty">暂无注释</div>
+        {/* ---------------- 注释（T2.7：当前资产全部图的注释框；双击画布定位） ---------------- */}
+        <Section
+          title="注释"
+          count={commentRows.length}
+          addTitle="新建注释"
+          collapsed={collapsed.comments}
+          onToggle={() => toggleSection('comments')}
+          onAdd={() => void useBlueprintStore.getState().addComment()}
+        >
+          {commentRows.map((row) => (
+            <div
+              key={`${row.graphName}:${row.comment.id}`}
+              className="bp-mb-row"
+              title="双击定位到画布中的注释框；右键删除"
+              onDoubleClick={() => jumpToComment(row.comment.id)}
+              onContextMenu={(e) => openRowMenu(e, commentMenu(row.comment.id))}
+            >
+              <span className="bp-mb-row-name">{row.comment.text}</span>
+              <span className="bp-mb-meta">{row.graphName === graphName ? '当前图' : row.graphName}</span>
+            </div>
+          ))}
+          {commentRows.length === 0 ? <div className="bp-mb-empty">暂无注释（画布右键 → 添加注释）</div> : null}
         </Section>
       </div>
       {menu ? <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} /> : null}

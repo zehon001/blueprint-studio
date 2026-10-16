@@ -7,6 +7,9 @@
  *  3. NodeSpec（节点定义与运行契约）      —— docs/v2/adr/003-nodespec.md（PLAN §13）
  *  4. 插件清单与注册表                   —— docs/v2/adr/004-plugin-manifest.md（PLAN §14）
  *
+ * 追加记录：ADR-006（T2.7）为 IRGraph 增补可选 comments 字段（注释框，纯视觉容器，
+ * 不参与解释执行；version 不升——新字段可选，旧资产读取即无注释）。
+ *
  * 契约级变更（字段增删、语义修改）必须先在 docs/v2/adr/ 落 ADR 并由 PM-Agent 知会，
  * 再修改本文件；禁止绕过 ADR 直接改类型。
  */
@@ -226,6 +229,38 @@ export interface IRGraphLayout {
   pan: [number, number];
 }
 
+/**
+ * 注释框 bounds（图坐标，像素；左上角 + 宽高）。
+ * 与 IRNode.position 的 Vec2 区分：注释用 x/y/w/h 四元组表达矩形，字段必须齐（ADR-006）。
+ */
+export interface IRCommentBounds {
+  /** 左上角横坐标 */
+  x: number;
+  /** 左上角纵坐标 */
+  y: number;
+  /** 宽（像素） */
+  w: number;
+  /** 高（像素） */
+  h: number;
+}
+
+/**
+ * 注释框（ADR-006：画布上的视觉容器，PLAN §8.1「注释框 Comment」）。
+ * - 纯视觉/组织用途：**不参与解释执行**，validateIR 不对其产生 issue；
+ * - 拖动注释时「完全包含在 bounds 内的节点」随注释一起移动（UE5 Comment 行为）；
+ * - color 为可选 CSS 颜色串（预设色板 / 自定义取色器写入）；缺省 = 主题默认灰。
+ */
+export interface IRComment {
+  /** 注释框 id（同图内唯一） */
+  id: string;
+  /** 注释文本（标题栏显示；双击行内编辑） */
+  text: string;
+  /** 自定义颜色（CSS 颜色值；缺省 = 主题默认 --bp-comment-bg / --bp-comment-border） */
+  color?: string;
+  /** 注释框矩形（图坐标） */
+  bounds: IRCommentBounds;
+}
+
 /** 一张图（主图或函数子图） */
 export interface IRGraph {
   /** 节点实例列表 */
@@ -236,6 +271,10 @@ export interface IRGraph {
   params?: IRParamSpec[];
   /** 函数返回值声明（仅函数子图；主图省略。函数出口节点据此渲染引脚） */
   returns?: IRParamSpec[];
+  /**
+   * 注释框列表（ADR-006，可选：旧资产无此字段 = 无注释；空数组与缺省同义，normalize 时剔除）
+   */
+  comments?: IRComment[];
 }
 
 /** 逻辑资产 IR（.bp.json 的序列化对象；蓝图 / TS / Python 三种资产共用的内存表示） */

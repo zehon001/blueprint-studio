@@ -1,16 +1,20 @@
 /**
- * 运行窗口应用（T1.6 · PLAN §12 运行窗口 v1）
+ * 运行窗口应用（T1.6 静态渲染闭环 · T2.6 蓝图绑定 + 事件驱动运行 · PLAN §12）
  *
- * 职责（本期 = 静态渲染闭环）：
+ * 职责：
  *   1. 解析 URL 参数（契约见 src/shell/runtime-launch.ts）：
  *      runtime.html?project=<项目文件夹名>&ui=<资产路径>&mode=main|current
  *   2. 加载状态机：loading → ready | error（全屏居中中文错误 + 重试按钮）；
  *      mode=main 且缺省 ui 时先读 project.json 解析 mainUI（parseMainUI）。
  *   3. 渲染：fetch UIAsset → parseUIAsset（ui-editor/store 共享契约）→
  *      renderUI(asset, { mode: 'runtime', onEvent }) 挂到全屏内容区（渲染唯一真源）。
- *   4. 事件：本期 onEvent 仅 console 输出「[事件] 节点名 事件名 payload」；
- *      事件驱动接线（IR 解释器 / 蓝图绑定）属 T2.6，经 props.onEvent 扩展点接入。
- *   5. 顶部细条：项目 / 资产 / 模式 + 刷新按钮（只读展示，不做编辑功能）。
+ *   4. 事件驱动（T2.6）：内建事件 → props.onEvent（调试替身，缺省 console 输出）+
+ *      BindingRunner.routeEvent（路由到持有该节点的蓝图 runtime，rt.emit 触发
+ *      event.custom 链）；就绪后 BindingRunner 收集 logicAsset 绑定 → 加载 .bp.json
+ *      → createRuntime（editorSpecMap + UiHandle + print → 控制台）→ start()。
+ *   5. 控制台小面板：顶部细条下的折叠区，承接蓝图 print / 绑定生命周期 / 错误
+ *      （上限 200 行，FIFO）；出错误行自动展开。
+ *   6. 顶部细条：项目 / 资产 / 模式 + 刷新按钮（只读展示，不做编辑功能）。
  *
  * 可注入点（测试与 T2.6 预留）：props.params（替 URL 参数）、props.fetchImpl
  * （替 fetch）、props.onEvent（替默认 console 事件输出）。
@@ -20,6 +24,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { renderUI, type UIRenderEvent, type UIRenderHandle } from './render/render'
+import { BindingRunner } from './binding'
 import type { UIAsset } from '../ir/types'
 import { parseUIAsset } from '../ui-editor/store'
 import { parseMainUI, runtimeWindowTitle, type RuntimeMode } from '../shell/runtime-launch'
@@ -65,11 +70,14 @@ export function validateRuntimeParams(
   return { ok: true, params: p }
 }
 
-/** 本期事件处理：console 输出（事件驱动接线属 T2.6，经 props.onEvent 替换） */
+/** 本期事件处理：console 输出（T2.6 起事件经 BindingRunner 路由到蓝图 runtime，此处保留兜底输出） */
 export function defaultOnEvent(evt: UIRenderEvent): void {
   const payload = evt.payload === undefined ? '' : ` ${JSON.stringify(evt.payload)}`
   console.info(`[事件] ${evt.nodeName} ${evt.event}${payload}`)
 }
+
+/** 控制台行数上限（FIFO 丢弃最旧行） */
+export const CONSOLE_MAX_LINES = 200
 
 /** /api/file 响应体（server/index.ts readFileSafe 契约的所需子集） */
 interface FileResponse {
@@ -132,17 +140,43 @@ export default function RuntimeApp(props: RuntimeAppProps) {
   }, [])
   const [app, setApp] = useState<RuntimeAppState>(initial)
 
+  /* —— 控制台小面板（T2.6）：print / 绑定生命周期 / 错误行，FIFO 上限 200 行 —— */
+  const [consoleLines, setConsoleLines] = useState<string[]>([])
+  const [consoleOpen, setConsoleOpen] = useState(false)
+  const consoleBodyRef = useRef<HTMLDivElement | null>(null)
+
   // propsRef：load / 事件回调读取最新注入替身，避免闭包过期
   const propsRef = useRef(props)
   propsRef.current = props
   // 渲染句柄（重载 / 卸载时销毁，解除全部事件监听）
   const handleRef = useRef<UIRenderHandle | null>(null)
+  // 绑定运行器（T2.6）：就绪后创建，重载 / 卸载时 stop
+  const runnerRef = useRef<BindingRunner | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
 
-  /** 加载一次：解析 ui 路径 → fetch → parse → 置 ready（渲染在下方 effect 完成） */
+  /** 控制台追加一行（FIFO 上限；错误行自动展开面板） */
+  const appendConsole = useCallback((line: string): void => {
+    setConsoleLines((prev) => {
+      const next = prev.length >= CONSOLE_MAX_LINES ? prev.slice(prev.length - CONSOLE_MAX_LINES + 1) : prev.slice()
+      next.push(line)
+      return next
+    })
+    if (line.startsWith('[错误]')) setConsoleOpen(true)
+  }, [])
+
+  // 展开态跟随滚动到底部（最新输出可见）
+  useEffect(() => {
+    const body = consoleBodyRef.current
+    if (consoleOpen && body) body.scrollTop = body.scrollHeight
+  }, [consoleLines, consoleOpen])
+
+  /** 加载一次：解析 ui 路径 → fetch → parse → 置 ready（渲染与绑定在下方 effect 完成） */
   const load = useCallback(async (p: RuntimeParams): Promise<void> => {
+    runnerRef.current?.stop()
+    runnerRef.current = null
     handleRef.current?.destroy()
     handleRef.current = null
+    setConsoleLines([])
     setApp({ params: p, phase: 'loading', message: '', uiPath: p.ui, asset: null })
     const fetchImpl = propsRef.current.fetchImpl ?? fetch
     try {
@@ -170,11 +204,16 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     }
   }, [])
 
-  // 挂载即加载（重试 / 刷新经 retry 手动触发）
+  // 挂载即加载（重试 / 刷新经 retry 手动触发）；页面卸载（关闭 / 刷新）时停掉绑定运行
   useEffect(() => {
     if (!initial.params) return
     void load(initial.params)
+    const onPageHide = (): void => runnerRef.current?.stop()
+    window.addEventListener('pagehide', onPageHide)
     return () => {
+      window.removeEventListener('pagehide', onPageHide)
+      runnerRef.current?.stop()
+      runnerRef.current = null
       handleRef.current?.destroy()
       handleRef.current = null
     }
@@ -190,20 +229,42 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     })
   }, [app.params])
 
-  // 就绪后渲染：renderUI 是编辑态/运行态共用的渲染唯一真源；句柄销毁由本组件管理
+  // 就绪后渲染 + 绑定运行：renderUI 是编辑态/运行态共用的渲染唯一真源；
+  // 内建事件 → props.onEvent（调试替身 / 缺省 console）+ BindingRunner（路由到蓝图 runtime）；
+  // runner 异步加载 .bp.json 并 start()，单个蓝图失败只记控制台不阻断渲染。
   useEffect(() => {
     if (app.phase !== 'ready' || !app.asset || !contentRef.current) return
     const handle = renderUI(app.asset, {
       mode: 'runtime',
-      onEvent: (evt) => (propsRef.current.onEvent ?? defaultOnEvent)(evt),
+      onEvent: (evt) => {
+        ;(propsRef.current.onEvent ?? defaultOnEvent)(evt)
+        runnerRef.current?.routeEvent(evt)
+      },
     })
     contentRef.current.appendChild(handle.el)
     handleRef.current = handle
+    const project = app.params?.project
+    if (project) {
+      const runner = new BindingRunner({
+        project,
+        asset: app.asset,
+        renderHandle: handle,
+        fetchImpl: propsRef.current.fetchImpl ?? fetch,
+        onPrint: appendConsole,
+        // 详细错误行已由 onPrint 通道输出（[错误] 前缀行会自动展开）；
+        // 这里只负责展开控制台（覆盖不携带 [错误] 前缀的错误路径，如蓝图加载失败）
+        onError: () => setConsoleOpen(true),
+      })
+      runnerRef.current = runner
+      void runner.loadAndStart()
+    }
     return () => {
+      runnerRef.current?.stop()
+      runnerRef.current = null
       handle.destroy()
       handleRef.current = null
     }
-  }, [app.phase, app.asset])
+  }, [app.phase, app.asset, appendConsole])
 
   const retry = useCallback((): void => {
     if (app.params) void load(app.params)
@@ -234,6 +295,37 @@ export default function RuntimeApp(props: RuntimeAppProps) {
               刷新
             </button>
           </div>
+          {app.phase === 'ready' ? (
+            <div className="runtime-console">
+              <button
+                type="button"
+                className="runtime-console-bar"
+                title="运行窗口控制台：蓝图 print / 绑定 / 错误输出（上限 200 行）"
+                onClick={() => setConsoleOpen((o) => !o)}
+              >
+                <span className="runtime-console-caret" aria-hidden>
+                  {consoleOpen ? '▾' : '▸'}
+                </span>
+                控制台
+                {consoleLines.length > 0 ? (
+                  <span className="runtime-console-count">{consoleLines.length}</span>
+                ) : null}
+              </button>
+              {consoleOpen ? (
+                <div className="runtime-console-body" ref={consoleBodyRef}>
+                  {consoleLines.map((line, i) => (
+                    <div
+                      key={i}
+                      className={line.startsWith('[错误]') ? 'runtime-console-line is-error' : 'runtime-console-line'}
+                    >
+                      {line}
+                    </div>
+                  ))}
+                  {consoleLines.length === 0 ? <div className="runtime-console-line">（暂无输出）</div> : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div className="runtime-stage">
             {app.phase === 'loading' ? <div className="runtime-loading">加载中…</div> : null}
             <div className="runtime-content" ref={contentRef} />

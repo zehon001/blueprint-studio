@@ -3,8 +3,9 @@
  *
  * 职责划分：
  *  - **命令栈域状态**（唯一文档真源）：registerDomainState('blueprint', { asset })，
- *    全部图编辑（增删节点 / 连线 / 移动 / 参数 / 引脚默认值 / 粘贴）与
- *    T2.3 结构面板资产编辑（变量 / 函数图 / 自定义事件 / 图接口 / 批量参数）经
+ *    全部图编辑（增删节点 / 连线 / 移动 / 参数 / 引脚默认值 / 粘贴）、
+ *    T2.3 结构面板资产编辑（变量 / 函数图 / 自定义事件 / 图接口 / 批量参数）与
+ *    T2.7 注释框编辑（新建 / 移动含节点 / 调整大小 / 改文本颜色 / 删除）经
  *    runCommand('blueprint', label, recipe) 执行 → 入统一撤销重做栈；
  *  - **useBlueprintStore（zustand）**：域状态镜像 + 编辑器 UI 状态
  *    （当前图名 / 选中集 / 脏标记 / 最近使用 / 弹出菜单 / 校验结果 / 提示）。
@@ -29,6 +30,7 @@ import type { ValidationIssue } from '../../ir/validate';
 import { isExecType } from '../../ir/types';
 import type {
   IRAsset,
+  IRCommentBounds,
   IREdge,
   IREndpoint,
   IRNode,
@@ -40,6 +42,17 @@ import type {
 } from '../../ir/types';
 import { editorSpecMap } from '../my-blueprint/graph-op-specs';
 import { nameKey, nextCopyName } from '../my-blueprint/model';
+import {
+  clampCommentBounds,
+  commentIdFromSelectionId,
+  commentSelectionId,
+  COMMENT_SELECTION_PREFIX,
+  containedNodeIds,
+  DEFAULT_COMMENT_SIZE,
+  estimatedNodeSizeOf,
+  staggeredCommentPosition,
+  type NodeSizeResolver,
+} from '../comment/model';
 import {
   bestTargetPin,
   buildFragment,
@@ -77,7 +90,18 @@ export type CanvasMenu =
   | ({ kind: 'search' } & MenuPos)
   | ({ kind: 'pin'; from: PinRef } & MenuPos)
   | ({ kind: 'edge'; edgeId: string } & MenuPos)
+  | ({ kind: 'comment'; commentId: string } & MenuPos)
   | null;
+
+/** 注释框定位请求（My Blueprint 双击跳转；面板监听后切图 + 居中 + 选中） */
+export interface CommentFocusRequest {
+  /** 注释所在图名 */
+  graphName: string;
+  /** 注释 id */
+  commentId: string;
+  /** 请求戳（同一注释重复双击也能再次触发） */
+  at: number;
+}
 
 interface MenuPos {
   screen: Vec2;
@@ -118,6 +142,8 @@ export interface BlueprintStore {
   shakeAt: number;
   /** 最近一次 Ctrl+S 校验结果（null = 尚未校验） */
   validation: ValidationIssue[] | null;
+  /** 注释框定位请求（My Blueprint 双击跳转 / 校验跳转同款；面板监听后居中定位） */
+  focusComment: CommentFocusRequest | null;
 
   /* ---------------- 资产 / 视图 action（不进命令栈） ---------------- */
   /** 打开资产（受控 prop 驱动；注册命令域 + 重置编辑态） */
@@ -142,6 +168,8 @@ export interface BlueprintStore {
   pushRecentSpec(specId: string): void;
   /** 启动时从 localStorage 恢复最近使用（环境不支持时静默） */
   loadRecentSpecs(): void;
+  /** 请求定位某注释框（My Blueprint 双击跳转；at 戳保证同一注释可重复触发） */
+  requestCommentFocus(commentId: string): void;
 
   /* ---------------- 编辑 action（全部经 runCommand('blueprint')，可撤销） ---------------- */
   /** 新建节点（右键搜索 / Tab 选中即建；返回新节点 id，失败返回 null） */
@@ -168,8 +196,32 @@ export interface BlueprintStore {
   copySelection(): Promise<number>;
   /** 粘贴剪贴板片段（新 id + 偏移 20px；跨图 / 跨资产）；返回粘贴的节点数 */
   paste(): Promise<number>;
-  /** 注释框（T2.7 占位：UE 同款注释节点，含节点随注释移动） */
-  addComment(position: Vec2, text?: string): void;
+
+  /* ---------------- T2.7 注释框（ADR-006；全部入命令栈，label「注释：…」） ---------------- */
+  /**
+   * 新建注释框（画布右键「添加注释」/ My Blueprint「＋」共用）；返回新注释 id。
+   * position 省略时按注释数错开落点；创建后注释框进入选中集。
+   */
+  addComment(position?: Vec2, text?: string): string | null;
+  /**
+   * 移动注释框（拖标题/松手提交；一次命令同时平移「完全包含」的节点，UE5 同款）。
+   * nodeSizes 为实测尺寸表（节点 id → 宽高）；缺项回落按节点头变体估算。
+   */
+  moveComment(
+    commentId: string,
+    bounds: IRCommentBounds,
+    nodeSizes?: ReadonlyMap<string, { width: number; height: number }>,
+  ): void;
+  /** 调整注释框大小（拖角 resize；不移动内含节点，UE 同款） */
+  resizeComment(commentId: string, bounds: IRCommentBounds): void;
+  /** 注释文本（双击标题行内编辑；空白文本拒绝）；成功返回 true */
+  setCommentText(commentId: string, text: string): boolean;
+  /** 注释颜色（预设色板 / 自定义取色器；undefined = 恢复主题默认灰） */
+  setCommentColor(commentId: string, color: string | undefined): void;
+  /** 注释大小重置（保持左上角，恢复默认尺寸） */
+  resetCommentSize(commentId: string): void;
+  /** 删除注释框（仅删注释，不动节点；支持批量） */
+  removeComments(commentIds: readonly string[]): void;
 
   /* ---------------- T2.3 My Blueprint 资产级编辑（全部入命令栈） ---------------- */
   /** 新建变量（重名拒绝，大小写不敏感）；成功返回 true */
@@ -413,6 +465,7 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
     toast: null,
     shakeAt: 0,
     validation: null,
+    focusComment: null,
 
     /* ---------------- 资产 / 视图（不进命令栈） ---------------- */
 
@@ -428,6 +481,7 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
         dirty: false,
         menu: null,
         validation: null,
+        focusComment: null,
       });
     },
 
@@ -485,6 +539,17 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
 
     loadRecentSpecs() {
       set({ recentSpecIds: readRecentStorage() });
+    },
+
+    requestCommentFocus(commentId) {
+      const { asset } = get();
+      if (!asset) return;
+      for (const [graphName, graph] of Object.entries(asset.graphs)) {
+        if (graph.comments?.some((c) => c.id === commentId)) {
+          set({ focusComment: { graphName, commentId, at: Date.now() } });
+          return;
+        }
+      }
     },
 
     /* ---------------- 编辑命令（全部可撤销） ---------------- */
@@ -612,12 +677,30 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
       const { asset, graphName, selection } = get();
       const graph = currentGraph(asset, graphName);
       if (!graph) return;
-      const nodeIds = new Set(selection.nodeIds);
+      // 选中集里 'comment:' 前缀的 id 是注释框（T2.7），其余为节点实例 id
+      const commentIds = new Set(
+        selection.nodeIds
+          .map(commentIdFromSelectionId)
+          .filter((id): id is string => id !== null),
+      );
+      const nodeIds = new Set(
+        selection.nodeIds.filter((id) => !id.startsWith(COMMENT_SELECTION_PREFIX)),
+      );
       const edgeIds = new Set(selection.edgeIds);
-      if (nodeIds.size === 0 && edgeIds.size === 0) return;
-      commit('删除选中', (draft, ctx) => {
+      if (nodeIds.size === 0 && edgeIds.size === 0 && commentIds.size === 0) return;
+      const onlyComments = nodeIds.size === 0 && edgeIds.size === 0;
+      const label = onlyComments
+        ? commentIds.size === 1
+          ? '注释：删除'
+          : `注释：删除（${commentIds.size} 个）`
+        : '删除选中';
+      commit(label, (draft, ctx) => {
         const g = draft.graphs[ctx.graphName];
         if (!g) return;
+        // 注释只删自身，不级联节点（UE 同款）
+        if (commentIds.size > 0 && g.comments) {
+          g.comments = g.comments.filter((c) => !commentIds.has(c.id));
+        }
         g.nodes = g.nodes.filter((n) => !nodeIds.has(n.id));
         g.edges = g.edges.filter(
           (e) => !nodeIds.has(e.from.node) && !nodeIds.has(e.to.node) && !edgeIds.has(e.id),
@@ -699,9 +782,129 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
       return insertInstantiated('粘贴节点', inst);
     },
 
-    addComment(_position, _text) {
-      // TODO(T2.7)：注释框 Comment 节点（可调色 / 框选整体移动）——本卡仅留 action 占位
-      get().notify('注释框将在 T2.7 提供');
+    /* ---------------- T2.7 注释框（ADR-006；全部入命令栈，label「注释：…」） ---------------- */
+
+    addComment(position, text) {
+      const { asset, graphName } = get();
+      const graph = currentGraph(asset, graphName);
+      if (!asset || !graph) return null;
+      // id 在命令前分配（确定性；与节点 id 同空间去重，避免撞名）
+      const alloc = createIdAllocator([
+        ...graph.nodes.map((n) => n.id),
+        ...(graph.comments ?? []).map((c) => c.id),
+      ]);
+      const id = alloc.next('comment');
+      const pos = snapPosition(position ?? staggeredCommentPosition(graph.comments?.length ?? 0));
+      const trimmed = text?.trim();
+      const ok = commit('注释：新建', (draft, ctx) => {
+        const g = draft.graphs[ctx.graphName];
+        if (!g) return;
+        if (!g.comments) g.comments = [];
+        g.comments.push({
+          id,
+          text: trimmed ? trimmed : '注释',
+          bounds: { x: pos.x, y: pos.y, w: DEFAULT_COMMENT_SIZE.w, h: DEFAULT_COMMENT_SIZE.h },
+        });
+      });
+      if (!ok) return null;
+      set({ selection: { nodeIds: [commentSelectionId(id)], edgeIds: [] } });
+      return id;
+    },
+
+    moveComment(commentId, bounds, nodeSizes) {
+      const { asset, graphName, specs } = get();
+      const graph = currentGraph(asset, graphName);
+      if (!asset || !graph) return;
+      const comment = graph.comments?.find((c) => c.id === commentId);
+      if (!comment) return;
+      const next = clampCommentBounds(bounds);
+      const from = comment.bounds;
+      const dx = next.x - from.x;
+      const dy = next.y - from.y;
+      if (dx === 0 && dy === 0 && next.w === from.w && next.h === from.h) return;
+      // 包含判定以「移动前」的 bounds 与节点位置为准（拖拽预览只改视图，不写 store，二者一致）。
+      // 尺寸解析：实测（ReactFlow measured）优先，缺项按节点头变体估算兜底。
+      const fallback = estimatedNodeSizeOf(specs);
+      const sizeOf: NodeSizeResolver = (node) => {
+        const m = nodeSizes?.get(node.id);
+        if (m && m.width > 0 && m.height > 0) return { width: m.width, height: m.height };
+        return fallback(node);
+      };
+      const contained = new Set(containedNodeIds(from, graph.nodes, sizeOf));
+      commit('注释：移动', (draft, ctx) => {
+        const g = draft.graphs[ctx.graphName];
+        if (!g) return;
+        const c = g.comments?.find((x) => x.id === commentId);
+        if (!c) return;
+        c.bounds = { ...next };
+        // 完全包含的节点随注释一起平移（同一命令，撤销一步全还原；相交但不完全包含的不动）
+        for (const node of g.nodes) {
+          if (!contained.has(node.id)) continue;
+          node.position = { x: node.position.x + dx, y: node.position.y + dy };
+        }
+      });
+    },
+
+    resizeComment(commentId, bounds) {
+      const { asset, graphName } = get();
+      const graph = currentGraph(asset, graphName);
+      if (!graph) return;
+      if (!graph.comments?.some((c) => c.id === commentId)) return;
+      const next = clampCommentBounds(bounds);
+      commit('注释：调整大小', (draft, ctx) => {
+        const c = draft.graphs[ctx.graphName]?.comments?.find((x) => x.id === commentId);
+        if (!c) return;
+        c.bounds = { ...next }; // 只改注释框；内含节点不随 resize 移动（UE 同款）
+      });
+    },
+
+    setCommentText(commentId, text) {
+      const trimmed = text.trim();
+      if (trimmed === '') {
+        get().notify('注释文本不能为空', 'error');
+        return false;
+      }
+      const { asset, graphName } = get();
+      if (!asset?.graphs[graphName]?.comments?.some((c) => c.id === commentId)) {
+        get().notify('注释不存在', 'error');
+        return false;
+      }
+      return commit('注释：重命名', (draft, ctx) => {
+        const c = draft.graphs[ctx.graphName]?.comments?.find((x) => x.id === commentId);
+        if (c) c.text = trimmed;
+      });
+    },
+
+    setCommentColor(commentId, color) {
+      commit('注释：改颜色', (draft, ctx) => {
+        const c = draft.graphs[ctx.graphName]?.comments?.find((x) => x.id === commentId);
+        if (!c) return;
+        if (color === undefined) delete c.color;
+        else c.color = color;
+      });
+    },
+
+    resetCommentSize(commentId) {
+      commit('注释：大小重置', (draft, ctx) => {
+        const c = draft.graphs[ctx.graphName]?.comments?.find((x) => x.id === commentId);
+        if (!c) return;
+        c.bounds = { x: c.bounds.x, y: c.bounds.y, w: DEFAULT_COMMENT_SIZE.w, h: DEFAULT_COMMENT_SIZE.h };
+      });
+    },
+
+    removeComments(commentIds) {
+      const ids = new Set(commentIds);
+      if (ids.size === 0) return;
+      const { asset, graphName } = get();
+      if (!asset?.graphs[graphName]?.comments) return;
+      const label = ids.size === 1 ? '注释：删除' : `注释：删除（${ids.size} 个）`;
+      // 仅删注释，节点与连线一律不动（UE 同款：注释只是视觉容器）
+      commit(label, (draft, ctx) => {
+        const g = draft.graphs[ctx.graphName];
+        if (!g?.comments) return;
+        g.comments = g.comments.filter((c) => !ids.has(c.id));
+      });
+      set({ selection: EMPTY_SELECTION });
     },
 
     /* ---------------- T2.3 My Blueprint：变量 ---------------- */

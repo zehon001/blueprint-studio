@@ -8,6 +8,7 @@
  */
 import '@xyflow/react/dist/style.css';
 import './styles.css';
+import type { ReactNode } from 'react';
 import {
   Background,
   BackgroundVariant,
@@ -72,6 +73,11 @@ export interface BPGraphCanvasProps {
   panActivationKeyCode?: string | null;
   /** 加选修饰键（§8.2「Shift 加选」：Shift+点击逐个加选；默认 'Shift'） */
   multiSelectionKeyCode?: string | null;
+  /**
+   * 画布内部叠加层（T2.7 注释框图层 CommentLayer 经此挂载；渲染进 ReactFlow
+   * 内部——注释层自行经 ViewportPortal 进入视口，随平移缩放同步）
+   */
+  children?: ReactNode;
 }
 
 /**
@@ -96,6 +102,7 @@ export function BPGraphCanvas({
   isValidConnection,
   panActivationKeyCode = 'Space',
   multiSelectionKeyCode = 'Shift',
+  children,
 }: BPGraphCanvasProps) {
   return (
     <div className={`bp-canvas${className ? ` ${className}` : ''}`}>
@@ -143,6 +150,8 @@ export function BPGraphCanvas({
           size={1.6}
           color={rawToken('--bp-grid-dot')}
         />
+        {/* 画布内部叠加层（T2.7 注释框图层；渲染进 pane → 自行经 ViewportPortal 入视口） */}
+        {children}
       </ReactFlow>
     </div>
   );

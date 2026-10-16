@@ -32,7 +32,8 @@
  * normalizeIR 的规范形约定：
  *  - 顶层与各结构体按契约字段顺序重建；记录型字段（graphs / layout / params /
  *    pinDefaults / 嵌套参数值）的键按字典序排序 —— 与输入顺序无关，保证 serializeIR 幂等；
- *  - undefined 值一律剔除；图级可选容器 params / returns 为空数组时剔除（空与缺省同义）；
+ *  - undefined 值一律剔除；图级可选容器 params / returns / comments 为空数组时剔除
+ *    （空与缺省同义，ADR-006）；
  *    其余字段（含 variables/events/snippets 空数组、params/pinDefaults 空对象）按契约保留；
  *  - 因此「往返无损」对规范形资产（即 normalizeIR 的输出）严格成立。
  */
@@ -46,6 +47,7 @@ import {
 } from './types';
 import type {
   IRAsset,
+  IRComment,
   IREdge,
   IREndpoint,
   IRGraph,
@@ -235,6 +237,23 @@ function normalizeLayout(raw: unknown): Record<string, IRGraphLayout> {
   return out;
 }
 
+function normalizeComment(raw: unknown): IRComment {
+  const c = isPlainObject(raw) ? raw : {};
+  const b = readRecord(c, 'bounds');
+  const color = c['color'];
+  return {
+    id: strField(c, 'id'),
+    text: strField(c, 'text'),
+    ...(typeof color === 'string' ? { color } : {}),
+    bounds: {
+      x: typeof b['x'] === 'number' ? b['x'] : 0,
+      y: typeof b['y'] === 'number' ? b['y'] : 0,
+      w: typeof b['w'] === 'number' ? b['w'] : 0,
+      h: typeof b['h'] === 'number' ? b['h'] : 0,
+    },
+  };
+}
+
 function normalizeGraph(raw: unknown): IRGraph | null {
   if (!isPlainObject(raw)) return null;
   const nodes = (Array.isArray(raw['nodes']) ? (raw['nodes'] as unknown[]) : []).map(normalizeNode);
@@ -244,6 +263,10 @@ function normalizeGraph(raw: unknown): IRGraph | null {
   if (params.length > 0) out.params = params; // 空的可选容器剔除（空与缺省同义）
   const returns = (Array.isArray(raw['returns']) ? (raw['returns'] as unknown[]) : []).map(normalizeParam);
   if (returns.length > 0) out.returns = returns;
+  // 注释框（ADR-006）：缺省 / 空数组剔除；每条洗 id/text/color/bounds（bounds 缺字段补 0，
+  // 结构级缺失由 deserializeIR 的 assertIRStructure 抛错把关）
+  const comments = (Array.isArray(raw['comments']) ? (raw['comments'] as unknown[]) : []).map(normalizeComment);
+  if (comments.length > 0) out.comments = comments;
   return out;
 }
 
@@ -334,6 +357,30 @@ function assertIRStructure(raw: unknown): void {
     if (g['returns'] !== undefined && !Array.isArray(g['returns'])) {
       throw new Error(`IR 结构错误：图「${gName}」的 returns 必须是数组`);
     }
+    if (g['comments'] !== undefined && !Array.isArray(g['comments'])) {
+      throw new Error(`IR 结构错误：图「${gName}」的 comments 必须是数组`);
+    }
+    ((g['comments'] ?? []) as unknown[]).forEach((c, i) => {
+      if (!isPlainObject(c)) throw new Error(`IR 结构错误：图「${gName}」第 ${i + 1} 条注释必须是对象`);
+      if (typeof c['id'] !== 'string' || c['id'] === '') {
+        throw new Error(`IR 结构错误：图「${gName}」第 ${i + 1} 条注释缺少 id`);
+      }
+      if (typeof c['text'] !== 'string') {
+        throw new Error(`IR 结构错误：图「${gName}」注释「${c['id']}」缺少 text`);
+      }
+      if (!isPlainObject(c['bounds'])) {
+        throw new Error(`IR 结构错误：图「${gName}」注释「${c['id']}」缺少 bounds（须为 { x, y, w, h }）`);
+      }
+      const b = c['bounds'] as Record<string, unknown>;
+      for (const k of ['x', 'y', 'w', 'h'] as const) {
+        if (typeof b[k] !== 'number') {
+          throw new Error(`IR 结构错误：图「${gName}」注释「${c['id']}」的 bounds.${k} 必须是数字`);
+        }
+      }
+      if (c['color'] !== undefined && typeof c['color'] !== 'string') {
+        throw new Error(`IR 结构错误：图「${gName}」注释「${c['id']}」的 color 必须是字符串`);
+      }
+    });
     (g['nodes'] as unknown[]).forEach((n, i) => {
       if (!isPlainObject(n)) throw new Error(`IR 结构错误：图「${gName}」第 ${i + 1} 个节点必须是对象`);
       if (typeof n['id'] !== 'string' || n['id'] === '') {

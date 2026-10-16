@@ -8,7 +8,10 @@
  *   vec2 → x / y 两输入（position 用）；size → w / h 两输入（提交增量补丁，由面板按节点合并）
  *   options → 字符串数组（每行一项 + 添加按钮）；listColumns → JSON 文本域 + 格式校验
  *   （错误提示就地显示；可视化列编辑标注 T7.x）
- *   assetRef → 路径文本 + 占位浏览按钮（toast 提示）；logicRef → 路径文本（T2.6 接选择器）
+ *   assetRef → 路径文本 + 占位浏览按钮（toast 提示）；logicRef → 逻辑资产选择器（T2.6）：
+ *   下拉列出项目 logic/ 下全部 .bp.json（GET /api/tree）+ 手工路径输入 + 清除 + 新建
+ *   （PUT 空蓝图模板）；绑定写入 = 单条 runUICommand 双写 UINode.logicAsset（ir 契约位，
+ *   模板 / 自定义事件区读取位）与 props.logicAsset（属性行显示位），可撤销。
  *
  * 编辑协议与蓝图检视器控件（src/blueprint/details/param-editors.tsx，T2.4 已交付，风格对齐
  * 但独立实现）一致：文本 / 数字 / 多行 / JSON 类控件走「草稿态 + 提交」（Enter / 失焦），
@@ -18,8 +21,9 @@
  *
  * 本文件不 import 样式（node:test 可挂载冒烟）；inspector.css 由 index.ts 引入。
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PropDef } from '@/ui-editor/schema'
+import type { UIAsset } from '@/ir/types'
 import { MIXED_TITLE, parseListColumnsJson, parseOptionsLines } from './inspector-model'
 
 /** 编辑控件统一入参（PropEditor 按 def.type 分发） */
@@ -480,23 +484,206 @@ export function AssetRefEditor(props: PropEditorProps) {
   )
 }
 
-/** 逻辑资产引用（logicRef）：路径文本（选择器 T2.6 蓝图绑定 UI 时接入） */
+/** 逻辑资产引用（logicRef · T2.6 蓝图绑定 UI 节点）与 schema 注入 */
+import { buildLogicAssetOptions, emptyBlueprintAsset, type LogicOption } from '@/runtime/binding'
+import { uiNodeSchemas } from '@/ui-editor/schema'
+import { findUINodeIn } from './inspector-model'
+import { runUICommand, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
+
+/**
+ * 为全部 UI 节点 schema 注入「逻辑资产」属性（T2.6 · 仅编辑器运行时生效）。
+ *
+ * 背景：logicAsset 是 UINode 的契约字段（src/ir/types.ts 顶层可选字段），但 T1.1 的
+ * 各节点 schema 尚未声明 logicRef 属性行，检视器（纯 schema 驱动）因此无处渲染编辑器。
+ * 本卡不改 src/ui-editor/schema/（所有权在 T1.1/T2.7），在此做运行时补充：
+ * 给每个 schema 追加 { id:'logicAsset', type:'logicRef', group:'节点' }（已声明则跳过，
+ * schema 侧将来补声明时本注入自动失效）。node:test 环境（import.meta.env 为 undefined）
+ * 不注入，保证既有检视器 / schema 快照断言不受影响。
+ */
+function ensureLogicBindingProp(): void {
+  for (const schema of uiNodeSchemas) {
+    if (schema.props.some((p) => p.id === 'logicAsset')) continue
+    schema.props.push({
+      id: 'logicAsset',
+      label: '逻辑资产',
+      type: 'logicRef',
+      group: '节点',
+      default: '',
+      placeholder: 'logic/main.bp.json',
+      doc: '挂载的逻辑资产（logic/ 下 .bp.json，相对项目根）。运行窗口加载 UI 后由该蓝图驱动本节点子树（ui 访问器作用域 = 绑定节点及其子树）',
+    })
+  }
+}
+// vite（编辑器 dev/build）注入 import.meta.env；node:test（tsx）无此全局 → 不注入 schema
+if (import.meta.env) ensureLogicBindingProp()
+
+/** 逻辑资产引用（logicRef）：下拉选择 + 手工路径 + 清除 + 新建（T2.6） */
 export function LogicRefEditor(props: PropEditorProps) {
+  const projectPath = useUIEditorStore((s) => s.projectPath)
+  const selection = useUIEditorStore((s) => s.selection)
+  const asset = useSceneTreeDomain().asset
+  const [options, setOptions] = useState<LogicOption[]>([])
+  const [reloadSeq, setReloadSeq] = useState(0)
+
+  /* —— 选中节点（批量 / 顶层字段读取用；与 InspectorPanel 同一选择源） —— */
+  const nodes = useMemo(() => {
+    if (!asset || selection.length === 0) return []
+    return selection
+      .map((id) => findUINodeIn(asset.root, id))
+      .filter((n): n is NonNullable<typeof n> => n !== null)
+  }, [asset, selection])
+
+  /* —— 选项列表：GET /api/tree?path=<project>/logic 递归取 .bp.json —— */
+  useEffect(() => {
+    if (!projectPath) {
+      setOptions([])
+      return
+    }
+    let cancelled = false
+    fetch(`/api/tree?path=${encodeURIComponent(`${projectPath}/logic`)}`)
+      .then((r) => r.json() as Promise<unknown>)
+      .then((j) => {
+        if (!cancelled) setOptions(buildLogicAssetOptions(j, projectPath))
+      })
+      .catch(() => {
+        if (!cancelled) setOptions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [projectPath, reloadSeq])
+
+  /* —— 生效值：顶层 UINode.logicAsset（契约位）优先，回落属性行值（props 位） —— */
+  const rowValue = props.mixed || props.value === undefined || props.value === null ? '' : String(props.value)
+  const effective =
+    !props.mixed && nodes.length === 1
+      ? (typeof nodes[0]!.logicAsset === 'string' && nodes[0]!.logicAsset !== ''
+          ? (nodes[0]!.logicAsset as string)
+          : rowValue)
+      : rowValue
+
+  /** 提交绑定：单条命令双写顶层（契约位）+ props（属性行显示位），可撤销（批量一条命令） */
+  const commitBinding = (path: string): void => {
+    if (nodes.length === 0) return
+    const ids = nodes.map((n) => n.id)
+    const label = ids.length > 1 ? `检视器：批量修改 逻辑资产 ${ids.length} 个` : '检视器：逻辑资产'
+    runUICommand(label, (draft) => {
+      const root = (draft as UIAsset).root
+      for (const id of ids) {
+        const node = findUINodeIn(root, id)
+        if (!node) continue
+        if (path) {
+          node.logicAsset = path
+          node.props.logicAsset = path
+        } else {
+          delete node.logicAsset
+          node.props.logicAsset = ''
+        }
+      }
+    })
+  }
+
+  /* —— 手工路径输入（草稿态：Enter / 失焦提交） —— */
+  const initial = props.mixed ? '' : effective
+  const { draft, setDraft, commit: commitDraft } = useDraft(
+    initial,
+    (d) => d === initial,
+    (d) => commitBinding(d.trim()),
+  )
+
+  /* —— 新建空蓝图：PUT /api/file → 重载选项 → 绑定 —— */
+  const createAsset = async (): Promise<void> => {
+    if (!projectPath || props.disabled) return
+    const raw = window.prompt('新逻辑资产文件名（logic/ 下，可含子目录）', 'logic/新蓝图.bp.json')
+    if (raw === null) return
+    const rel = raw.trim().replace(/^\/+|\/+$/g, '')
+    if (rel === '') return
+    if (!rel.toLowerCase().endsWith('.bp.json')) {
+      props.onPlaceholder?.('文件名必须以 .bp.json 结尾（本期新建仅支持蓝图资产）')
+      return
+    }
+    const name = rel.slice(0, -'.bp.json'.length).split('/').pop() || '新蓝图'
+    try {
+      const res = await fetch('/api/file', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: `${projectPath}/${rel}`,
+          content: JSON.stringify(emptyBlueprintAsset(name), null, 2),
+        }),
+      })
+      const j = (await res.json()) as { ok?: boolean; message?: string }
+      if (!j.ok) {
+        props.onPlaceholder?.(`创建失败：${j.message ?? `HTTP ${res.status}`}`)
+        return
+      }
+      setReloadSeq((s) => s + 1)
+      commitBinding(rel)
+      props.onPlaceholder?.(`已创建并绑定：${rel}`)
+    } catch (err) {
+      props.onPlaceholder?.(`创建失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  const current = effective
+  const known = options.some((o) => o.value === current)
   return (
-    <span className="insp-ref">
-      <TextEditor
-        {...props}
-        def={{ ...props.def, placeholder: props.def.placeholder ?? 'logic/main.bp.json' }}
-      />
-      <button
-        type="button"
-        className="insp-btn"
+    <span className="insp-stack">
+      <select
+        className="insp-select"
+        value={current === '' || !known ? '' : current}
+        title={props.mixed ? MIXED_TITLE : '选择 logic/ 下的 .bp.json 逻辑资产'}
         disabled={props.disabled}
-        title="选择逻辑资产（占位）"
-        onClick={() => props.onPlaceholder?.('逻辑资产选择器将在 T2.6（蓝图绑定 UI）接入')}
+        onChange={(e) => commitBinding(e.target.value)}
       >
-        选择…
-      </button>
+        <option value="" disabled hidden>
+          —
+        </option>
+        {current !== '' && !known ? <option value={current}>{current}</option> : null}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <span className="insp-ref">
+        <input
+          type="text"
+          className="insp-input"
+          value={draft}
+          placeholder={props.mixed ? '—' : (props.def.placeholder ?? 'logic/main.bp.json')}
+          title={props.mixed ? MIXED_TITLE : '手工输入路径（Enter / 失焦提交）'}
+          disabled={props.disabled}
+          spellCheck={false}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              commitDraft()
+              e.currentTarget.blur()
+            }
+            e.stopPropagation()
+          }}
+          onBlur={commitDraft}
+        />
+        <button
+          type="button"
+          className="insp-btn"
+          disabled={props.disabled || effective === ''}
+          title="解除绑定（清空逻辑资产）"
+          onClick={() => commitBinding('')}
+        >
+          清除
+        </button>
+        <button
+          type="button"
+          className="insp-btn"
+          disabled={props.disabled || !projectPath}
+          title="在 logic/ 下新建空蓝图（含 event.start 入口）并绑定"
+          onClick={() => void createAsset()}
+        >
+          新建…
+        </button>
+      </span>
     </span>
   )
 }
