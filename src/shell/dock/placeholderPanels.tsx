@@ -9,6 +9,7 @@
  */
 import { useWorkspaceStore, type OpenTabKind } from '@/shell/workspace-store'
 import { BlueprintTab } from '@/shell/workspace/BlueprintTab'
+import { UITab } from '@/shell/workspace/UITab'
 
 /** 通用占位块 */
 function Placeholder({ title, note }: { title: string; note: string }) {
@@ -118,6 +119,8 @@ export function WorkspacePanel() {
         {active ? (
           active.kind === 'blueprint' ? (
             <BlueprintTab assetPath={active.assetPath} />
+          ) : active.kind === 'ui' ? (
+            <UITab assetPath={active.assetPath} />
           ) : (
             <Placeholder title={active.title} note={KIND_NOTES[active.kind]} />
           )

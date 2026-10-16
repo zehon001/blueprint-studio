@@ -42,6 +42,9 @@ export const UI_RENDER_CSS = `
 .bps-split{display:flex;}
 .bps-split--horizontal{flex-direction:row;}
 .bps-split--vertical{flex-direction:column;}
+/* 分隔条视觉（T1.7）：第二窗格边缘 1px 分隔线（静态比例；拖动调节不在本卡范围） */
+.bps-split--horizontal > .bps-split-pane--second{border-left:1px solid var(--border-strong);}
+.bps-split--vertical > .bps-split-pane--second{border-top:1px solid var(--border-strong);}
 
 /* ── 显示 ───────────────────────────────────────────── */
 .bps-label{overflow:hidden;}
@@ -97,6 +100,16 @@ export const UI_RENDER_CSS = `
 .bps-lmerged{border-bottom:1px dashed var(--border);color:var(--text-dim);}
 .bps-lmerged .bps-lcell{color:var(--text-dim);}
 .bps-lempty{padding:var(--space-2);color:var(--text-disabled);}
+
+/* list 真视觉合并（T1.7 · rowspan）：有合并列时行体为整体网格，行容器 display:contents
+   参与同一网格，合并条目的单元格 grid-row:span N 跨行占位（内联样式写入）。
+   仅作用于 list 的合并模式；table 与无合并 list 保持行级网格结构。 */
+.bps-lbody--grid{display:grid;}
+.bps-lbody--grid > .bps-lrow{display:contents;}
+.bps-lbody--grid > .bps-lrow .bps-lcell{border-bottom:1px solid var(--border);}
+.bps-lbody--grid .bps-lrow--sel .bps-lcell{background:var(--selection);}
+.bps-lcell--span{align-self:stretch;display:flex;align-items:center;gap:4px;}
+.bps-lbody--grid > .bps-lgroup,.bps-lbody--grid > .bps-lempty,.bps-lbody--grid > .bps-lmerged{grid-column:1 / -1;}
 .bps-tree{overflow:auto;padding:2px 0;}
 .bps-treeitem{display:flex;align-items:center;gap:2px;padding:1px 4px;white-space:nowrap;}
 .bps-treeitem--sel{background:var(--selection);}

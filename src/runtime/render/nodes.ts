@@ -86,9 +86,13 @@ const hboxRenderer: NodeRenderer = {
 const gridRenderer: NodeRenderer = {
   create: () => div('bps-node bps-grid'),
   patch: (el, node) => {
+    // N 列自动换行（minmax(0,1fr) 配合子项 min-width:0 防溢出）；gap 同时承担行列间距；
+    // 单元格对齐显式声明双向 stretch（子节点无显式尺寸时填满单元格，显式 w/h 优先）。
     el.style.gridTemplateColumns = `repeat(${intOf(node.props.columns, 2, 1)}, minmax(0,1fr))`;
     el.style.gap = px(num(node.props.spacing, 8));
     el.style.padding = px(num(node.props.padding, 0));
+    el.style.justifyItems = 'stretch';
+    el.style.alignItems = 'stretch';
   },
   childHost: (el) => el,
 };
@@ -211,12 +215,14 @@ const splitContainerRenderer: NodeRenderer = {
   },
   childHost: (el) => el,
   postChildren: (_el, node, _ctx, childEls) => {
-    // 仅前两个子节点为窗格：第一个占 splitPosition%，第二个吃剩余空间
+    // 仅前两个子节点为窗格：第一个占 splitPosition%，第二个吃剩余空间；
+    // 第二窗格带分隔条类（样式表画 1px 分隔线，见 style.ts；拖动分隔条调节不在本卡范围）。
     const pos = clamp(num(node.props.splitPosition, 50), 0, 100);
     childEls.forEach((pane, i) => {
       if (i === 0) pane.style.flex = `0 0 ${pos}%`;
       else if (i === 1) pane.style.flex = '1 1 0%';
-      else pane.style.display = 'none'; // 多余子节点隐藏（schema 约定恰好两个；TODO T1.7 细化）
+      else pane.style.display = 'none'; // 多余子节点隐藏（schema 约定恰好两个窗格）
+      pane.classList.toggle('bps-split-pane--second', i === 1);
       pane.style.minWidth = '0';
       pane.style.minHeight = '0';
       pane.style.overflow = 'hidden';

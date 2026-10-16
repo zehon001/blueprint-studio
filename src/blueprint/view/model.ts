@@ -108,6 +108,8 @@ const BUILTIN_ID_PREFIXES: ReadonlySet<string> = new Set([
  */
 export function headVariantFor(nodeType: string, spec: NodeSpec | null): HeadVariant {
   if (!spec) return 'unknown';
+  // 函数图接口/调用节点（解释器自有类型，编辑器补充 spec 见 my-blueprint/graph-op-specs.ts）→ 蓝色函数头
+  if (nodeType === 'flow.call' || nodeType.startsWith('func.')) return 'function';
   if (nodeType.startsWith('var.') || spec.category === '变量') return 'var';
   if (spec.category === '事件') return 'event';
   if (spec.category === '流程') return 'flow';

@@ -16,12 +16,27 @@
  * - 根元素 .bps-ui-root；每个节点元素带 data-uid（UINode.id）+ data-node-type（UINode.type）
  *   + data-visible（T1.3 拾取 / 树联动用）；
  * - ADR-005：可编辑属性全部在 UINode.props，UINode.theme 暂不使用；
- * - transform：free 布局（根节点 / panel·scrollBox 内）绝对定位；flow（vbox/hbox/grid 内）
- *   忽略 position、size 转宽高、expand 转 flex-grow；fill（页签页）铺满；split（分栏窗格）
- *   比例由 splitContainer 的 postChildren 设置。rotation 一律 transform: rotate(deg)。
+ * - transform（T1.7）：四种布局语境——
+ *   · free（根节点 / panel·scrollBox 内容区）：绝对定位；position 写 left/top（T1.3 包围盒
+ *     换算与既有行为锚定于此）；transform 为单属性标准串 `translate(...) rotate(deg)`
+ *     （无偏移时省略 translate 段）；w/h 为 0 / 缺省 → 按类型取 schema commonProps 的
+ *     defaultSize 补默认（未知类型回落 120×32，与 commonProps 兜底一致）；
+ *   · flow（vbox/hbox/grid 内）：position 被容器接管（显式 static），size 0 = 自适应
+ *     （flex/grid 基础），expand → flex-grow:1；min-width/min-height:0 保证嵌套容器
+ *     尺寸传递不断链（flex 溢出经典问题）；
+ *   · fill（tabContainer 页签页）：铺满页体；split（分栏窗格）：比例由 splitContainer
+ *     的 postChildren 设置；
+ *   · rotation 一律并入 transform 单属性串（rotate(deg)，基点 center，free/flow/fill/split
+ *     均生效）；旋转后的选中框 / 命中由 T1.3 的包围盒处理。
+ * - anchors（T1.7 简化版锚点）：{ left?, top?, right?, bottom? } ∈ [0,1]，相对 free 语境
+ *   父容器尺寸的比例；仅 free 语境生效，渲染期换算为 CSS 百分比（无状态——父容器 resize
+ *   天然重排）。left/top 优先于 right/bottom（同轴互斥）；有效锚点接管该轴定位（schema
+ *   新建节点的 position 恒为 {0,0} 缺省，若 position 优先锚点将永远无法生效）；
+ *   无 anchors → 行为与 T1.2 完全一致（向后兼容）。
  */
-import type { UIAsset, UINode } from '../../ir/types';
-import { bindNode, type NodeCtx } from './common';
+import type { UIAsset, UINode, Size2 } from '../../ir/types';
+import { getUISchema } from '../../ui-editor/schema';
+import { bindNode, clamp, num, type NodeCtx } from './common';
 import { rendererFor } from './nodes';
 import { ensureRenderStyle } from './style';
 
@@ -79,6 +94,11 @@ type ChildLayout =
   /** 分栏：splitContainer 窗格（比例在 postChildren 里按 splitPosition 设置） */
   | 'split';
 
+/**
+ * 子节点布局语义（由父容器类型决定）。
+ * free 判定与 T1.3 视口 isFreeParentType（src/ui-editor/viewport/commands.ts）保持一致：
+ * 根（null）/ panel / scrollBox；anchors 亦仅在这三种父容器语境下生效。
+ */
 function layoutOfParent(parentType: string): ChildLayout {
   switch (parentType) {
     case 'panel':
@@ -110,21 +130,77 @@ function applyCommon(el: HTMLElement, node: UINode): void {
 }
 
 /**
+ * 组合标准 transform 字符串（单属性）：固定 `translate(...) rotate(deg)` 顺序，
+ * 无值段省略（仅旋转 → 'rotate(15deg)'）。position 经 left/top 表达（见模块头注释），
+ * translate 段保留给未来需要的偏移场景；两个值都写时保持该标准顺序，绝不拆成多次赋值。
+ */
+function composeTransform(tx: number, ty: number, rot: number): string {
+  const parts: string[] = [];
+  if (tx !== 0 || ty !== 0) parts.push(`translate(${tx}px, ${ty}px)`);
+  if (rot !== 0) parts.push(`rotate(${rot}deg)`);
+  return parts.join(' ');
+}
+
+/**
+ * 锚点比例读取（T1.7 简化版锚点）：合法有限数 → 夹取 [0,1]；否则 null（视为未声明）。
+ * 宽容解析（数字字符串可用）与非数值降级，与渲染器其它 props 读取策略一致。
+ */
+function anchorRatio(v: unknown): number | null {
+  const n = num(v, Number.NaN);
+  return Number.isFinite(n) ? clamp(n, 0, 1) : null;
+}
+
+/** 比例 → CSS 百分比（toFixed(6) 清理浮点噪声，如 0.07 → '7%' 而非 7.000000000000001%） */
+function pct(r: number): string {
+  return `${Number((r * 100).toFixed(6))}%`;
+}
+
+/** schema 尺寸默认值形状守卫 */
+function isSize2(v: unknown): v is Size2 {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    typeof (v as Size2).w === 'number' &&
+    typeof (v as Size2).h === 'number'
+  );
+}
+
+/**
+ * free 语境的缺省尺寸（按类型读 schema commonProps 的 size 默认值并缓存）。
+ * 未知类型回落 120×32——与 commonProps 无 defaultSize 时的兜底一致。
+ */
+const sizeDefaultCache = new Map<string, Size2>();
+function defaultSizeFor(type: string): Size2 {
+  let s = sizeDefaultCache.get(type);
+  if (!s) {
+    const def = getUISchema(type)?.props.find((p) => p.id === 'size')?.default;
+    s = isSize2(def) && def.w > 0 ? { w: def.w, h: def.h } : { w: 120, h: 32 };
+    sizeDefaultCache.set(type, s);
+  }
+  return s;
+}
+
+/**
  * 变换应用。先整体重置相关内联样式（节点在 free/flow 容器间移动时无残留），
- * 再按布局语义写入。flow 忽略 position（容器接管）；rotation 在 free/flow/fill 均生效。
+ * 再按布局语义写入。flow 忽略 position（容器接管）；rotation 在各语境均生效；
+ * anchors 仅 free 生效（见模块头注释的简化语义）。
  */
 function applyTransform(el: HTMLElement, node: UINode, layout: ChildLayout): void {
   const t = node.transform;
   const x = t?.position?.x ?? 0;
   const y = t?.position?.y ?? 0;
-  const w = t?.size?.w ?? 0;
-  const h = t?.size?.h ?? 0;
-  const rot = typeof t?.rotation === 'number' && t.rotation !== 0 ? `rotate(${t.rotation}deg)` : '';
+  let w = t?.size?.w ?? 0;
+  let h = t?.size?.h ?? 0;
+  const rot =
+    typeof t?.rotation === 'number' && Number.isFinite(t.rotation) ? t.rotation : 0;
+  const an = t?.anchors;
   const st = el.style;
-  // —— 重置（防止布局语境切换后残留内联样式）——
+  // —— 重置（防止布局语境切换后残留内联样式；right/bottom 为 T1.7 锚点新增）——
   st.position = '';
   st.left = '';
   st.top = '';
+  st.right = '';
+  st.bottom = '';
   st.width = '';
   st.height = '';
   st.transform = '';
@@ -135,19 +211,36 @@ function applyTransform(el: HTMLElement, node: UINode, layout: ChildLayout): voi
   st.overflow = '';
   // —— 按布局写入 ——
   switch (layout) {
-    case 'free':
+    case 'free': {
       st.position = 'absolute';
-      st.left = `${x}px`;
-      st.top = `${y}px`;
-      st.width = w > 0 ? `${w}px` : '';
-      st.height = h > 0 ? `${h}px` : '';
-      st.transform = rot;
+      // 锚点定位：left/top 优先，right/bottom 次之（同轴互斥），均未声明回落 position 像素。
+      // 百分比相对定位父级（panel 内容区 / scrollBox / 根包装层）尺寸，渲染期计算、无状态。
+      const al = an ? anchorRatio(an.left) : null;
+      const at = an ? anchorRatio(an.top) : null;
+      const ar = an ? anchorRatio(an.right) : null;
+      const ab = an ? anchorRatio(an.bottom) : null;
+      if (al !== null) st.left = pct(al);
+      else if (ar !== null) st.right = pct(ar);
+      else st.left = `${x}px`;
+      if (at !== null) st.top = pct(at);
+      else if (ab !== null) st.bottom = pct(ab);
+      else st.top = `${y}px`;
+      // 尺寸缺省（0 / 缺省）→ 按类型补 schema 默认尺寸（free 语境无容器可依赖，给合理可见尺寸）
+      if (!(w > 0)) w = defaultSizeFor(node.type).w;
+      if (!(h > 0)) h = defaultSizeFor(node.type).h;
+      st.width = `${w}px`;
+      st.height = `${h}px`;
+      st.transform = composeTransform(0, 0, rot);
       break;
+    }
     case 'flow':
       st.position = 'static'; // position 被父容器接管（显式 static，抹掉历史值）
-      st.width = w > 0 ? `${w}px` : '';
+      st.width = w > 0 ? `${w}px` : ''; // size 0 = 自适应（flex/grid 基础 auto）
       st.height = h > 0 ? `${h}px` : '';
-      st.transform = rot;
+      // min 尺寸归零：flex/grid 子项可收缩，嵌套容器尺寸传递不断链（flex 溢出经典问题）
+      st.minWidth = '0';
+      st.minHeight = '0';
+      st.transform = composeTransform(0, 0, rot);
       if (node.props?.expand === true) st.flexGrow = '1';
       break;
     case 'fill':
@@ -156,14 +249,16 @@ function applyTransform(el: HTMLElement, node: UINode, layout: ChildLayout): voi
       st.top = '0px';
       st.width = '100%';
       st.height = '100%';
-      st.transform = rot;
+      st.minWidth = '0';
+      st.minHeight = '0';
+      st.transform = composeTransform(0, 0, rot);
       break;
     case 'split':
       st.position = 'static';
       st.minWidth = '0';
       st.minHeight = '0';
       st.overflow = 'hidden';
-      st.transform = ''; // 分栏窗格暂不支持旋转（TODO T1.7 细化）
+      st.transform = composeTransform(0, 0, rot); // 窗格旋转与其它语境一致（T1.7 起不再置空）
       break;
   }
 }

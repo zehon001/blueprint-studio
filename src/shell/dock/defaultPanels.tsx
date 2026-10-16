@@ -14,17 +14,17 @@ import { listPanels, registerPanel } from './registry'
 import { useDockStore } from './store'
 import { makeTabs, type DockNode } from './tree'
 import { registerFileSystemPanel } from '@/panels/file-system'
+import { registerSceneTreePanel } from '@/panels/scene-tree'
+import { registerInspectorPanel } from '@/panels/inspector'
 import {
   ConsolePanelPlaceholder,
   EventsPanelPlaceholder,
-  InspectorPanelPlaceholder,
-  UiTreePanelPlaceholder,
   WorkspacePanel,
 } from './placeholderPanels'
 
 /* 内置面板 id（跨卡契约：替换实现时保持 id 不变） */
 export const PANEL_ID_FILE_SYSTEM = 'file-system'
-export const PANEL_ID_UI_TREE = 'ui-tree'
+export const PANEL_ID_SCENE_TREE = 'scene-tree'
 export const PANEL_ID_WORKSPACE = 'workspace'
 export const PANEL_ID_INSPECTOR = 'inspector'
 export const PANEL_ID_EVENTS = 'events'
@@ -32,9 +32,9 @@ export const PANEL_ID_CONSOLE = 'console'
 
 /* 面板注册（模块副作用；每面板一行） */
 registerFileSystemPanel() // T0.7 文件系统（id: 'file-system'，与占位一致）
-registerPanel({ id: PANEL_ID_UI_TREE, title: 'UI 树', component: UiTreePanelPlaceholder, defaultArea: 'left' })
+registerSceneTreePanel() // T1.4 UI 树（id: 'scene-tree'）
+registerInspectorPanel() // T1.5 检视器（id: 'inspector'）
 registerPanel({ id: PANEL_ID_WORKSPACE, title: '工作区', component: WorkspacePanel, defaultArea: 'center', singleton: true })
-registerPanel({ id: PANEL_ID_INSPECTOR, title: '检视器', component: InspectorPanelPlaceholder, defaultArea: 'right' })
 registerPanel({ id: PANEL_ID_EVENTS, title: '事件面板', component: EventsPanelPlaceholder, defaultArea: 'right' })
 registerPanel({ id: PANEL_ID_CONSOLE, title: '控制台', component: ConsolePanelPlaceholder, defaultArea: 'bottom' })
 
@@ -55,7 +55,7 @@ export function buildDefaultLayout(): DockNode {
         dir: 'h',
         sizes: [1, 3, 1],
         children: [
-          { kind: 'split', dir: 'v', sizes: [1, 1], children: [oneTabs(PANEL_ID_FILE_SYSTEM), oneTabs(PANEL_ID_UI_TREE)] },
+          { kind: 'split', dir: 'v', sizes: [1, 1], children: [oneTabs(PANEL_ID_FILE_SYSTEM), oneTabs(PANEL_ID_SCENE_TREE)] },
           oneTabs(PANEL_ID_WORKSPACE),
           { kind: 'split', dir: 'v', sizes: [1, 1], children: [oneTabs(PANEL_ID_INSPECTOR), oneTabs(PANEL_ID_EVENTS)] },
         ],

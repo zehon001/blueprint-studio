@@ -1,0 +1,262 @@
+/*
+ * UI 树面板样式（T1.4）—— 颜色 / 间距 / 圆角 / 字号全部引用 theme.css 的 token，
+ * 禁止硬编码色值；结构性尺寸用 calc() 基于 token 推导。类名前缀 st-（scene tree）。
+ * 通用右键菜单样式复用 file-system/menu.css（.fs-menu-*）。
+ */
+
+/* ===== 面板骨架（填充 dock 的 tab 页） ===== */
+
+.st-panel {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  user-select: none;
+}
+
+.st-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-1) 0 var(--space-6);
+}
+
+.st-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  color: var(--text-disabled);
+  text-align: center;
+  line-height: 1.8;
+}
+
+/* ===== 树行（缩进 = padding-left 按 depth 推导，见组件内联样式） ===== */
+
+.st-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--space-5);
+  padding-right: var(--space-2);
+  white-space: nowrap;
+  cursor: default;
+  border-radius: var(--radius-sm);
+}
+
+.st-row:hover {
+  background: var(--bg-input);
+}
+
+.st-row.selected {
+  background: var(--selection);
+}
+
+/* 拖拽中的行半透明（源视觉弱化） */
+.st-row.dragging {
+  opacity: 0.5;
+}
+
+/* 三条落区指示：上方插入（顶缘线）/ 下方插入（底缘线）/ 内部成为子节点（虚线框） */
+.st-row.drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.st-row.drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.st-row.drop-inside {
+  background: var(--selection);
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
+.st-chevron {
+  flex: none;
+  width: var(--space-4);
+  text-align: center;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+
+.st-chevron:hover {
+  color: var(--text);
+}
+
+/* 叶子行占位（与可展开行对齐） */
+.st-chevron--ghost {
+  visibility: hidden;
+  cursor: default;
+}
+
+/* 节点类型图标字符（schema.icon） */
+.st-icon {
+  flex: none;
+  min-width: var(--space-4);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--accent);
+}
+
+.st-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 类型小字（右对齐弱化） */
+.st-type {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+}
+
+/* 行内重命名编辑框（Enter 确认 Esc 取消） */
+.st-rename-input {
+  flex: 1;
+  min-width: 0;
+  height: var(--space-5);
+  box-sizing: border-box;
+  padding: 0 var(--space-1);
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  outline: none;
+}
+
+/* ===== toast（面板内浮动提示） ===== */
+
+.st-toast {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  z-index: 950;
+  max-width: calc(100% - var(--space-8));
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+  background: var(--bg-panel-header);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  white-space: pre-line;
+}
+
+.st-toast.success {
+  border-color: var(--success);
+}
+
+.st-toast.error {
+  border-color: var(--error);
+}
+
+.st-toast.info {
+  border-color: var(--accent);
+}
+
+/* ===== 「添加节点」浮层（内联搜索 + 分类分组） ===== */
+
+.st-addmenu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 200px;
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.st-addmenu-search {
+  flex: none;
+  height: var(--space-6);
+  box-sizing: border-box;
+  margin-bottom: var(--space-1);
+  padding: 0 var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  outline: none;
+}
+
+.st-addmenu-search:focus {
+  border-color: var(--accent);
+}
+
+.st-addmenu-list {
+  overflow-y: auto;
+}
+
+.st-addmenu-group {
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+}
+
+.st-addmenu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-sm);
+  font-family: var(--font-ui);
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.st-addmenu-item:hover {
+  background: var(--bg-input);
+}
+
+.st-addmenu-icon {
+  flex: none;
+  min-width: var(--space-4);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--accent);
+}
+
+.st-addmenu-title {
+  flex: none;
+}
+
+.st-addmenu-type {
+  margin-left: auto;
+  padding-left: var(--space-3);
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+}
+
+.st-addmenu-empty {
+  padding: var(--space-2);
+  color: var(--text-disabled);
+  font-size: var(--font-sm);
+  text-align: center;
+}

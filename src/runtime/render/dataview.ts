@@ -7,8 +7,9 @@
  * - colorRules（eq / contains / gt / lt）按序匹配命中即给单元格上「徽标底色」；
  * - groupBy 分组列：值变化新起一个组头（空值继承上一组，全表至多一列生效，该列不进表头/单元格）；
  * - mergeDuplicates 合并列：组内相邻同值行合并为一条并显示 ×N 计数，点击计数徽标可展开
- *   被合并的行（v1.1 语义）。rowspan 真合并涉及跨行 grid 复杂度高，本版用「计数徽标 +
- *   点击展开」近似（与 v1.1 一致）——TODO T1.7 若需要视觉 rowspan 再升级。
+ *   被合并的行（v1.1 语义）。T1.7 起为真视觉合并（rowspan）：有合并列时行体整体网格化，
+ *   合并条目的单元格 grid-row:span N 跨行占位、内容垂直居中（结构见 renderListBody，
+ *   样式见 style.ts 的 .bps-lbody--grid 区块）；计数徽标 + 点击展开行为保留。
  *
  * 行数据来源：props.items（编辑态 JSON 文本 / 运行态数组，见 common.parseRows）。
  * 全部行内容经 textContent 写入（数据不走 innerHTML，天然免疫注入）；
@@ -120,7 +121,9 @@ function cellEl(col: ListColumn, row: Record<string, unknown>): HTMLSpanElement 
   return cell;
 }
 
-/** 分组 + 相邻合并聚合（空组值继承上一组；合并值须非空才参与合并，v1.1 语义） */
+/** 分组 + 相邻合并聚合（空组值继承上一组；合并值须非空才参与合并，v1.1 语义）。
+ * 无分组列时全表视为单一分组——合并列按「相邻行」独立生效（ListColumn 文档语义，
+ * T1.7 修正：此前无分组列时每行各成一组，合并永远不触发）。 */
 function aggregateList(
   rows: Record<string, unknown>[],
   groupCol: ListColumn | undefined,
@@ -134,7 +137,7 @@ function aggregateList(
     if (groupCol && !gkey) gkey = inherited;
     else if (groupCol) inherited = gkey;
     let g = groups[groups.length - 1];
-    if (!groupCol || !g || g.key !== gkey) {
+    if (!g || (groupCol && g.key !== gkey)) {
       g = { key: gkey, entries: [] };
       groups.push(g);
     }
@@ -159,6 +162,13 @@ function renderListBody(el: HTMLElement, state: ListState): void {
   const mergeCol = state.columns.find((c) => c.mergeDuplicates && c !== groupCol);
   const visible = state.columns.filter((c) => c !== groupCol); // groupBy 列不进表头/单元格
   const tpl = gridTemplate(visible);
+  // 真视觉合并（T1.7）：有合并列时行体升级为整体网格——行容器降为 display:contents 参与
+  // 同一网格，合并条目的单元格 grid-row:span N 跨行占位（视觉 rowspan）；
+  // 无合并列保持 T1.2 行级网格（与 table 同款结构）。
+  const rowspan = mergeCol !== undefined;
+  body.classList.toggle('bps-lbody--grid', rowspan);
+  if (rowspan) body.style.gridTemplateColumns = tpl;
+  else body.style.gridTemplateColumns = '';
 
   // 表头
   clearChildren(head);
@@ -201,6 +211,11 @@ function renderListBody(el: HTMLElement, state: ListState): void {
       if (state.selected === entry.firstIdx) rowEl.classList.add('bps-lrow--sel');
       for (const c of visible) {
         const cell = cellEl(c, entry.rows[0]);
+        if (rowspan && entry.rows.length > 1) {
+          // 跨行合并单元格（T1.7 视觉 rowspan）：span N 占满合并区，内容垂直居中（style.ts）
+          cell.classList.add('bps-lcell--span');
+          cell.style.gridRow = `span ${entry.rows.length}`;
+        }
         if (c === mergeCol && entry.rows.length > 1) {
           const badge = span('bps-lcount');
           badge.textContent = `×${entry.rows.length}`;
