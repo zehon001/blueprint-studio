@@ -51,11 +51,11 @@
 |---|---|---|---|---|---|---|
 | T1.1 | UI 节点库 schema（PLAN §7.1 全部节点 + 属性声明） | `src/ui-editor/schema/` | T0.1 | UIEditor | 4 类节点齐全；每个属性有类型/默认值/分组；检视器可纯 schema 驱动 | 完成 · 2026-10-17（产出说明见 §6） |
 | T1.2 | DOM 渲染器（编辑态/运行态共用，编辑冻结交互） | `src/runtime/render/` | T1.1 | UIEditor+Runtime | 同一 UI 树两态渲染一致；容器布局正确嵌套 | 待办 |
-| T1.3 | 2D 视口（选择/框选/移动/对齐吸附/缩放/键盘微调） | `src/ui-editor/viewport/` | T1.2 | UIEditor | PLAN §7.2 操作全可用；操作均入命令栈可撤销 | 待办 |
-| T1.4 | UI 树面板（树形/拖拽重排父子/右键菜单） | `src/panels/scene-tree/` | T1.1, T0.5 | UIEditor | 拖拽改变父子即时反映到视口；右键含「添加节点/复制/删除/附加逻辑资产(占位)」 | 待办 |
-| T1.5 | 检视器（分组/搜索/类型编辑器/多选混合态） | `src/panels/inspector/` | T1.1, T0.5 | UIEditor | schema 驱动生成；搜索过滤属性；多选显示共同属性；改动可撤销 | 待办 |
-| T1.6 | 运行窗口 v1（runtime.html 加载 UI 静态渲染） | `src/runtime/`、`server/static.ts` | T1.2, T0.2 | Runtime | F5/F6 打开独立窗口正确渲染主 UI / 当前 UI；窗口标题含运行模式 | 待办 |
-| T1.7 | Transform 与容器布局（position/rotation/size + VBox/HBox/Grid 排列） | 渲染器扩展 | T1.2 | UIEditor | 旋转/尺寸视觉正确；容器子节点按布局排列；锚点简化版生效 | 待办 |
+| T1.3 | 2D 视口（选择/框选/移动/对齐吸附/缩放/键盘微调） | `src/ui-editor/viewport/` | T1.2 | UIEditor | PLAN §7.2 操作全可用；操作均入命令栈可撤销 | 完成 · 2026-10-17（24 测试；浏览器手感抽查留 PM/QA） |
+| T1.4 | UI 树面板（树形/拖拽重排父子/右键菜单） | `src/panels/scene-tree/` | T1.1, T0.5 | UIEditor | 拖拽改变父子即时反映到视口；右键含「添加节点/复制/删除/附加逻辑资产(占位)」 | 完成 · 2026-10-17（重派成功；30 测试；已注册进 dock） |
+| T1.5 | 检视器（分组/搜索/类型编辑器/多选混合态） | `src/panels/inspector/` | T1.1, T0.5 | UIEditor | schema 驱动生成；搜索过滤属性；多选显示共同属性；改动可撤销 | 完成 · 2026-10-17（20 测试；listColumns 为 JSON 源编辑，可视化编辑 T7.x） |
+| T1.6 | 运行窗口 v1（runtime.html 加载 UI 静态渲染） | `src/runtime/`、`server/static.ts` | T1.2, T0.2 | Runtime | F5/F6 打开独立窗口正确渲染主 UI / 当前 UI；窗口标题含运行模式 | 完成 · 2026-10-17（16 测试；F5/F6 全接线；浏览器实测抽查留 PM） |
+| T1.7 | Transform 与容器布局（position/rotation/size + VBox/HBox/Grid 排列） | 渲染器扩展 | T1.2 | UIEditor | 旋转/尺寸视觉正确；容器子节点按布局排列；锚点简化版生效 | 完成 · 2026-10-17（10 测试+回归 13 绿；mergeDuplicates 真 rowspan 顺手完成；锚点为简化语义见 §6） |
 
 ### M2 蓝图闭环
 
@@ -63,8 +63,8 @@
 |---|---|---|---|---|---|---|
 | T2.1 | 蓝图视觉系统（节点头配色/引_PIN 色标/连线样式/网格画布） | `src/blueprint/view/` | T0.1, T0.8 | Blueprint | 与 UE5 截图并排对比：分类配色、引脚色、exec 白线/数据彩虚线全部符合 §8.1 | 待评审 · 2026-10-17（映射与样式已 token 化并单测；截图对比待 B5 集成后 PM 浏览器验收） |
 | T2.2 | 画布交互（右键搜索/引脚拖出弹兼容菜单/自动转换节点/断开/框选/复制粘贴/Ctrl拖拽复制/平移缩放） | `src/blueprint/interaction/` | T2.1 | Blueprint | §8.2 清单逐项可用；不兼容类型拖线自动插转换节点；复制粘贴跨图可用 | 完成 · 2026-10-17（首派中断后核查补全；§8.2 九项全过 + 修复右键被吞 bug；39 测试） |
-| T2.3 | 结构面板 My Blueprint（变量/函数/事件 + 暴露→Get·Set 自动生成） | `src/blueprint/my-blueprint/` | T2.1 | Blueprint | 变量勾「暴露」后拖入图生成 Get/Set；函数子图含入口/出口节点，主图调用节点自动出现 | 待办 |
-| T2.4 | 蓝图检视器（节点参数/引脚默认值/文档） | `src/blueprint/details/` | T2.1 | Blueprint | 选中节点显示参数与未连线引脚默认值，可编辑入命令栈 | 待办 |
+| T2.3 | 结构面板 My Blueprint（变量/函数/事件 + 暴露→Get·Set 自动生成） | `src/blueprint/my-blueprint/` | T2.1 | Blueprint | 变量勾「暴露」后拖入图生成 Get/Set；函数子图含入口/出口节点，主图调用节点自动出现 | 完成 · 2026-10-17（25 测试；「拖入」以右键插入落地、拖入留 TODO；graph-op 补充 spec 见 ADR 说明） |
+| T2.4 | 蓝图检视器（节点参数/引脚默认值/文档） | `src/blueprint/details/` | T2.1 | Blueprint | 选中节点显示参数与未连线引脚默认值，可编辑入命令栈 | 完成 · 2026-10-17（13 测试；多选混合态批量实现） |
 | T2.5 | IR 解释器 v2（exec+数据流/函数调用/异步/串行事件队列+旁路） | `src/runtime/interpreter/` | T0.1 | Runtime | v1.1 语义对齐（exec 链不穿纯节点、事件保序、RPC 旁路）；含单元测试 | 完成 · 2026-10-17（18 测试；B2 失败后重派成功） |
 | T2.6 | 蓝图绑定 UI 节点 + 事件驱动运行 | 绑定属性 + 运行窗口接线 | T2.5, T1.6 | Runtime | 检视器可挂 `.bp.json` 到节点；按钮点击触发蓝图事件节点；`ui` 访问器读写子树节点 | 待办 |
 | T2.7 | 注释框 Comment 节点（可调色/框选整体移动） | 蓝图编辑器 | T2.2 | Blueprint | UE5 同款行为；注释含节点随注释移动 | 待办 |
@@ -161,10 +161,12 @@ T6.1 ─ T6.2/T6.3/T6.4 ─ T6.5/T6.6 ─ M7
 ## 5. 当前状态
 
 - 看板初始化：2026-10-17 · 全部 `待办` · 无在途卡
-- 2026-10-17 PM-Agent 单会话执行：B0~B4 已提交；B5 派发 T1.3/T1.4/T1.5/T1.6/T1.7/T2.3+T2.4（PM 先行建 src/ui-editor/store.ts 作为三卡共同契约：UIAsset 挂 scene-tree 域、selection 独立）
+- 2026-10-17 PM-Agent 单会话执行：B0~B5 已提交；M0/M1 完成、M2 余 T2.6/T2.7；B6 派发 T2.6/T2.7/T3.1/T3.2（T5.1 因依赖 T2.6 移入 B7）
 - 单会话模式下协作协议微调：不逐卡建 git 分支，改为 PM 按批次在 `v2` 分支提交（每批次一次 commit，卡状态在本表跟踪）；Agent 产出统一由 PM 验收（typecheck + 单测 + 抽查）
 
 ## 6. 进度纪要（PM 维护，倒序追加）
+
+- **2026-10-17 · B5（a+b）**：M0、M1 全部完成。T1.3 视口（几何纯函数+命令栈，24 测试）；T1.4 树面板（重派成功，30 测试）；T1.5 检视器（13 种控件+混合态批量，20 测试）；T1.6 运行窗口 v1（F5/F6 全接线+URL 契约，16 测试）；T1.7 布局扩展（anchors 简化版语义=有效锚点接管该轴；mergeDuplicates 真 rowspan；10 测试）；T2.3+T2.4（My Blueprint 四分节+函数图+Details 检视器，38 测试；graph-op 补充 spec 使 flow.call/func.* 可过校验——编辑器补充 spec 模式，函数图动态脚渲染留待 view 支持）。PM 胶水：UITab/BlueprintTab 工作区接线（加载/保存/脏标记）、树+检视器面板注册、函数节点头色修复（func.*/flow.call → 蓝头）。PM 验收：typecheck 0 错、构建绿、批内 78+85 测试绿。设计裁定：UIAsset 全量挂 scene-tree 单域（检视器/树/视口共用），'inspector' 域保留未用——记录为 ADR-005 附加说明。
 
 - **2026-10-17 · B4**：T0.4 完成（首派 API 中断，续作修复：channelName 缺字段、心跳定时器泄漏、定向消息串台；34 测试不挂起）。T0.7 完成——文件树/SSE 增量刷新/右键菜单（通用 Menu 组件导出）/拖入导入/文件级撤销磁盘补偿；36 测试+E2E。T1.2 完成——23 节点 DOM 渲染器（编辑/运行同构、keyed 增量、list 列定义四特性；13 测试）。T2.2 完成（首派中断，续作核查补全：修复 panOnDrag 吞右键、补 Shift 框选加选与命令栈接线测试；§8.2 九项全过；39 测试）。PM 胶水：文件面板注册进 dock、BlueprintTab 接入工作区（.bp.json 加载/保存/脏标记）、ui-editor/store.ts 共享契约（UIAsset 单域裁定）。PM 验收：typecheck 0 错、构建 3 入口绿、批内 122 测试绿。教训：4+ Agent 并行时 API 偶发连接中断（B2/B4 各损失 1 卡），后续批次减小并行度到 ≤4。
 
