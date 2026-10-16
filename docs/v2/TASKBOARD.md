@@ -78,8 +78,8 @@
 | T3.2 | 内建 API 与类型包（ui/vars/emit/onEvent/plugins/print/convert/format/delay） | `src/script/api/` | T0.1 | Script | PLAN §9.2 全部全局有类型声明与文档注释；TS 资产有补全 | 完成 · 2026-10-17（9 全局 JSDoc+Proxy 运行时+补全扩展；20 测试） |
 | T3.3 | TS 转译执行链（服务端 esbuild → 运行窗口沙箱执行） | `server/` + `src/runtime/sandbox/` | T2.6 | Script+Server | `.ts` 逻辑资产挂 UI 节点后运行窗口行为与蓝图等价（同一 IR） | 待办 |
 | T3.4 | 注解处理（@tool/@expose/@on → IR 变量/事件节点） | `src/script/annotations.ts` | T3.2 | Script | 脚本写 @expose → 蓝图出现对应 Get/Set；@on → 事件节点；双向（蓝图勾暴露→codegen 生成注解） | 待办 |
-| T3.5 | Codegen：IR → TS（含纯节点链内联表达式合成） | `src/script/codegen-ts.ts` | T3.4 | Script | PLAN §10 规则全实现；生成代码可读（无嵌套超 3 层的节点链展开）；roundtrip 幂等 | 待办 |
-| T3.6 | 受控子集解析器：TS → IR | `src/script/parser-ts.ts` | T3.5 | Script | if/for/while/表达式/函数/emit/await 映射正确；语法错误给出行列诊断 | 待办 |
+| T3.5 | Codegen：IR → TS（含纯节点链内联表达式合成） | `src/script/codegen-ts.ts` | T3.4 | Script | PLAN §10 规则全实现；生成代码可读（无嵌套超 3 层的节点链展开）；roundtrip 幂等 | 完成 · 2026-10-17（表达式表 40 纯节点锁定；15 roundtrip 测试） |
+| T3.6 | 受控子集解析器：TS → IR | `src/script/parser-ts.ts` | T3.5 | Script | if/for/while/表达式/函数/emit/await 映射正确；语法错误给出行列诊断 | 完成 · 2026-10-17（行列诊断 1 起；超集折叠 snippet；与 T3.5 合并派发） |
 | T3.7 | 脚本片段节点（不可映射段兜底） | IR 扩展 + 蓝图节点 | T3.6 | Script+Blueprint | 含片段的资产往返（IR→TS→IR）无损；片段节点可展开编辑源码 | 待办 |
 | T3.8 | 双视图同步协议（保存者胜 / 过期提示重载） | 编辑器接线 | T3.5, T3.6 | Script+Arch | 两视图同开时后保存者胜，另一侧切回提示重载；无脏丢失 | 待办 |
 
@@ -96,16 +96,16 @@
 
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
-| T5.1 | 事件总线（UI/系统/插件推送/自定义；目标路由 本节点/本UI/全部） | `src/runtime/events/` | T2.6 | Runtime | PLAN §11 全场景；事件间保序；旁路不死锁 | 待办 |
+| T5.1 | 事件总线（UI/系统/插件推送/自定义；目标路由 本节点/本UI/全部） | `src/runtime/events/` | T2.6 | Runtime | PLAN §11 全场景；事件间保序；旁路不死锁 | 完成 · 2026-10-17（四源入队/target 矩阵/环保护 8 跳；13 测试） |
 | T5.2 | 事件面板（内建+自定义列表 / 双击创建跳转） | `src/panels/events/` | T5.1, T2.3 | UIEditor+Blueprint | 选中 UI 节点列出其内建事件与资产自定义事件；双击建/跳事件节点 | 待办 |
-| T5.3 | 事件节点三件套（自定义事件 / 发送事件 / 监听） | `src/nodes/events.ts` | T5.1 | Nodes | 多参数事件可定义；发送→监听 E2E 通 | 待办 |
+| T5.3 | 事件节点三件套（自定义事件 / 发送事件 / 监听） | `src/nodes/events.ts` | T5.1 | Nodes | 多参数事件可定义；发送→监听 E2E 通 | 完成 · 2026-10-17（T13.1 已建，本卡验收+E2E 补强：send 加 target 引脚、listen 具名参数注入；随 T5.1 交付） |
 | T5.4 | 运行时蓝图观察（WS 反向：节点高亮/exec 流动/端口实时值 150ms 批量） | 调试探针 + 编辑器叠加层 | T2.6 | Runtime | v1.1 能力全保留；编辑器开该蓝图视图自动接入；可一键关闭 | 待办 |
 
 ### M6 插件系统
 
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
-| T6.1 | 插件清单格式 + 三源注册表（内置/项目/静态目录合并去重） | `plugins-registry/`、`server/plugins/registry.ts` | T0.1, T0.2 | Plugin+Server | 三源清单正确合并；清单 schema 校验 | 待办 |
+| T6.1 | 插件清单格式 + 三源注册表（内置/项目/静态目录合并去重） | `plugins-registry/`、`server/plugins/registry.ts` | T0.1, T0.2 | Plugin+Server | 三源清单正确合并；清单 schema 校验 | 完成 · 2026-10-17（20 测试+E2E；优先级定案 项目>静态>内置；前缀 camelCase 待 PM 追认进 ADR-004） |
 | T6.2 | 插件管理子界面（列表/徽标/两按钮/进度日志） | `src/panels/plugin-manager/` | T6.1 | Plugin | §14.2 全交互；最新版时更新按钮置灰 disabled；安装日志实时滚动 | 待办 |
 | T6.3 | CLI 检测/安装/更新执行器（strategy: winget/npm-global/download-zip/custom-cmd；版本解析） | `server/plugins/executor.ts` | T6.1 | Server | detect 失败=未安装；安装后状态自动刷新；命令可被设置覆盖；执行流式回传日志 | 待办 |
 | T6.4 | 插件节点动态注册（清单 → NodeSpec → 蓝图可搜可用） | `src/nodes/dynamic.ts` | T6.1, T2.2 | Plugin | 节点出现在右键搜索；exec/数据引脚可用；调用走 CLI 桥/自定义执行器 | 待办 |
@@ -161,10 +161,12 @@ T6.1 ─ T6.2/T6.3/T6.4 ─ T6.5/T6.6 ─ M7
 ## 5. 当前状态
 
 - 看板初始化：2026-10-17 · 全部 `待办` · 无在途卡
-- 2026-10-17 PM-Agent 单会话执行：B0~B6 已提交；M0/M1/M2 全部完成（M2 合并点 E2E 待做）；B7 派发 T3.5+T3.6（合并派发保证互转一致）、T5.1+T5.3、T6.1
+- 2026-10-17 PM-Agent 单会话执行：B0~B7 已提交；M3 核心（T3.5/T3.6）与 M5 事件完成；B8 派发 T3.3/T3.4+T3.8/T3.7/T5.4
 - 单会话模式下协作协议微调：不逐卡建 git 分支，改为 PM 按批次在 `v2` 分支提交（每批次一次 commit，卡状态在本表跟踪）；Agent 产出统一由 PM 验收（typecheck + 单测 + 抽查）
 
 ## 6. 进度纪要（PM 维护，倒序追加）
+
+- **2026-10-17 · B7**：T3.5+T3.6 合并交付——codegen（IR→TS：真 if/for/while 语句、纯链表达式表 40 节点+bps.* 兜底、别名机制、snippet 标记）与解析器（TS AST→IR 两遍法、行列诊断、超集折叠 IRSnippet），**roundtrip 15 测试全绿含幂等二次验证**（TA.1 TS 部分基座就绪，产出物 src/script/roundtrip.test.ts）。T5.1+T5.3——EventBus（四源入队/node·ui·all 路由矩阵/8 跳环保护/插件推送口 pushPlugin），三件套修复（send 加 target 引脚、listen 具名参数注入解释器 seed）；13 测试+T2.6/T2.5/T13.1 回归。T6.1——清单校验/规范化/三源合并（项目>静态>内置）/GET /api/plugins 两端点 + 内置清单 phone-log（read 双模式+onLine）与 feishu-cli；20 测试+E2E。PM 追认事项（待回写 ADR-004）：①合并优先级定案；②插件节点前缀=camelCase(pluginId)+'.'。PM 验收：typecheck 0 错、构建绿、批内 48 测试绿。
 
 - **2026-10-17 · B6**：**M2 蓝图闭环完成**。T2.6 绑定运行——BindingRunner（绑定发现/每路径一 runtime/UiHandle 三态读写/事件路由+跨蓝图 hub 防回声/运行窗口小控制台），检视器 logicRef 真选择器（单命令双写 ir 契约位+props 显示位，可撤销）；13 测试。T2.7 注释框——ADR-006（IRGraph.comments 可选、version 不升、normalize/往返纳入），UE5 同款：拖标题含节点随动、色板、My Blueprint 接线；13 测试。T3.1 脚本编辑器——CodeMirror 6 全套扩展、[蓝图|脚本]切换条（诊断/蓝图视图为显式占位待 T3.6）；15 测试。T3.2 内建 API——9 全局 types.d.ts+Proxy 运行时+补全扩展，convert/format 复用节点库单源；20 测试。T3.1↔T3.2 咬合点（scriptTypesExtension）联测通过。ScriptTab 接入工作区。PM 验收：**全仓 519 测试绿、typecheck 0 错、构建绿**。关键路径状态：T2.5→T2.6 ✅，下一环 T3.5/T3.6。
 
