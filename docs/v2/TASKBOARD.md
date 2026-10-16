@@ -66,16 +66,16 @@
 | T2.3 | 结构面板 My Blueprint（变量/函数/事件 + 暴露→Get·Set 自动生成） | `src/blueprint/my-blueprint/` | T2.1 | Blueprint | 变量勾「暴露」后拖入图生成 Get/Set；函数子图含入口/出口节点，主图调用节点自动出现 | 完成 · 2026-10-17（25 测试；「拖入」以右键插入落地、拖入留 TODO；graph-op 补充 spec 见 ADR 说明） |
 | T2.4 | 蓝图检视器（节点参数/引脚默认值/文档） | `src/blueprint/details/` | T2.1 | Blueprint | 选中节点显示参数与未连线引脚默认值，可编辑入命令栈 | 完成 · 2026-10-17（13 测试；多选混合态批量实现） |
 | T2.5 | IR 解释器 v2（exec+数据流/函数调用/异步/串行事件队列+旁路） | `src/runtime/interpreter/` | T0.1 | Runtime | v1.1 语义对齐（exec 链不穿纯节点、事件保序、RPC 旁路）；含单元测试 | 完成 · 2026-10-17（18 测试；B2 失败后重派成功） |
-| T2.6 | 蓝图绑定 UI 节点 + 事件驱动运行 | 绑定属性 + 运行窗口接线 | T2.5, T1.6 | Runtime | 检视器可挂 `.bp.json` 到节点；按钮点击触发蓝图事件节点；`ui` 访问器读写子树节点 | 待办 |
-| T2.7 | 注释框 Comment 节点（可调色/框选整体移动） | 蓝图编辑器 | T2.2 | Blueprint | UE5 同款行为；注释含节点随注释移动 | 待办 |
+| T2.6 | 蓝图绑定 UI 节点 + 事件驱动运行 | 绑定属性 + 运行窗口接线 | T2.5, T1.6 | Runtime | 检视器可挂 `.bp.json` 到节点；按钮点击触发蓝图事件节点；`ui` 访问器读写子树节点 | 完成 · 2026-10-17（BindingRunner+UiHandle+事件 hub；13 测试；浏览器 E2E 留 M2 合并点） |
+| T2.7 | 注释框 Comment 节点（可调色/框选整体移动） | 蓝图编辑器 | T2.2 | Blueprint | UE5 同款行为；注释含节点随注释移动 | 完成 · 2026-10-17（ADR-006：IRGraph.comments 可选字段；13 测试+校验回归；框选含注释留后续） |
 | T2.8 | 保存校验器（类型连线/悬空 exec/未知节点 → 错误列表跳转） | `src/ir/validate.ts` | T0.1 | Arch | 构造 5 类错误样本全部报出且点击跳节点；`.bp.json` 往返序列化无损 | 完成 · 2026-10-17（19 测试；normalizeIR 供 roundtrip 复用） |
 
 ### M3 脚本（TS）闭环
 
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
-| T3.1 | 脚本编辑器（CodeMirror 6 · TS 高亮 · 诊断标记 · [蓝图/脚本]切换条） | `src/script/editor/` | T0.3 | Script | 打开 `.ts` 逻辑资产可编辑保存；切换条切到蓝图视图正常渲染 | 待办 |
-| T3.2 | 内建 API 与类型包（ui/vars/emit/onEvent/plugins/print/convert/format/delay） | `src/script/api/` | T0.1 | Script | PLAN §9.2 全部全局有类型声明与文档注释；TS 资产有补全 | 待办 |
+| T3.1 | 脚本编辑器（CodeMirror 6 · TS 高亮 · 诊断标记 · [蓝图/脚本]切换条） | `src/script/editor/` | T0.3 | Script | 打开 `.ts` 逻辑资产可编辑保存；切换条切到蓝图视图正常渲染 | 完成 · 2026-10-17（15 测试；诊断标记=显式占位待 T3.6，蓝图视图=占位面板待 T3.6——未虚报） |
+| T3.2 | 内建 API 与类型包（ui/vars/emit/onEvent/plugins/print/convert/format/delay） | `src/script/api/` | T0.1 | Script | PLAN §9.2 全部全局有类型声明与文档注释；TS 资产有补全 | 完成 · 2026-10-17（9 全局 JSDoc+Proxy 运行时+补全扩展；20 测试） |
 | T3.3 | TS 转译执行链（服务端 esbuild → 运行窗口沙箱执行） | `server/` + `src/runtime/sandbox/` | T2.6 | Script+Server | `.ts` 逻辑资产挂 UI 节点后运行窗口行为与蓝图等价（同一 IR） | 待办 |
 | T3.4 | 注解处理（@tool/@expose/@on → IR 变量/事件节点） | `src/script/annotations.ts` | T3.2 | Script | 脚本写 @expose → 蓝图出现对应 Get/Set；@on → 事件节点；双向（蓝图勾暴露→codegen 生成注解） | 待办 |
 | T3.5 | Codegen：IR → TS（含纯节点链内联表达式合成） | `src/script/codegen-ts.ts` | T3.4 | Script | PLAN §10 规则全实现；生成代码可读（无嵌套超 3 层的节点链展开）；roundtrip 幂等 | 待办 |
@@ -161,10 +161,12 @@ T6.1 ─ T6.2/T6.3/T6.4 ─ T6.5/T6.6 ─ M7
 ## 5. 当前状态
 
 - 看板初始化：2026-10-17 · 全部 `待办` · 无在途卡
-- 2026-10-17 PM-Agent 单会话执行：B0~B5 已提交；M0/M1 完成、M2 余 T2.6/T2.7；B6 派发 T2.6/T2.7/T3.1/T3.2（T5.1 因依赖 T2.6 移入 B7）
+- 2026-10-17 PM-Agent 单会话执行：B0~B6 已提交；M0/M1/M2 全部完成（M2 合并点 E2E 待做）；B7 派发 T3.5+T3.6（合并派发保证互转一致）、T5.1+T5.3、T6.1
 - 单会话模式下协作协议微调：不逐卡建 git 分支，改为 PM 按批次在 `v2` 分支提交（每批次一次 commit，卡状态在本表跟踪）；Agent 产出统一由 PM 验收（typecheck + 单测 + 抽查）
 
 ## 6. 进度纪要（PM 维护，倒序追加）
+
+- **2026-10-17 · B6**：**M2 蓝图闭环完成**。T2.6 绑定运行——BindingRunner（绑定发现/每路径一 runtime/UiHandle 三态读写/事件路由+跨蓝图 hub 防回声/运行窗口小控制台），检视器 logicRef 真选择器（单命令双写 ir 契约位+props 显示位，可撤销）；13 测试。T2.7 注释框——ADR-006（IRGraph.comments 可选、version 不升、normalize/往返纳入），UE5 同款：拖标题含节点随动、色板、My Blueprint 接线；13 测试。T3.1 脚本编辑器——CodeMirror 6 全套扩展、[蓝图|脚本]切换条（诊断/蓝图视图为显式占位待 T3.6）；15 测试。T3.2 内建 API——9 全局 types.d.ts+Proxy 运行时+补全扩展，convert/format 复用节点库单源；20 测试。T3.1↔T3.2 咬合点（scriptTypesExtension）联测通过。ScriptTab 接入工作区。PM 验收：**全仓 519 测试绿、typecheck 0 错、构建绿**。关键路径状态：T2.5→T2.6 ✅，下一环 T3.5/T3.6。
 
 - **2026-10-17 · B5（a+b）**：M0、M1 全部完成。T1.3 视口（几何纯函数+命令栈，24 测试）；T1.4 树面板（重派成功，30 测试）；T1.5 检视器（13 种控件+混合态批量，20 测试）；T1.6 运行窗口 v1（F5/F6 全接线+URL 契约，16 测试）；T1.7 布局扩展（anchors 简化版语义=有效锚点接管该轴；mergeDuplicates 真 rowspan；10 测试）；T2.3+T2.4（My Blueprint 四分节+函数图+Details 检视器，38 测试；graph-op 补充 spec 使 flow.call/func.* 可过校验——编辑器补充 spec 模式，函数图动态脚渲染留待 view 支持）。PM 胶水：UITab/BlueprintTab 工作区接线（加载/保存/脏标记）、树+检视器面板注册、函数节点头色修复（func.*/flow.call → 蓝头）。PM 验收：typecheck 0 错、构建绿、批内 78+85 测试绿。设计裁定：UIAsset 全量挂 scene-tree 单域（检视器/树/视口共用），'inspector' 域保留未用——记录为 ADR-005 附加说明。
 
