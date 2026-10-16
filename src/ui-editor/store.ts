@@ -14,8 +14,9 @@
  */
 import { create } from 'zustand'
 import { nanoid } from 'nanoid'
+import type { Draft } from 'immer'
 import type { UIAsset, UINode } from '@/ir/types'
-import { registerDomainState, runCommand, useEditorStore, type Draft } from '@/shell/commands'
+import { registerDomainState, runCommand, useEditorStore } from '@/shell/commands'
 
 /* ---------------- 命令域（scene-tree 持有资产） ---------------- */
 
