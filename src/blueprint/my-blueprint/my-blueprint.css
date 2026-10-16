@@ -1,0 +1,398 @@
+/*
+ * Blueprint Studio v2 —— My Blueprint 结构面板 + 图签 + 蓝图编辑器三栏布局（T2.3）
+ *
+ * 颜色 / 间距 / 字号一律引用 src/shell/theme/theme.css 的 token（var(--xxx)），
+ * 禁止硬编码色值。本文件由 BlueprintEditorPanel import（叶组件不引样式，
+ * 保证 node:test 可挂载冒烟）；通用右键菜单样式经 @import 引入 menu.css。
+ */
+
+@import '../../panels/file-system/menu.css';
+
+/* ============ 蓝图编辑器三栏布局（左 My Blueprint / 中 图区 / 右 Details） ============ */
+
+.bp-editor-layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+/* 左右结构栏（My Blueprint / Details 共用宽度与底色） */
+.bp-editor-side {
+  flex: none;
+  width: 248px;
+  min-width: 200px;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+}
+
+.bp-editor-side--details {
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}
+
+/* 中部：图签 + 画布 */
+.bp-editor-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bp-editor-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ============ My Blueprint 面板 ============ */
+
+.bp-mb {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  color: var(--text);
+}
+
+.bp-mb-header {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  height: var(--panel-header-h);
+  padding: 0 var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.bp-mb-header-title {
+  font-weight: 600;
+}
+
+.bp-mb-header-sub {
+  min-width: 0;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-mb-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: var(--space-4);
+}
+
+/* —— 分节（UE5 式折叠分节） —— */
+
+.bp-mb-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 26px;
+  padding: 0 var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+
+.bp-mb-section-head:hover {
+  background: var(--bg-input);
+}
+
+.bp-mb-caret {
+  flex: none;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+.bp-mb-section-title {
+  flex: 1;
+  font-weight: 600;
+}
+
+.bp-mb-count {
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.bp-mb-add {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: var(--font-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.bp-mb-add:hover {
+  background: var(--selection);
+  color: var(--text);
+}
+
+.bp-mb-section-body {
+  padding: var(--space-1) 0;
+}
+
+/* —— 条目行 —— */
+
+.bp-mb-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-3);
+  min-height: 22px;
+  cursor: default;
+  user-select: none;
+}
+
+.bp-mb-row:hover {
+  background: var(--bg-input);
+}
+
+.bp-mb-row--current {
+  background: var(--selection);
+}
+
+.bp-mb-row-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-mb-meta {
+  flex: none;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.bp-mb-current {
+  flex: none;
+  padding: 0 4px;
+  font-size: var(--font-xs);
+  color: var(--accent-hover);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.bp-mb-exposed {
+  flex: none;
+  accent-color: var(--accent);
+}
+
+/* 类型徽标：文字用引脚色（UE 类型配色，--pin-color 由行内样式注入） */
+.bp-mb-type {
+  flex: none;
+  padding: 0 4px;
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+  color: var(--pin-color, var(--text-dim));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+}
+
+.bp-mb-cat {
+  flex: none;
+  max-width: 64px;
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 拖入图占位（TODO(T2.3+)：HTML5 drag 拖入画布生成 Get/Set） */
+.bp-mb-row-drag {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px dashed var(--border-strong);
+}
+
+.bp-mb-empty {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+  user-select: none;
+}
+
+/* —— 行内编辑 —— */
+
+.bp-mb-inline-input {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+}
+
+.bp-mb-inline-input:focus {
+  outline: 1px solid var(--focus-ring);
+}
+
+.bp-mb-type-select {
+  flex: none;
+  max-width: 110px;
+  padding: 1px 2px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-xs);
+}
+
+.bp-mb-addrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+}
+
+.bp-mb-addrow--event {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.bp-mb-addrow-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.bp-mb-addrow-warn {
+  width: 100%;
+  font-size: var(--font-xs);
+  color: var(--warning);
+}
+
+.bp-mb-btn {
+  flex: none;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-xs);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.bp-mb-btn:hover:not(:disabled) {
+  background: var(--bg-panel-header);
+}
+
+.bp-mb-btn:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.bp-mb-btn--ok {
+  color: var(--success);
+}
+
+.bp-mb-btn--wide {
+  width: auto;
+  padding: 0 var(--space-2);
+  color: var(--text-dim);
+}
+
+/* ============ 图签（GraphTabs） ============ */
+
+.bp-mb-tabs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--tab-h);
+  padding: 0 var(--space-1);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  user-select: none;
+}
+
+.bp-mb-tab {
+  flex: none;
+  padding: 0 var(--space-3);
+  height: calc(var(--tab-h) - 6px);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bp-mb-tab:hover {
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+.bp-mb-tab--active {
+  background: var(--bg-input);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.bp-mb-tab--entry {
+  font-weight: 600;
+}
+
+.bp-mb-tab--add {
+  color: var(--accent-hover);
+}
+
+.bp-mb-tabs-add-input {
+  flex: none;
+  width: 110px;
+  padding: 1px 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+}
+
+.bp-mb-tabs-add-input:focus {
+  outline: 1px solid var(--focus-ring);
+}
+
+.bp-mb-tabs-warn {
+  flex: none;
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--warning);
+}

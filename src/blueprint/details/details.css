@@ -1,0 +1,318 @@
+/*
+ * Blueprint Studio v2 —— 蓝图检视器 Details 样式（T2.4，PLAN §8.4）
+ *
+ * 紧凑暗色控件，观感对齐检视器面板（T1.5）但蓝图域独立实现。
+ * 颜色 / 间距 / 字号一律引用 src/shell/theme/theme.css 的 token（var(--xxx)），
+ * 禁止硬编码色值。本文件由 BlueprintEditorPanel import（叶组件不引样式，
+ * 保证 node:test 可挂载冒烟）。
+ */
+
+.bp-det {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  color: var(--text);
+}
+
+.bp-det-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: var(--panel-header-h);
+  padding: 0 var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  user-select: none;
+}
+
+.bp-det-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-2) var(--space-6);
+}
+
+/* —— 选中节点头 —— */
+
+.bp-det-title {
+  padding: var(--space-1) 0 2px;
+  font-size: var(--font-md);
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.bp-det-sub {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-1);
+}
+
+.bp-det-badge {
+  flex: none;
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--accent-hover);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+}
+
+.bp-det-badge--unknown {
+  color: var(--warning);
+}
+
+.bp-det-id {
+  min-width: 0;
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+  color: var(--text-disabled);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-det-doc,
+.bp-det-hint,
+.bp-det-comment {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+  color: var(--text-dim);
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+}
+
+.bp-det-comment {
+  color: var(--warning);
+}
+
+/* —— 分组折叠 —— */
+
+.bp-det-group {
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.bp-det-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  height: 24px;
+  padding: 0 var(--space-2);
+  background: var(--bg-panel-header);
+  border: 0;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.bp-det-group-head:hover {
+  background: var(--bg-input);
+}
+
+.bp-det-caret {
+  flex: none;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+.bp-det-group-title {
+  flex: 1;
+  text-align: left;
+  font-weight: 600;
+}
+
+.bp-det-count {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.bp-det-group-body {
+  padding: var(--space-1) var(--space-2) var(--space-2);
+}
+
+.bp-det-subgroup {
+  margin-bottom: var(--space-2);
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--border);
+}
+
+.bp-det-subgroup-title {
+  padding: 2px 0;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  user-select: none;
+}
+
+/* —— 属性行 —— */
+
+.bp-det-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+  padding: 1px 0;
+}
+
+.bp-det-row--iface {
+  gap: var(--space-1);
+}
+
+.bp-det-label {
+  flex: none;
+  width: 84px;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+.bp-det-type {
+  flex: none;
+  padding: 0 3px;
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+  color: var(--text-disabled);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.bp-det-control {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* —— 控件（紧凑暗色） —— */
+
+.bp-det-input,
+.bp-det-select {
+  width: 100%;
+  min-width: 0;
+  padding: 1px 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-xs);
+}
+
+.bp-det-input:focus,
+.bp-det-select:focus {
+  outline: 1px solid var(--focus-ring);
+}
+
+.bp-det-input--mixed {
+  border-style: dashed;
+  color: var(--text-dim);
+}
+
+.bp-det-check {
+  accent-color: var(--accent);
+}
+
+.bp-det-color {
+  width: 32px;
+  height: 20px;
+  padding: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+/* 混合态标记（颜色等无法空值显示的控件） */
+.bp-det-mixed-mark {
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  user-select: none;
+}
+
+/* 已连线引脚：置灰提示（UE：连线值覆盖默认值） */
+.bp-det-linked {
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  user-select: none;
+}
+
+/* 不支持内联编辑的类型的只读值显示 */
+.bp-det-readonly {
+  min-width: 0;
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+/* —— 键值行（主图统计等） —— */
+
+.bp-det-kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 22px;
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+}
+
+.bp-det-kv > :first-child {
+  color: var(--text-dim);
+}
+
+/* —— 按钮 —— */
+
+.bp-det-btn {
+  flex: none;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 var(--space-1);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-xs);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.bp-det-btn:hover {
+  background: var(--bg-panel-header);
+}
+
+.bp-det-btn--wide {
+  width: 100%;
+  height: 22px;
+  margin-top: var(--space-1);
+  color: var(--text-dim);
+}
+
+/* —— 空态 —— */
+
+.bp-det-empty {
+  padding: var(--space-3) var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+  user-select: none;
+}

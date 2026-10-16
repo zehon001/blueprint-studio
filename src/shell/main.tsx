@@ -9,7 +9,7 @@
  * 主窗启动顺序：
  *   1. 主题 token（theme.css，全部样式经 token 引用）；
  *   2. 面板注册（defaultPanels 模块副作用——两种模式都需要，弹窗用 registry 找面板组件）；
- *   3. 快捷键：内置默认表（T0.5）+ F5/F6 运行占位（T1.6 接入 handler）；
+ *   3. 快捷键：内置默认表（T0.5）+ F5/F6 运行（T1.6，runtime-launch 与顶栏按钮共用 handler）；
  *   4. 布局装配（defaultPanels：持久化还原 / 默认布局兜底）；
  *   5. 多窗同步桥（T0.4：主窗订阅 store 变更广播、执行弹窗转发动作）；
  *   6. 全局键盘适配 + 渲染 DockShell（顶栏 + dock 布局树）。
@@ -17,6 +17,7 @@
 import '@/shell/theme/theme.css'
 import { createRoot } from 'react-dom/client'
 import { attachKeyboard, registerDefaultShortcuts, registerShortcut } from '@/shell/keymap/registry'
+import { launchRuntimeCurrent, launchRuntimeMain } from '@/shell/runtime-launch'
 import { bootstrapDock } from '@/shell/dock/defaultPanels'
 import DockShell from '@/shell/dock/DockShell'
 import PopoutApp from '@/shell/windows/PopoutApp'
@@ -24,18 +25,19 @@ import { installMainBridge } from '@/shell/windows/bridge'
 import { popoutPanelIdFromLocation } from '@/shell/windows/popout'
 
 registerDefaultShortcuts()
-// 运行快捷键占位：handler 由 T1.6 运行窗口接入
+// 运行快捷键（T1.6）：与顶栏按钮共用 runtime-launch 的启动函数
+// （mode=main 的 ui 参数由运行窗口读 project.json.mainUI；current 由 workspace-store 拼 ui）
 registerShortcut({
   id: 'run.main',
   label: '运行（主 UI）',
   keys: 'F5',
-  handler: () => console.info('[run] F5 运行主 UI —— T1.6 接入'),
+  handler: () => launchRuntimeMain(),
 })
 registerShortcut({
   id: 'run.current',
   label: '运行当前',
   keys: 'F6',
-  handler: () => console.info('[run] F6 运行当前 UI —— T1.6 接入'),
+  handler: () => launchRuntimeCurrent(),
 })
 
 const popoutPanelId = popoutPanelIdFromLocation()

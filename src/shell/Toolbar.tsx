@@ -2,7 +2,7 @@
  * 顶栏（T0.3 · PLAN §6.2）
  *
  * 左：logo「Blueprint Studio」+ 当前项目名（workspace-store，?project= 初始化）；
- * 中：运行(F5) / 运行当前(F6) / 调试开关（均占位 disabled，T1.6 / T5.4 接入）、
+ * 中：运行(F5) / 运行当前(F6)（runtime-launch，T1.6）、调试开关（占位 disabled，T5.4 接入）、
  *     保存(Ctrl+S)——触发 keymap 注册的 file.save（本期空实现，dirty 标记在 workspace-store）；
  * 右：撤销/重做（命令栈，tooltip 显示最近命令 label）、「面板 ▾」下拉（列出全部注册面板）、
  *     「重置布局」（恢复默认布局）。
@@ -18,6 +18,7 @@ import {
   type CommandEntry,
 } from '@/shell/commands'
 import { getBindings } from '@/shell/keymap/registry'
+import { launchRuntimeCurrent, launchRuntimeMain } from '@/shell/runtime-launch'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { usePanels } from '@/shell/dock/registry'
 import { useDockStore } from '@/shell/dock/store'
@@ -73,10 +74,20 @@ export default function Toolbar() {
       <div className="toolbar-spacer" />
 
       <div className="toolbar-center">
-        <button type="button" className="toolbar-btn" disabled title="运行主 UI（F5）—— T1.6 接入">
+        <button
+          type="button"
+          className="toolbar-btn"
+          onClick={() => launchRuntimeMain()}
+          title="运行主 UI（F5）—— 独立窗口，ui 取 project.json.mainUI"
+        >
           ▶ 运行(F5)
         </button>
-        <button type="button" className="toolbar-btn" disabled title="运行当前 UI（F6）—— T1.6 接入">
+        <button
+          type="button"
+          className="toolbar-btn"
+          onClick={() => launchRuntimeCurrent()}
+          title="运行当前 UI（F6）—— 独立窗口运行激活的 .ui.json 资产"
+        >
           ▶ 运行当前(F6)
         </button>
         <button type="button" className="toolbar-btn" disabled title="调试开关 —— T5.4 调试观察通道接入">

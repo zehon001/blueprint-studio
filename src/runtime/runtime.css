@@ -1,0 +1,98 @@
+/*
+ * 运行窗口样式（T1.6 · runtime.html）
+ * 全部引用 theme.css token（入口 main.tsx 先 import 主题再 import 本文件），不硬编码颜色/间距。
+ */
+
+.runtime-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-md);
+  overflow: hidden;
+}
+
+/* —— 顶部细条：项目 / 资产 / 模式 + 刷新（只读展示，不做编辑功能） —— */
+.runtime-topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--panel-header-h);
+  padding: 0 var(--space-3);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  user-select: none;
+}
+.runtime-topbar-item {
+  white-space: nowrap;
+}
+.runtime-topbar-spacer {
+  flex: 1;
+}
+
+/* —— 内容区：承载 renderUI 输出的 .bps-ui-root —— */
+.runtime-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.runtime-content {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+}
+.runtime-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+}
+
+/* —— 错误态：全屏居中中文错误 + 重试 —— */
+.runtime-error {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  text-align: center;
+}
+.runtime-error-title {
+  font-size: var(--font-lg);
+  color: var(--error);
+}
+.runtime-error-msg {
+  max-width: 640px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+/* —— 通用按钮（错误态重试 / 顶栏刷新） —— */
+.runtime-btn {
+  flex: none;
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+.runtime-btn:hover:not(:disabled) {
+  background: var(--bg-panel-header);
+  border-color: var(--accent);
+}
+.runtime-btn:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}

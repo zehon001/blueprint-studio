@@ -1,17 +1,18 @@
 /**
- * Blueprint Studio v2 —— 蓝图编辑器面板（T2.2 组装，PLAN §8 / §8.5）
+ * Blueprint Studio v2 —— 蓝图编辑器面板（T2.2 组装 / T2.3+T2.4 三栏布局，PLAN §8）
  *
  * 组装：BlueprintEditorPanel = store（命令栈域状态）+ view（T2.1 视觉）+
- * interaction（T2.2 画布交互）。经 src/blueprint/index.ts 导出，工作区接入：
+ * interaction（T2.2 画布交互）+ MyBlueprint（T2.3 左栏结构面板 + 顶部图签）+
+ * Details（T2.4 右栏蓝图检视器）。布局对齐 UE5：图区居中，左结构树，右选中详情。
+ * 经 src/blueprint/index.ts 导出，工作区接入：
  *
  *   import { BlueprintEditorPanel } from '@/blueprint';
  *   <BlueprintEditorPanel asset={irAsset} assetPath="logic/main.bp.json" onSave={...} />
  *
  * 后续任务接线方式：
- *  - T2.3 结构面板：useBlueprintStore（asset / switchGraph / addNode 生成 Get/Set）；
- *  - T2.4 蓝图检视器：useBlueprintStore.setNodeParams / setPinDefault（已入命令栈）；
- *  - T2.7 注释框：store.addComment 占位 action 落地；
- *  - T6.4 插件节点：useBlueprintStore.getState().setSpecs(合并后的表)。
+ *  - T2.7 注释框：store.addComment 占位 action 落地 + My Blueprint「注释」分节接入；
+ *  - T5.4 运行观察：BPEdgeData.flowing 开关；
+ *  - T6.4 插件节点：useBlueprintStore.getState().setSpecs(以 editorSpecMap() 为基线合并)。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
@@ -23,8 +24,14 @@ import { NODE_CATEGORIES } from '../../nodes';
 import { BPGraphCanvas, headVariantFor, nodeSizeFor } from '../view';
 import type { FlowEdge, FlowNode } from '../view';
 import { useBlueprintStore } from '../store/blueprint-store';
+// T2.3 结构面板（左栏 + 顶部图签）与 T2.4 蓝图检视器（右栏）
+import { MyBlueprint } from '../my-blueprint/MyBlueprint';
+import { GraphTabs } from '../my-blueprint/GraphTabs';
+import { Details } from '../details/Details';
 // 交互层样式统一在本面板 import（叶子组件不 import，保证 node:test 可挂载冒烟）
 import './interaction.css';
+import '../my-blueprint/my-blueprint.css';
+import '../details/details.css';
 import { NodeSearchMenu, EdgeContextMenu } from './NodeSearchMenu';
 import { PinDragMenu } from './PinDragMenu';
 import { SelectionToolbar } from './SelectionToolbar';
@@ -210,61 +217,77 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
 
   return (
     <div className={`bp-editor${shaking ? ' bp-shake' : ''}${className ? ` ${className}` : ''}`}>
-      <BPGraphCanvas
-        nodes={interactions.nodes}
-        edges={interactions.edges}
-        {...interactions.handlers}
-      />
-      {menu?.kind === 'search' ? (
-        <NodeSearchMenu
-          screen={menu.screen}
-          entries={searchEntries}
-          recentIds={recentSpecIds}
-          categoryOrder={NODE_CATEGORIES}
-          title="添加节点"
-          onPick={searchPick}
-          onClose={closeMenu}
-        />
-      ) : null}
-      {menu?.kind === 'pin' ? (
-        <PinDragMenu
-          screen={menu.screen}
-          flow={menu.flow}
-          from={menu.from}
-          specs={specs}
-          recentIds={recentSpecIds}
-          categoryOrder={NODE_CATEGORIES}
-          onPick={pinPick}
-          onClose={closeMenu}
-        />
-      ) : null}
-      {menu?.kind === 'edge' ? (
-        <EdgeContextMenu
-          screen={menu.screen}
-          edgeSelected={selection.edgeIds.includes(menu.edgeId)}
-          selectedEdgeCount={selection.edgeIds.length}
-          onDisconnectOne={edgeDisconnectOne}
-          onDisconnectSelected={edgeDisconnectSelected}
-          onClose={closeMenu}
-        />
-      ) : null}
-      <SelectionToolbar nodeCount={selection.nodeIds.length} onAlign={onAlign} />
-      <ValidationBar
-        issues={validation}
-        dirty={dirty}
-        graphName={graphName}
-        onJump={onIssueJump}
-        onSave={save}
-      />
-      {toast ? (
-        <div
-          key={toast.at}
-          className={`bp-toast${toast.kind === 'error' ? ' bp-toast--error' : ''}`}
-          role="status"
-        >
-          {toast.text}
+      <div className="bp-editor-layout">
+        {/* 左栏：My Blueprint 结构面板（T2.3） */}
+        <aside className="bp-editor-side bp-editor-side--structure">
+          <MyBlueprint />
+        </aside>
+        {/* 中部：图签 + 画布（叠加层以画布区为定位基准） */}
+        <div className="bp-editor-main">
+          <GraphTabs />
+          <div className="bp-editor-canvas">
+            <BPGraphCanvas
+              nodes={interactions.nodes}
+              edges={interactions.edges}
+              {...interactions.handlers}
+            />
+            {menu?.kind === 'search' ? (
+              <NodeSearchMenu
+                screen={menu.screen}
+                entries={searchEntries}
+                recentIds={recentSpecIds}
+                categoryOrder={NODE_CATEGORIES}
+                title="添加节点"
+                onPick={searchPick}
+                onClose={closeMenu}
+              />
+            ) : null}
+            {menu?.kind === 'pin' ? (
+              <PinDragMenu
+                screen={menu.screen}
+                flow={menu.flow}
+                from={menu.from}
+                specs={specs}
+                recentIds={recentSpecIds}
+                categoryOrder={NODE_CATEGORIES}
+                onPick={pinPick}
+                onClose={closeMenu}
+              />
+            ) : null}
+            {menu?.kind === 'edge' ? (
+              <EdgeContextMenu
+                screen={menu.screen}
+                edgeSelected={selection.edgeIds.includes(menu.edgeId)}
+                selectedEdgeCount={selection.edgeIds.length}
+                onDisconnectOne={edgeDisconnectOne}
+                onDisconnectSelected={edgeDisconnectSelected}
+                onClose={closeMenu}
+              />
+            ) : null}
+            <SelectionToolbar nodeCount={selection.nodeIds.length} onAlign={onAlign} />
+            <ValidationBar
+              issues={validation}
+              dirty={dirty}
+              graphName={graphName}
+              onJump={onIssueJump}
+              onSave={save}
+            />
+            {toast ? (
+              <div
+                key={toast.at}
+                className={`bp-toast${toast.kind === 'error' ? ' bp-toast--error' : ''}`}
+                role="status"
+              >
+                {toast.text}
+              </div>
+            ) : null}
+          </div>
         </div>
-      ) : null}
+        {/* 右栏：Details 蓝图检视器（T2.4） */}
+        <aside className="bp-editor-side bp-editor-side--details">
+          <Details />
+        </aside>
+      </div>
     </div>
   );
 }
