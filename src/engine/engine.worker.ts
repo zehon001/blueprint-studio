@@ -20,12 +20,18 @@ scope.onmessage = (ev) => {
     interpreter?.resolveRpc(msg.id, msg.ok, msg.result)
     return
   }
+  // UI 状态镜像同步同样立即处理
+  if (msg.type === 'uiState') {
+    interpreter?.setUiState(msg.values)
+    return
+  }
   queue = queue.then(async () => {
     try {
       if (msg.type === 'load') {
-        interpreter = new Interpreter(msg.graph, {
+        interpreter = new Interpreter(msg.graph, msg.subgraphs, {
           vars: msg.vars,
           assets: msg.assets,
+          uiState: msg.uiState,
           emit: (m) => scope.postMessage(m),
         })
         scope.postMessage({ type: 'ready' })
@@ -34,6 +40,13 @@ scope.onmessage = (ev) => {
         if (!interpreter) throw new Error('引擎尚未加载流程图')
         if (msg.sourceId) {
           await interpreter.runSourceEvent(msg.sourceId, msg.payload ?? {})
+        } else if (msg.payload?.component) {
+          const { component, value } = msg.payload
+          await interpreter.runUIEvent(
+            msg.eventDefId === 'event/uiClick' ? 'uiClick' : 'uiChange',
+            String(component),
+            value,
+          )
         } else {
           await interpreter.runEvent(msg.eventDefId, msg.payload, msg.nodeId)
         }

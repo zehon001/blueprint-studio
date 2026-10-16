@@ -10,7 +10,9 @@ export function Toolbar() {
   const stopRuntime = useAppStore((s) => s.stopRuntime)
   const goHome = useAppStore((s) => s.goHome)
   const wsStatus = useAppStore((s) => s.wsStatus)
-  const bound = useGraphStore((s) => s.bound)
+  const bound = useGraphStore((s) => s.working?.meta)
+  const editorMode = useGraphStore((s) => s.editorMode)
+  const setEditorMode = useGraphStore((s) => s.setEditorMode)
   const scriptOpen = useGraphStore((s) => s.scriptOpen)
   const toggleScript = useGraphStore((s) => s.toggleScript)
   const applyLayout = useGraphStore((s) => s.applyLayout)
@@ -41,10 +43,32 @@ export function Toolbar() {
             ▶ 运行
           </button>
         )}
-        <button className="btn" onClick={autoLayout}>
+      </div>
+      <div className="toolbar-group">
+        <button
+          className={`btn${editorMode === 'graph' ? ' active' : ''}`}
+          onClick={() => setEditorMode('graph')}
+        >
+          蓝图
+        </button>
+        <button
+          className={`btn${editorMode === 'ui' ? ' active' : ''}`}
+          onClick={() => setEditorMode('ui')}
+        >
+          UI 编辑
+        </button>
+        <button
+          className="btn"
+          disabled={editorMode !== 'graph'}
+          onClick={autoLayout}
+        >
           ⇄ 自动布局
         </button>
-        <button className={`btn${scriptOpen ? ' active' : ''}`} onClick={() => toggleScript(!scriptOpen)}>
+        <button
+          className={`btn${scriptOpen ? ' active' : ''}`}
+          disabled={editorMode !== 'graph'}
+          onClick={() => toggleScript(!scriptOpen)}
+        >
           {'{ } 脚本'}
         </button>
       </div>

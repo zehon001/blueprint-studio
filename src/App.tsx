@@ -4,14 +4,16 @@ import { useAppStore } from './appStore'
 import { useGraphStore } from './store'
 import { Home } from './components/Home'
 import { Toolbar } from './components/Toolbar'
+import { GraphTabs } from './components/GraphTabs'
 import { Palette } from './components/Palette'
 import { Canvas } from './components/Canvas'
+import { UIEditor } from './components/UIEditor'
 import { Inspector } from './components/Inspector'
 import { VarPanel } from './components/VarPanel'
 import { AssetPanel } from './components/AssetPanel'
 import { ConsolePanel } from './components/ConsolePanel'
 import { ScriptView } from './components/ScriptView'
-import { RuntimeView } from './widgets/RuntimeView'
+import { RuntimePanel } from './components/RuntimePanel'
 
 const TABS = [
   { key: 'inspector', label: '属性' },
@@ -22,39 +24,57 @@ const TABS = [
 
 type TabKey = (typeof TABS)[number]['key']
 
-function Editor() {
+function SideTabs() {
   const [tab, setTab] = useState<TabKey>('inspector')
+  return (
+    <>
+      <div className="side-tabs">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            className={`side-tab${tab === t.key ? ' active' : ''}`}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="side-panel">
+        {tab === 'inspector' && <Inspector />}
+        {tab === 'vars' && <VarPanel />}
+        {tab === 'assets' && <AssetPanel />}
+        {tab === 'console' && <ConsolePanel />}
+      </div>
+    </>
+  )
+}
+
+function Editor() {
+  const editorMode = useGraphStore((s) => s.editorMode)
+  const running = useAppStore((s) => s.runtime.running)
   return (
     <div className="app">
       <ReactFlowProvider>
         <Toolbar />
+        {editorMode === 'graph' && <GraphTabs />}
         <div className="app-body">
-          <Palette />
+          {editorMode === 'graph' ? (
+            <Palette />
+          ) : null}
           <div className="canvas-stack">
-            <Canvas />
-            <ScriptView />
+            {editorMode === 'graph' ? (
+              <>
+                <Canvas />
+                <ScriptView />
+              </>
+            ) : (
+              <UIEditor />
+            )}
           </div>
-          <aside className="side">
-            <div className="side-tabs">
-              {TABS.map((t) => (
-                <button
-                  key={t.key}
-                  className={`side-tab${tab === t.key ? ' active' : ''}`}
-                  onClick={() => setTab(t.key)}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <div className="side-panel">
-              {tab === 'inspector' && <Inspector />}
-              {tab === 'vars' && <VarPanel />}
-              {tab === 'assets' && <AssetPanel />}
-              {tab === 'console' && <ConsolePanel />}
-            </div>
+          <aside className={`side${running ? ' runtime' : ''}`}>
+            {running ? <RuntimePanel /> : <SideTabs />}
           </aside>
         </div>
-        <RuntimeView />
       </ReactFlowProvider>
     </div>
   )
@@ -69,7 +89,7 @@ export default function App() {
   }, [bootstrap])
 
   // 编辑器视图需要已绑定的插件；未绑定时回退到首页
-  const bound = useGraphStore((s) => s.bound)
+  const bound = useGraphStore((s) => s.working)
   if (screen === 'editor' && bound) return <Editor />
   return <Home />
 }

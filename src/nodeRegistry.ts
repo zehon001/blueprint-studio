@@ -1,4 +1,4 @@
-import { widgetIdOf, type NodeDef } from './types'
+import type { NodeDef } from './types'
 
 const str = (v: unknown): string => (v == null ? '' : typeof v === 'string' ? v : String(v))
 const num = (v: unknown): number => {
@@ -13,24 +13,15 @@ const parseMap = (v: unknown): Record<string, string> => {
   }
   return out
 }
-function widgetFx(
-  kind: 'logTree' | 'markdown' | 'flow',
-  title: unknown,
-  op: string,
-  payload: Record<string, unknown>,
-) {
-  return {
-    kind: 'widget' as const,
-    widgetId: widgetIdOf(kind, title),
-    op,
-    payload,
-  }
+function uiFx(compId: unknown, op: 'set' | 'listAdd' | 'clear', payload: { value?: unknown; row?: unknown }) {
+  return { kind: 'ui' as const, compId: str(compId), op, ...payload }
 }
 
 /**
  * 声明式节点注册表——平台唯一的节点目录。
  * 一份定义同时驱动：节点库面板、节点/端口渲染、连线类型校验、脚本互转、执行引擎。
- * 输出类节点通过 fx(widget) 更新运行时小组件；需要后端能力的节点走 ctx.rpc。
+ * UI 节点通过 fx(ui) 更新运行时界面；需要后端能力的节点走 ctx.rpc；
+ * 子蓝图入口/出口是系统节点，端口由子蓝图接口动态驱动（见 store.ts dynamicDefs）。
  */
 export const registry: NodeDef[] = [
   // ── 事件 ──
@@ -78,6 +69,48 @@ export const registry: NodeDef[] = [
       ctx.state.count = num(ctx.state.count) + 1
       return { exec: 'exec', outputs: { count: ctx.state.count } }
     },
+  },
+  {
+    id: 'event/uiClick',
+    alias: '事件.按钮点击',
+    title: '按钮点击',
+    category: 'event',
+    description: 'UI 上指定按钮被点击时触发',
+    inputs: [],
+    outputs: [{ id: 'exec', label: '', type: 'exec' }],
+    params: [
+      {
+        key: 'component',
+        label: '按钮组件',
+        valueType: 'uicomponent',
+        componentKinds: ['button'],
+      },
+    ],
+    run: () => ({ exec: 'exec' }),
+  },
+  {
+    id: 'event/uiChange',
+    alias: '事件.值变化',
+    title: '值变化',
+    category: 'event',
+    description: 'UI 上输入框/选择器/开关的值变化时触发',
+    inputs: [],
+    outputs: [
+      { id: 'exec', label: '', type: 'exec' },
+      { id: 'value', label: '新值', type: 'any' },
+    ],
+    params: [
+      {
+        key: 'component',
+        label: '组件',
+        valueType: 'uicomponent',
+        componentKinds: ['input', 'select', 'switch'],
+      },
+    ],
+    run: (_i, ctx) => ({
+      exec: 'exec',
+      outputs: { value: ctx.event?.value },
+    }),
   },
 
   // ── 源（声明型节点：运行时由后端适配器供数） ──
@@ -152,7 +185,7 @@ export const registry: NodeDef[] = [
     alias: '逻辑.延时',
     title: '延时',
     category: 'logic',
-    description: '等待若干毫秒后继续（潜藏节点，异步执行）',
+    description: '等待若干毫秒后继续（异步节点）',
     inputs: [{ id: 'exec', label: '', type: 'exec' }],
     outputs: [{ id: 'exec', label: '', type: 'exec' }],
     params: [{ key: 'ms', label: '毫秒', valueType: 'number', default: 500 }],
@@ -212,14 +245,44 @@ export const registry: NodeDef[] = [
     ],
     outputs: [{ id: 'out', label: '结果', type: 'string' }],
     params: [{ key: 'template', label: '模板', valueType: 'string', default: '{1} {2} {3}' }],
-    run: (_i, ctx) => ({
+    run: (i, ctx) => ({
       outputs: {
         out: str(ctx.params.template)
-          .replaceAll('{1}', str(_i.a1))
-          .replaceAll('{2}', str(_i.a2))
-          .replaceAll('{3}', str(_i.a3)),
+          .replaceAll('{1}', str(i.a1))
+          .replaceAll('{2}', str(i.a2))
+          .replaceAll('{3}', str(i.a3)),
       },
     }),
+  },
+  {
+    id: 'transform/toJson',
+    alias: '处理.转JSON',
+    title: '转JSON',
+    category: 'transform',
+    pure: true,
+    description: '把多个值组装成 JSON 对象（如列表行），键名用逗号分隔',
+    inputs: [
+      { id: 'a1', label: '值1', type: 'any' },
+      { id: 'a2', label: '值2', type: 'any' },
+      { id: 'a3', label: '值3', type: 'any' },
+      { id: 'a4', label: '值4', type: 'any' },
+      { id: 'a5', label: '值5', type: 'any' },
+    ],
+    outputs: [{ id: 'json', label: 'JSON', type: 'string' }],
+    params: [
+      { key: 'keys', label: '键名', valueType: 'string', default: 'time,kind,message' },
+    ],
+    run: (i, ctx) => {
+      const keys = str(ctx.params.keys)
+        .split(',')
+        .map((k) => k.trim())
+        .filter(Boolean)
+      const obj: Record<string, unknown> = {}
+      keys.forEach((k, idx) => {
+        obj[k] = i[`a${idx + 1}`]
+      })
+      return { outputs: { json: JSON.stringify(obj) } }
+    },
   },
   {
     id: 'transform/tagColor',
@@ -257,6 +320,88 @@ export const registry: NodeDef[] = [
     inputs: [{ id: 'text', label: '值', type: 'any' }],
     outputs: [{ id: 'value', label: '数字', type: 'number' }],
     run: (i) => ({ outputs: { value: num(i.text) } }),
+  },
+
+  // ── 界面（与 UI 编辑器拼出的界面双向通讯） ──
+  {
+    id: 'ui/get',
+    alias: '界面.读值',
+    title: '读取界面值',
+    category: 'ui',
+    pure: true,
+    description: '读取 UI 组件的当前值（输入框内容、选择器选中项、开关状态…）',
+    inputs: [],
+    outputs: [{ id: 'value', label: '值', type: 'any' }],
+    params: [
+      {
+        key: 'component',
+        label: '组件',
+        valueType: 'uicomponent',
+        componentKinds: ['input', 'select', 'switch', 'text', 'markdown', 'textarea', 'list'],
+      },
+    ],
+    run: (_i, ctx) => ({ outputs: { value: ctx.ui[str(ctx.params.component)] } }),
+  },
+  {
+    id: 'ui/set',
+    alias: '界面.写值',
+    title: '设置界面值',
+    category: 'ui',
+    description: '把文本/Markdown 等写入 UI 组件',
+    inputs: [
+      { id: 'exec', label: '', type: 'exec' },
+      { id: 'value', label: '值', type: 'string' },
+    ],
+    outputs: [{ id: 'exec', label: '', type: 'exec' }],
+    params: [
+      {
+        key: 'component',
+        label: '组件',
+        valueType: 'uicomponent',
+        componentKinds: ['text', 'markdown', 'textarea'],
+      },
+    ],
+    run: (i, ctx) => ({
+      exec: 'exec',
+      fx: [uiFx(ctx.params.component, 'set', { value: i.value })],
+    }),
+  },
+  {
+    id: 'ui/listAdd',
+    alias: '界面.列表添加',
+    title: '列表·添加行',
+    category: 'ui',
+    description: '向 UI 列表追加一行数据（JSON，键对应列表的列定义）',
+    inputs: [
+      { id: 'exec', label: '', type: 'exec' },
+      { id: 'row', label: '行JSON', type: 'string' },
+    ],
+    outputs: [{ id: 'exec', label: '', type: 'exec' }],
+    params: [
+      { key: 'component', label: '列表', valueType: 'uicomponent', componentKinds: ['list'] },
+    ],
+    run: (i, ctx) => {
+      let row: Record<string, unknown> = {}
+      try {
+        row = JSON.parse(str(i.row) || '{}')
+      } catch {
+        row = { message: str(i.row) }
+      }
+      return { exec: 'exec', fx: [uiFx(ctx.params.component, 'listAdd', { row })] }
+    },
+  },
+  {
+    id: 'ui/listClear',
+    alias: '界面.列表清空',
+    title: '列表·清空',
+    category: 'ui',
+    description: '清空 UI 列表的所有行',
+    inputs: [{ id: 'exec', label: '', type: 'exec' }],
+    outputs: [{ id: 'exec', label: '', type: 'exec' }],
+    params: [
+      { key: 'component', label: '列表', valueType: 'uicomponent', componentKinds: ['list'] },
+    ],
+    run: (_i, ctx) => ({ exec: 'exec', fx: [uiFx(ctx.params.component, 'clear', {})] }),
   },
 
   // ── 变量 ──
@@ -348,7 +493,8 @@ export const registry: NodeDef[] = [
         key: 'template',
         label: '模板',
         valueType: 'text',
-        default: '## 报表（{{dateRange}}）\n\n- 崩溃率：{{crashFreeRate}}\n\n| 错误 | 次数 |\n|---|---|\n{{#each topErrors}}| {{name}} | {{count}} |\n{{/each}}',
+        default:
+          '## 报表（{{dateRange}}）\n\n- 崩溃率：{{crashFreeRate}}\n\n| 错误 | 次数 |\n|---|---|\n{{#each topErrors}}| {{name}} | {{count}} |\n{{/each}}',
       },
     ],
     run: (i, ctx) => {
@@ -364,7 +510,7 @@ export const registry: NodeDef[] = [
           return Array.isArray(rows)
             ? rows
                 .map((row) =>
-                  body.replace(/\{\{(\w+)\}\}/g, (_2, k: string) => str((row as any)[k])),
+                  body.replace(/\{\{(\w+)\}\}/g, (_2, k: string) => str((row as never)[k])),
                 )
                 .join('')
             : ''
@@ -399,151 +545,6 @@ export const registry: NodeDef[] = [
         outputs: { ok: Boolean(res?.ok), detail: str(res?.detail) },
       }
     },
-  },
-
-  // ── 输出（运行时小组件） ──
-  {
-    id: 'output/logTreeSession',
-    alias: '输出.日志树会话',
-    title: '树·新会话',
-    category: 'output',
-    widgetKind: 'logTree',
-    description: '在日志树小组件中开一个会话分组（session）',
-    inputs: [
-      { id: 'exec', label: '', type: 'exec' },
-      { id: 'label', label: '标题', type: 'string' },
-    ],
-    outputs: [{ id: 'exec', label: '', type: 'exec' }],
-    params: [{ key: 'title', label: '小组件', valueType: 'string', default: '运行日志' }],
-    run: (i, ctx) => ({
-      exec: 'exec',
-      fx: [widgetFx('logTree', ctx.params.title, 'session', { label: str(i.label) })],
-    }),
-  },
-  {
-    id: 'output/logTreeRound',
-    alias: '输出.日志树轮次',
-    title: '树·新轮次',
-    category: 'output',
-    widgetKind: 'logTree',
-    description: '在当前会话下开一个轮次分组（round）',
-    inputs: [
-      { id: 'exec', label: '', type: 'exec' },
-      { id: 'label', label: '标题', type: 'string' },
-    ],
-    outputs: [{ id: 'exec', label: '', type: 'exec' }],
-    params: [{ key: 'title', label: '小组件', valueType: 'string', default: '运行日志' }],
-    run: (i, ctx) => ({
-      exec: 'exec',
-      fx: [widgetFx('logTree', ctx.params.title, 'round', { label: str(i.label) })],
-    }),
-  },
-  {
-    id: 'output/logTreeEntry',
-    alias: '输出.日志树条目',
-    title: '树·条目',
-    category: 'output',
-    widgetKind: 'logTree',
-    description:
-      '向日志树追加一条日志条目：时间/文本/标签/颜色；相同合并键的高频日志会折叠成一条并计数',
-    inputs: [
-      { id: 'exec', label: '', type: 'exec' },
-      { id: 'time', label: '时间', type: 'string' },
-      { id: 'text', label: '文本', type: 'string' },
-      { id: 'tag', label: '标签', type: 'string' },
-      { id: 'color', label: '颜色', type: 'string' },
-      { id: 'mergeKey', label: '合并键', type: 'string' },
-    ],
-    outputs: [{ id: 'exec', label: '', type: 'exec' }],
-    params: [{ key: 'title', label: '小组件', valueType: 'string', default: '运行日志' }],
-    run: (i, ctx) => ({
-      exec: 'exec',
-      fx: [
-        widgetFx('logTree', ctx.params.title, 'entry', {
-          time: str(i.time),
-          text: str(i.text),
-          tag: str(i.tag),
-          color: str(i.color),
-          mergeKey: str(i.mergeKey),
-        }),
-      ],
-    }),
-  },
-  {
-    id: 'output/markdown',
-    alias: '输出.文档',
-    title: 'Markdown',
-    category: 'output',
-    widgetKind: 'markdown',
-    description: '渲染 Markdown 内容的小组件（报表等）',
-    inputs: [
-      { id: 'exec', label: '', type: 'exec' },
-      { id: 'content', label: '内容', type: 'string' },
-    ],
-    outputs: [{ id: 'exec', label: '', type: 'exec' }],
-    params: [{ key: 'title', label: '标题', valueType: 'string', default: '文档' }],
-    run: (i, ctx) => ({
-      exec: 'exec',
-      fx: [widgetFx('markdown', ctx.params.title, 'set', { content: str(i.content) })],
-    }),
-  },
-  {
-    id: 'output/flowAddNode',
-    alias: '输出.流程加节点',
-    title: '流程·加节点',
-    category: 'output',
-    widgetKind: 'flow',
-    description: '向流程图小组件添加一个节点',
-    inputs: [
-      { id: 'exec', label: '', type: 'exec' },
-      { id: 'id', label: 'ID', type: 'string' },
-      { id: 'label', label: '标签', type: 'string' },
-    ],
-    outputs: [{ id: 'exec', label: '', type: 'exec' }],
-    params: [{ key: 'title', label: '小组件', valueType: 'string', default: '流程' }],
-    run: (i, ctx) => ({
-      exec: 'exec',
-      fx: [
-        widgetFx('flow', ctx.params.title, 'addNode', { id: str(i.id), label: str(i.label) }),
-      ],
-    }),
-  },
-  {
-    id: 'output/flowAddEdge',
-    alias: '输出.流程加连线',
-    title: '流程·加连线',
-    category: 'output',
-    widgetKind: 'flow',
-    description: '向流程图小组件连接两个节点',
-    inputs: [
-      { id: 'exec', label: '', type: 'exec' },
-      { id: 'from', label: '起点', type: 'string' },
-      { id: 'to', label: '终点', type: 'string' },
-    ],
-    outputs: [{ id: 'exec', label: '', type: 'exec' }],
-    params: [{ key: 'title', label: '小组件', valueType: 'string', default: '流程' }],
-    run: (i, ctx) => ({
-      exec: 'exec',
-      fx: [widgetFx('flow', ctx.params.title, 'addEdge', { from: str(i.from), to: str(i.to) })],
-    }),
-  },
-  {
-    id: 'output/flowActive',
-    alias: '输出.流程激活',
-    title: '流程·激活',
-    category: 'output',
-    widgetKind: 'flow',
-    description: '点亮流程图小组件中当前活跃的节点',
-    inputs: [
-      { id: 'exec', label: '', type: 'exec' },
-      { id: 'id', label: 'ID', type: 'string' },
-    ],
-    outputs: [{ id: 'exec', label: '', type: 'exec' }],
-    params: [{ key: 'title', label: '小组件', valueType: 'string', default: '流程' }],
-    run: (i, ctx) => ({
-      exec: 'exec',
-      fx: [widgetFx('flow', ctx.params.title, 'setActive', { id: str(i.id) })],
-    }),
   },
 
   // ── 动作 ──
@@ -612,6 +613,28 @@ export const registry: NodeDef[] = [
     params: [{ key: 'value', label: '值', valueType: 'boolean', default: false }],
     run: (_i, ctx) => ({ outputs: { value: Boolean(ctx.params.value) } }),
   },
+
+  // ── 子蓝图系统节点（每个子图自动包含；端口由子蓝图接口动态驱动） ──
+  {
+    id: 'sub/input',
+    alias: '子图.入口',
+    title: '子图入口',
+    category: 'subgraph',
+    description: '子蓝图执行的起点，输出调用方传入的参数',
+    inputs: [],
+    outputs: [{ id: 'exec', label: '', type: 'exec' }],
+    run: () => ({ exec: 'exec' }),
+  },
+  {
+    id: 'sub/output',
+    alias: '子图.出口',
+    title: '子图出口',
+    category: 'subgraph',
+    description: '结束子蓝图并返回值（可放置多个出口）',
+    inputs: [{ id: 'exec', label: '', type: 'exec' }],
+    outputs: [],
+    run: () => ({}),
+  },
 ]
 
 export const registryById: Record<string, NodeDef> = Object.fromEntries(
@@ -621,3 +644,29 @@ export const registryById: Record<string, NodeDef> = Object.fromEntries(
 export const registryByAlias: Record<string, NodeDef> = Object.fromEntries(
   registry.map((n) => [n.alias, n]),
 )
+
+/** 子蓝图调用节点的动态 def（`sub/<subId>`），随插件子蓝图定义生成 */
+export function makeSubgraphNodeDef(sub: {
+  id: string
+  name: string
+  params: { name: string; type: 'string' | 'number' | 'boolean' }[]
+  returns: { name: string; type: 'string' | 'number' | 'boolean' }[]
+}): NodeDef {
+  return {
+    id: `sub/${sub.id}`,
+    alias: `子图.${sub.name}`,
+    title: `调用：${sub.name}`,
+    category: 'subgraph',
+    description: `调用子蓝图「${sub.name}」（参数 ${sub.params.length} · 返回 ${sub.returns.length}）`,
+    inputs: [
+      { id: 'exec', label: '', type: 'exec' },
+      ...sub.params.map((p) => ({ id: p.name, label: p.name, type: p.type as never })),
+    ],
+    outputs: [
+      { id: 'exec', label: '', type: 'exec' },
+      ...sub.returns.map((p) => ({ id: p.name, label: p.name, type: p.type as never })),
+    ],
+    // 由解释器特判执行（需要递归进入子图），不会调用这个 run
+    run: () => ({ exec: 'exec' }),
+  }
+}

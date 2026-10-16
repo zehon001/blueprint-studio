@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { registryById } from './nodeRegistry'
+import { makeSubgraphNodeDef, registryById } from './nodeRegistry'
 import {
   deleteMiddlewareById,
   deletePluginById,
@@ -9,21 +9,73 @@ import {
   putPlugin,
 } from './persistence'
 import { buildPlugin, type TemplateId } from './templates'
-import { useGraphStore, type LogEntry, type LogKind } from './store'
+import { sanitizeGraph, useGraphStore } from './store'
 import { wsClient } from './wsClient'
-import { initialWidgetState, reduceWidget, type AnyWidgetState } from './widgets/reducers'
-import { widgetIdOf, type AssetRecord, type Middleware, type PluginRecord, type WidgetKind } from './types'
+import type {
+  AssetRecord,
+  EngineToUI,
+  Middleware,
+  PluginRecord,
+  SerializedGraph,
+  UIComponent,
+} from './types'
 
 let logSeq = 0
 let bootstrapped = false
 let engineWorker: Worker | null = null
 let tickIntervals: number[] = []
 let runId: string | null = null
+let pinBuffer: Record<string, string> = {}
+let pinFlushTimer: number | null = null
 
-export type RuntimeWidget = {
-  kind: WidgetKind
-  title: string
-  state: AnyWidgetState
+export type LogKind = 'print' | 'error' | 'system'
+type LogEntry = { id: number; time: string; kind: LogKind; text: string }
+
+/** 从 UI 文档推导各组件的初始运行时值 */
+function initialUiState(ui: UIComponent | null): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  if (!ui) return out
+  const visit = (c: UIComponent) => {
+    switch (c.kind) {
+      case 'text':
+      case 'markdown':
+        out[c.id] = String(c.props.text ?? '')
+        break
+      case 'input':
+      case 'textarea':
+        out[c.id] = ''
+        break
+      case 'select': {
+        const first = String(c.props.options ?? '')
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean)[0]
+        out[c.id] = first ?? ''
+        break
+      }
+      case 'switch':
+        out[c.id] = false
+        break
+      case 'list':
+        out[c.id] = []
+        break
+      default:
+        break
+    }
+    for (const child of c.children ?? []) visit(child)
+  }
+  visit(ui)
+  return out
+}
+
+/** 旧版本插件（widget 输出节点 / 无 UI 文档）自动迁移到新模板 */
+function migratePlugin(p: PluginRecord): PluginRecord {
+  const usesLegacyWidgets = p.graph.nodes.some((n) => n.defId.startsWith('output/'))
+  const missingUi = !p.ui
+  if (!usesLegacyWidgets && !missingUi && p.subgraphs) return p
+  const template: TemplateId =
+    p.name.includes('日志') ? 'logviewer' : p.name.includes('报表') ? 'report' : 'blank'
+  return { ...buildPlugin(p.id, p.middlewareId, p.name, template), updatedAt: p.updatedAt }
 }
 
 interface AppStore {
@@ -37,7 +89,8 @@ interface AppStore {
   runtime: {
     running: boolean
     pluginName: string
-    widgets: Record<string, RuntimeWidget>
+    ui: UIComponent | null
+    uiState: Record<string, unknown>
   }
 
   bootstrap(): Promise<void>
@@ -58,6 +111,9 @@ interface AppStore {
   stopRuntime(): void
   closeRuntime(): void
   rerunRuntime(): void
+  /** 运行中的 UI 交互（输入/切换/点击），由 RuntimeView 调用 */
+  onUIInput(compId: string, value: unknown): void
+  onUIClick(compId: string): void
   handleServerMessage(msg: unknown): void
 }
 
@@ -69,7 +125,7 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   assets: [],
   wsStatus: 'offline',
   logs: [],
-  runtime: { running: false, pluginName: '', widgets: {} },
+  runtime: { running: false, pluginName: '', ui: null, uiState: {} },
 
   bootstrap: async () => {
     if (bootstrapped) return
@@ -94,30 +150,39 @@ export const useAppStore = create<AppStore>()((set, get) => ({
       get().log('error', '本地数据库不可用（隐私模式？），插件将无法保存')
     }
 
-    if (middlewares.length === 0 && plugins.length === 0) {
-      // 首次启动：种子数据（类似 UE5 的示例项目）
+    if (middlewares.length === 0) {
       const dolphin: Middleware = {
         id: 'mw-dolphin',
         name: 'Dolphin 轮唱SDK',
         createdAt: Date.now(),
       }
-      const logviewer = buildPlugin(
-        'pl-logviewer',
-        dolphin.id,
-        '日志查看器',
-        'logviewer',
-      )
-      const report = buildPlugin('pl-report', dolphin.id, '错误报表', 'report')
       try {
-        await Promise.all([
-          putMiddleware(dolphin),
-          putPlugin(logviewer),
-          putPlugin(report),
-        ])
+        await putMiddleware(dolphin)
         middlewares = [dolphin]
+      } catch {
+        // 写入失败则保持空列表
+      }
+    }
+
+    if (plugins.length === 0 && middlewares.length > 0) {
+      // 首次启动 / 插件被清空：种子示例插件（类似 UE5 的示例项目）
+      const mwId = middlewares[0].id
+      const logviewer = buildPlugin('pl-logviewer', mwId, '日志查看器', 'logviewer')
+      const report = buildPlugin('pl-report', mwId, '错误报表', 'report')
+      try {
+        await Promise.all([putPlugin(logviewer), putPlugin(report)])
         plugins = [logviewer, report]
       } catch {
         // 种子失败则保持空列表
+      }
+    } else {
+      // 旧版本插件迁移
+      const migrated = plugins.map(migratePlugin)
+      const changed = migrated.some((p, i) => p !== plugins[i])
+      if (changed) {
+        plugins = migrated
+        await Promise.all(migrated.map((p) => putPlugin(p)))
+        get().log('system', '已把旧版插件升级到 UI 编辑器版本')
       }
     }
 
@@ -129,7 +194,11 @@ export const useAppStore = create<AppStore>()((set, get) => ({
   addMiddleware: async (name) => {
     const trimmed = name.trim()
     if (!trimmed) return
-    const mw: Middleware = { id: `mw-${crypto.randomUUID().slice(0, 8)}`, name: trimmed, createdAt: Date.now() }
+    const mw: Middleware = {
+      id: `mw-${crypto.randomUUID().slice(0, 8)}`,
+      name: trimmed,
+      createdAt: Date.now(),
+    }
     await putMiddleware(mw)
     set((s) => ({ middlewares: [...s.middlewares, mw] }))
     get().log('system', `已添加中间件「${trimmed}」`)
@@ -226,28 +295,59 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     if (get().runtime.running) get().stopRuntime()
 
     const graphStore = useGraphStore.getState()
-    const isEditingThis =
-      graphStore.bound?.id === plugin.id && get().screen === 'editor'
-    const graph = isEditingThis ? graphStore.serialize() : plugin.graph
-    const varDefs = isEditingThis ? graphStore.vars : plugin.vars
-    const varsRecord: Record<string, unknown> = {}
-    for (const v of varDefs) varsRecord[v.name] = v.default
-
-    // 收集输出类节点 → 初始化运行时小组件（PIE 视口）
-    const widgets: Record<string, RuntimeWidget> = {}
-    for (const n of graph.nodes) {
-      const def = registryById[n.defId]
-      if (def?.widgetKind) {
-        const wid = widgetIdOf(def.widgetKind, n.params?.title)
-        if (!widgets[wid]) {
-          widgets[wid] = {
-            kind: def.widgetKind,
-            title: String(n.params?.title ?? '').trim() || def.title,
-            state: initialWidgetState(def.widgetKind),
-          }
+    const isEditingThis = graphStore.working?.meta.id === plugin.id && get().screen === 'editor'
+    // 编辑中的图可能未保存：强制写回并组装最新快照
+    let graph: SerializedGraph = plugin.graph
+    let subgraphs = plugin.subgraphs
+    let ui: UIComponent = plugin.ui
+    let vars = plugin.vars
+    if (isEditingThis) {
+      graphStore.markDirty()
+      const w = graphStore.working
+      if (w) {
+        // markDirty 是防抖的，这里手动同步当前画布
+        const current = graphStore.nodes
+        const edges = graphStore.edges
+        const serialize = (ns: typeof current, es: typeof edges) => ({
+          nodes: ns.map((n) => ({
+            id: n.id,
+            defId: n.data.defId,
+            position: { x: n.position.x, y: n.position.y },
+            params: { ...n.data.params },
+          })),
+          edges: es.map((e) => ({
+            id: e.id,
+            source: e.source,
+            sourcePort: e.sourceHandle ?? '',
+            target: e.target,
+            targetPort: e.targetHandle ?? '',
+          })),
+        })
+        const active = graphStore.activeGraphId
+        if (active === 'main') w.graph = serialize(current, edges)
+        else {
+          const sub = w.subgraphs.find((s) => s.id === active)
+          if (sub) sub.graph = serialize(current, edges)
         }
+        graph = w.graph
+        subgraphs = w.subgraphs
+        ui = w.ui
+        vars = w.vars
       }
     }
+
+    const varsRecord: Record<string, unknown> = {}
+    for (const v of vars) varsRecord[v.name] = v.default
+    const uiState = initialUiState(ui)
+
+    // 净化：丢弃引用不存在节点/端口的连线（旧数据兼容）
+    const resolveDef = (defId: string) => {
+      const staticDef = registryById[defId]
+      if (staticDef) return staticDef
+      const sub = subgraphs.find((s) => `sub/${s.id}` === defId)
+      return sub ? makeSubgraphNodeDef(sub) : undefined
+    }
+    graph = sanitizeGraph(graph, resolveDef)
 
     const worker = new Worker(new URL('./engine/engine.worker.ts', import.meta.url), {
       type: 'module',
@@ -256,30 +356,42 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     const rid = `run-${crypto.randomUUID().slice(0, 8)}`
     runId = rid
     worker.onerror = (err) => get().log('error', `引擎错误: ${err.message ?? '未知错误'}`)
-    worker.onmessage = (ev: MessageEvent) => {
+    worker.onmessage = (ev: MessageEvent<EngineToUI>) => {
       const msg = ev.data
       if (msg.type === 'fx') {
-        if (msg.fx.kind === 'print') {
-          get().log('print', msg.fx.value)
-        } else if (msg.fx.kind === 'widget') {
-          const current = get().runtime.widgets[msg.fx.widgetId]
-          if (current) {
-            set({
-              runtime: {
-                ...get().runtime,
-                widgets: {
-                  ...get().runtime.widgets,
-                  [msg.fx.widgetId]: {
-                    ...current,
-                    state: reduceWidget(current.kind, current.state, msg.fx.op, msg.fx.payload),
-                  },
-                },
-              },
-            })
-          }
+        const fx = msg.fx
+        if (fx.kind === 'print') {
+          get().log('print', fx.value)
+        } else {
+          const { compId, op, value, row } = fx
+          set((s) => {
+            const state = { ...s.runtime.uiState }
+            if (op === 'set') state[compId] = value
+            else if (op === 'clear') state[compId] = []
+            else if (op === 'listAdd') {
+              const rows = Array.isArray(state[compId]) ? [...(state[compId] as unknown[])] : []
+              rows.push(row)
+              state[compId] = rows
+            }
+            return { runtime: { ...s.runtime, uiState: state } }
+          })
         }
       } else if (msg.type === 'trace') {
-        useGraphStore.getState().flashNode(msg.nodeId)
+        useGraphStore.getState().flashNode(msg.graphId, msg.nodeId)
+      } else if (msg.type === 'traceEdge') {
+        useGraphStore.getState().flashEdge(msg.graphId, msg.edgeId)
+      } else if (msg.type === 'pinValue') {
+        // 高频消息：缓冲后批量刷新，避免渲染风暴
+        pinBuffer[`${msg.graphId}:${msg.nodeId}:${msg.portId}`] =
+          `${msg.portKind === 'in' ? '→ ' : '← '}${msg.value}`
+        if (pinFlushTimer === null) {
+          pinFlushTimer = window.setTimeout(() => {
+            pinFlushTimer = null
+            const batch = pinBuffer
+            pinBuffer = {}
+            useGraphStore.getState().setPinValues(batch)
+          }, 150)
+        }
       } else if (msg.type === 'ready') {
         get().log('system', '执行引擎已就绪（Web Worker）')
       } else if (msg.type === 'error') {
@@ -291,7 +403,6 @@ export const useAppStore = create<AppStore>()((set, get) => ({
           method: msg.method,
           args: msg.args,
         })
-        get().log('system', `→ RPC ${msg.method} #${msg.id}${sent ? '' : '（后端未连接）'}`)
         if (!sent) {
           worker.postMessage({ type: 'rpcResult', id: msg.id, ok: false, result: '后端未连接' })
         }
@@ -300,8 +411,10 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     worker.postMessage({
       type: 'load',
       graph,
+      subgraphs,
       vars: varsRecord,
       assets: get().assets,
+      uiState,
       autoRun: true,
     })
 
@@ -331,30 +444,57 @@ export const useAppStore = create<AppStore>()((set, get) => ({
     }
     wsClient.send({ type: 'plugin.run', runId: rid, sources })
 
-    set({ runtime: { running: true, pluginName: plugin.name, widgets } })
+    set({ runtime: { running: true, pluginName: plugin.name, ui, uiState } })
     get().log('system', `▶ 开始运行「${plugin.name}」（${sources.length} 个日志源）`)
   },
 
   stopRuntime: () => {
     for (const t of tickIntervals) window.clearInterval(t)
     tickIntervals = []
+    if (pinFlushTimer !== null) {
+      window.clearTimeout(pinFlushTimer)
+      pinFlushTimer = null
+    }
+    pinBuffer = {}
     engineWorker?.terminate()
     engineWorker = null
     if (runId) wsClient.send({ type: 'plugin.stop', runId })
     runId = null
-    useGraphStore.setState({ flash: {} })
+    useGraphStore.setState({ flash: {}, edgeFlash: {}, pinValues: {} })
     set((s) => ({ runtime: { ...s.runtime, running: false } }))
     get().log('system', '⏹ 已停止')
   },
 
   closeRuntime: () => {
     get().stopRuntime()
-    set((s) => ({ runtime: { ...s.runtime, widgets: {} } }))
+    set((s) => ({ runtime: { ...s.runtime, ui: null, uiState: {} } }))
   },
 
   rerunRuntime: () => {
     get().stopRuntime()
     window.setTimeout(() => get().startRuntime(), 150)
+  },
+
+  onUIInput: (compId, value) => {
+    if (!get().runtime.running || !engineWorker) return
+    set((s) => ({
+      runtime: { ...s.runtime, uiState: { ...s.runtime.uiState, [compId]: value } },
+    }))
+    engineWorker.postMessage({ type: 'uiState', values: { [compId]: value } })
+    engineWorker.postMessage({
+      type: 'run',
+      eventDefId: 'event/uiChange',
+      payload: { component: compId, value },
+    })
+  },
+
+  onUIClick: (compId) => {
+    if (!get().runtime.running || !engineWorker) return
+    engineWorker.postMessage({
+      type: 'run',
+      eventDefId: 'event/uiClick',
+      payload: { component: compId },
+    })
   },
 
   handleServerMessage: (msgRaw) => {
@@ -377,9 +517,11 @@ export const useAppStore = create<AppStore>()((set, get) => ({
         payload: { line: msg.line, ts: msg.ts },
       })
     } else if (msg.type === 'source.status') {
-      get().log(msg.level === 'error' ? 'error' : msg.level === 'warn' ? 'system' : 'system', msg.message ?? '')
+      get().log(
+        msg.level === 'error' ? 'error' : 'system',
+        msg.message ?? '',
+      )
     } else if (msg.type === 'rpc.result') {
-      get().log('system', `← RPC 回执 #${msg.id} ok=${msg.ok}`)
       engineWorker?.postMessage({
         type: 'rpcResult',
         id: Number(msg.id),

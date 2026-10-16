@@ -17,7 +17,8 @@ export const CATEGORY_COLORS: Record<NodeCategory, string> = {
   variable: '#a0842b',
   asset: '#7a5a2b',
   report: '#a02b6e',
-  output: '#6b3fa0',
+  ui: '#1f6f9e',
+  subgraph: '#7a4fa0',
   action: '#2b6ea3',
 }
 
@@ -30,7 +31,8 @@ export const CATEGORY_LABELS: Record<NodeCategory, string> = {
   variable: '变量',
   asset: '资产',
   report: '报表',
-  output: '输出',
+  ui: '界面',
+  subgraph: '子蓝图',
   action: '动作',
 }
 
@@ -39,10 +41,11 @@ export const CATEGORY_ORDER: NodeCategory[] = [
   'source',
   'logic',
   'transform',
+  'ui',
   'variable',
   'asset',
   'report',
-  'output',
+  'subgraph',
   'action',
   'data',
 ]

@@ -1,13 +1,20 @@
 import { memo, useEffect, useRef } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { registryById } from '../nodeRegistry'
 import { CATEGORY_LABELS, PORT_COLORS } from '../theme'
 import { paramOptionsFor, useGraphStore, type GraphNode } from '../store'
 import { useAppStore } from '../appStore'
 import type { PortDef } from '../types'
 import { ParamField } from './ParamEditor'
 
-function PortRow({ port, side }: { port: PortDef; side: 'in' | 'out' }) {
+function PortRow({
+  port,
+  side,
+  pinValue,
+}: {
+  port: PortDef
+  side: 'in' | 'out'
+  pinValue?: string
+}) {
   const isExec = port.type === 'exec'
   const handleClass = `bp-handle ${side === 'in' ? 'bp-handle-in' : 'bp-handle-out'} ${
     isExec ? 'bp-exec' : 'bp-data'
@@ -23,18 +30,26 @@ function PortRow({ port, side }: { port: PortDef; side: 'in' | 'out' }) {
             id={port.id}
             className={handleClass}
             style={style}
+            title={pinValue}
           />
-          {port.label && <span className="bp-port-label">{port.label}</span>}
+          <span className="bp-port-label" title={pinValue}>
+            {port.label}
+            {pinValue && <span className="bp-pin">{pinValue}</span>}
+          </span>
         </>
       ) : (
         <>
-          {port.label && <span className="bp-port-label">{port.label}</span>}
+          <span className="bp-port-label" title={pinValue}>
+            {port.label}
+            {pinValue && <span className="bp-pin">{pinValue}</span>}
+          </span>
           <Handle
             type="source"
             position={Position.Right}
             id={port.id}
             className={handleClass}
             style={style}
+            title={pinValue}
           />
         </>
       )}
@@ -43,11 +58,14 @@ function PortRow({ port, side }: { port: PortDef; side: 'in' | 'out' }) {
 }
 
 function BlueprintNodeInner({ id, data, selected }: NodeProps<GraphNode>) {
-  const def = registryById[data.defId]
-  const flashStamp = useGraphStore((s) => s.flash[id])
+  const def = useGraphStore((s) => (s.working ? s.getDef(data.defId) : undefined))
+  const activeGraphId = useGraphStore((s) => s.activeGraphId)
+  const flashStamp = useGraphStore((s) => s.flash[`${s.activeGraphId}:${id}`])
+  const pinValues = useGraphStore((s) => s.pinValues)
   const updateParam = useGraphStore((s) => s.updateParam)
   const vars = useGraphStore((s) => s.vars)
   const nodes = useGraphStore((s) => s.nodes)
+  const ui = useGraphStore((s) => s.working?.ui ?? null)
   const assets = useAppStore((s) => s.assets)
   const flashRef = useRef<HTMLDivElement>(null)
 
@@ -60,7 +78,8 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps<GraphNode>) {
   }, [flashStamp])
 
   if (!def) return null
-  const optionCtx = { vars, nodes, assets }
+  const optionCtx = { vars, nodes, assets, ui }
+  const pinOf = (portId: string) => pinValues[`${activeGraphId}:${id}:${portId}`]
 
   return (
     <div ref={flashRef} className={`bp-node cat-${def.category}${selected ? ' selected' : ''}`}>
@@ -84,18 +103,16 @@ function BlueprintNodeInner({ id, data, selected }: NodeProps<GraphNode>) {
       <div className="bp-ports">
         <div className="bp-ports-col">
           {def.inputs.map((p) => (
-            <PortRow key={p.id} port={p} side="in" />
+            <PortRow key={p.id} port={p} side="in" pinValue={pinOf(p.id)} />
           ))}
         </div>
         <div className="bp-ports-col">
           {def.outputs.map((p) => (
-            <PortRow key={p.id} port={p} side="out" />
+            <PortRow key={p.id} port={p} side="out" pinValue={pinOf(p.id)} />
           ))}
         </div>
       </div>
-      {(def.inputs.length > 0 || def.outputs.length > 0) && (
-        <div className="bp-node-id">{id}</div>
-      )}
+      <div className="bp-node-id">{id}</div>
     </div>
   )
 }

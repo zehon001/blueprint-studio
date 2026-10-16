@@ -6,30 +6,39 @@ import { useAppStore } from '../appStore'
 export function ScriptView() {
   const open = useGraphStore((s) => s.scriptOpen)
   const toggleScript = useGraphStore((s) => s.toggleScript)
-  const bound = useGraphStore((s) => s.bound)
-  const replaceGraph = useGraphStore((s) => s.replaceGraph)
+  const working = useGraphStore((s) => s.working)
+  const applyScriptParts = useGraphStore((s) => s.applyScriptParts)
   const middlewares = useAppStore((s) => s.middlewares)
   const log = useAppStore((s) => s.log)
   const [draft, setDraft] = useState<string | null>(null)
   const [error, setError] = useState('')
 
   const current = useMemo(() => {
-    if (!bound) return ''
-    const mwName = middlewares.find((m) => m.id === bound.middlewareId)?.name ?? '未分组'
-    return serializeScript({ name: bound.name, middlewareName: mwName, vars: useGraphStore.getState().vars, graph: useGraphStore.getState().serialize() })
-  }, [bound, middlewares, open])
+    const s = useGraphStore.getState()
+    if (!s.working) return ''
+    const mwName =
+      middlewares.find((m) => m.id === s.working!.meta.middlewareId)?.name ?? '未分组'
+    return serializeScript({
+      name: s.working.meta.name,
+      middlewareName: mwName,
+      vars: s.working.vars,
+      graph: s.working.graph,
+      subgraphs: s.working.subgraphs,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [working, middlewares, open])
 
-  if (!open || !bound) return null
+  if (!open || !working) return null
 
   const text = draft ?? current
 
   const apply = () => {
     try {
       const parsed = parseScript(text)
-      replaceGraph(parsed.graph, parsed.vars)
+      applyScriptParts(parsed.graph, parsed.subgraphs, parsed.vars)
       setDraft(null)
       setError('')
-      log('system', '脚本已应用回蓝图（保留已有节点位置，新节点排在左侧）')
+      log('system', '脚本已应用回蓝图（子蓝图段落一并更新）')
       toggleScript(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -39,10 +48,18 @@ export function ScriptView() {
   return (
     <div className="script-view">
       <div className="script-head">
-        <span className="script-title">蓝图脚本（双向互转）</span>
-        <span className="script-hint">语法：plugin / var / node 别名(参数) / edge a.port -&gt; b.port</span>
+        <span className="script-title">蓝图脚本（双向互转，含子蓝图段落）</span>
+        <span className="script-hint">
+          语法：plugin / var / node 别名(参数) / edge a.port -&gt; b.port / sub id 名 (参数) -&gt; (返回)
+        </span>
         <div className="script-actions">
-          <button className="btn" onClick={() => { setDraft(null); setError('') }}>
+          <button
+            className="btn"
+            onClick={() => {
+              setDraft(null)
+              setError('')
+            }}
+          >
             还原
           </button>
           <button className="btn primary" onClick={apply}>

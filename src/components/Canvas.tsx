@@ -8,9 +8,8 @@ import {
   useReactFlow,
 } from '@xyflow/react'
 import type { Node } from '@xyflow/react'
-import { registryById } from '../nodeRegistry'
 import { CATEGORY_COLORS } from '../theme'
-import { isValidConnection, useGraphStore } from '../store'
+import { useGraphStore } from '../store'
 import type { BlueprintNodeData } from '../types'
 import { BlueprintNodeComponent } from './BlueprintNode'
 import { FlowEdgeComponent } from './FlowEdge'
@@ -20,8 +19,30 @@ const edgeTypes = { flow: FlowEdgeComponent }
 
 function miniMapNodeColor(node: Node): string {
   const data = node.data as BlueprintNodeData
-  const def = registryById[data?.defId]
+  const def = useGraphStore.getState().getDef(data?.defId)
   return def ? CATEGORY_COLORS[def.category] : '#555'
+}
+
+export function isValidConnection(c: {
+  source: string
+  sourceHandle?: string | null
+  target: string
+  targetHandle?: string | null
+}): boolean {
+  const { nodes, getDef } = useGraphStore.getState()
+  const sNode = nodes.find((n) => n.id === c.source)
+  const tNode = nodes.find((n) => n.id === c.target)
+  if (!sNode || !tNode) return false
+  const sDef = getDef(sNode.data.defId)
+  const tDef = getDef(tNode.data.defId)
+  if (!sDef || !tDef) return false
+  const sp = sDef.outputs.find((p) => p.id === c.sourceHandle)
+  const tp = tDef.inputs.find((p) => p.id === c.targetHandle)
+  if (!sp || !tp) return false
+  if (sp.type === 'exec' || tp.type === 'exec') return sp.type === 'exec' && tp.type === 'exec'
+  if (sp.type === 'any' || tp.type === 'any') return true
+  if (sp.type === tp.type) return true
+  return sp.type === 'number' && tp.type === 'string'
 }
 
 export function Canvas() {

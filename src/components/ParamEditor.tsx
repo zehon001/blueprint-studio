@@ -70,8 +70,13 @@ export function ParamField({
       </label>
     )
   }
-  // variable / asset / source：从上下文取候选
-  if (def.valueType === 'variable' || def.valueType === 'asset' || def.valueType === 'source') {
+  // variable / asset / source / uicomponent：从上下文取候选
+  if (
+    def.valueType === 'variable' ||
+    def.valueType === 'asset' ||
+    def.valueType === 'source' ||
+    def.valueType === 'uicomponent'
+  ) {
     return (
       <label className="bp-param">
         {label}
