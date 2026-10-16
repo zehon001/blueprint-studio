@@ -4,6 +4,7 @@
  * 职责：
  *  - REST：/api/projects（列表/新建）· /api/tree · /api/file（GET/PUT/DELETE）·
  *          /api/move · /api/import · /api/watch（SSE）· /api/health
+ *  - 插件注册表（T6.1）：/api/plugins（三源合并清单）· /api/plugins/:id（单清单详情）
  *  - 静态托管 dist/（多入口：/ · /editor.html · /runtime.html；SPA fallback 仅对已知入口）
  *  - CORS：放行 5173 开发跨域（localhost / 127.0.0.1）
  *  - WS Hub 最小占位（/ws）：只握手 + hello，协议扩展属 T0.4（多窗口）与 T5.4（调试观察）
@@ -19,6 +20,7 @@ import path from 'node:path'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import * as fsApi from './fs'
+import * as pluginsApi from './plugins/registry'
 
 const PORT = Number(process.env.PORT || 8790)
 const PROJECTS_ROOT = fsApi.ensureProjectsRoot()
@@ -198,6 +200,20 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
     if (pathname === '/api/watch' && req.method === 'GET') {
       handleWatch(req, res, url.searchParams.get('path') ?? '')
+      return
+    }
+
+    // T6.1 插件注册表：GET /api/plugins?project=<项目>（三源合并清单，project 缺省 = 内置+静态目录）、
+    // GET /api/plugins/:id?project=（单清单详情，含节点）。检测/安装/更新执行器属 T6.3，
+    // 届时在 server/plugins/executor.ts 实现并在此追加 POST /api/plugins/:id/detect|install|update。
+    const pluginsResult = await pluginsApi.handlePluginsRequest(
+      req.method ?? 'GET',
+      pathname,
+      url.searchParams,
+      PROJECTS_ROOT,
+    )
+    if (pluginsResult) {
+      sendJson(res, pluginsResult.status, pluginsResult.payload)
       return
     }
 

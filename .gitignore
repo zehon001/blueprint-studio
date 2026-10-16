@@ -5,3 +5,4 @@ assets/uploads/
 *.log
 .env
 _projects/
+_plugins-static/

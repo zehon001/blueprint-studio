@@ -14,12 +14,13 @@
  *     （内建事件 pressed / textChanged… 直接作为事件名，蓝图 event.custom 以
  *     params.eventName 绑定即触发；载荷统一包成 { value }）；runner 加载完成后逐实例
  *     start() 触发 event.start。
- *  5. 跨蓝图广播：中央 BlueprintEventHub——解释器每次事件出队都发 onDebug({kind:'emit'})
- *     （T2.5 契约，无需改解释器），hub 据此转发给其它 runtime；转发事件带 __bpHubEcho
- *     标记，接收方再触发同名事件不会二次转发（防自回声）；'start' 不广播。
+ *  5. 事件总线（T5.1 正式化）：中央 EventBus——解释器每次事件出队都发 onDebug({kind:'emit'})
+ *     （T2.5 契约，零侵入），经 runtimeEventSink 回灌总线；总线按 target（node/ui/all）
+ *     路由到其它 runtime，环保护（回声令牌 + 跳数上限 8）解决 A↔B 互 relay 死循环；
+ *     'start' 不广播。跨 UI 广播：多个 BindingRunner 可经 opts.bus 注入同一总线实例。
  *
  * 与 T3.3（脚本沙箱）的等价接入：加载 .bp.json 的一步替换为「取 .ts/.py → 服务端转译 /
- * 解析为同一 IR」，其后 createRuntime 起的实例、UiHandle、事件路由、hub 全部复用本模块。
+ * 解析为同一 IR」，其后 createRuntime 起的实例、UiHandle、事件路由、总线全部复用本模块。
  *
  * 注意：本文件不 import CSS；render 目录只读（import，不改）。
  */
@@ -29,6 +30,7 @@ import { editorSpecMap } from '@/blueprint/my-blueprint/graph-op-specs';
 import type { UIRenderEvent, UIRenderHandle } from './render/render';
 import { updateUI } from './render/render';
 import { createRuntime, type DebugEvent, type RuntimeHandle } from './interpreter';
+import { createEventBus, runtimeEventSink, type EventBus } from './events';
 
 /* ============================================================
  * 1. 绑定发现（纯函数，可单测）
@@ -376,10 +378,11 @@ export const HUB_ECHO_KEY = '__bpHubEcho';
 const HUB_SKIP_EVENTS: ReadonlySet<string> = new Set(['start']);
 
 /**
- * 中央事件 hub（简单实现，PLAN §11 广播语义的最小版）：
+ * 中央事件 hub（T2.6 遗留的最小实现，已由 T5.1 事件总线正式化取代）：
  * 解释器每次事件出队都发 onDebug({ kind: 'emit', message: 事件名, value: 参数 })——
  * hub 据此把事件转发给其它 runtime（emit 超出自身 → 其它蓝图也收）。
  * 转发事件带 HUB_ECHO_KEY 标记；接收方 runtime 再出队该事件时 hub 识别回声不再转发。
+ * 保留导出仅为 T2.6 单测与旧消费方兼容；BindingRunner 已改用 ./events 的事件总线。
  */
 export class BlueprintEventHub {
   private readonly members = new Map<string, RuntimeHandle>();
@@ -457,6 +460,10 @@ export interface BindingRunnerOptions {
   onPrint?: (line: string) => void;
   /** 错误上报（蓝图加载失败 / 节点执行错误；详细行已走 onPrint，此处供消费方展开控制台等） */
   onError?: (message: string) => void;
+  /** 事件总线（T5.1；注入同一实例即可跨 UI 实例广播——多运行窗口共用；缺省自建） */
+  bus?: EventBus;
+  /** 本运行器的 UI 实例 id（总线 target='ui' 的分组依据；缺省 'default'） */
+  uiId?: string;
 }
 
 /** 收集绑定子树内全部节点名 */
@@ -477,7 +484,8 @@ function collectNames(scopes: readonly UINode[]): ReadonlySet<string> {
 export class BindingRunner {
   private readonly opts: Required<Pick<BindingRunnerOptions, 'project' | 'asset' | 'renderHandle'>> &
     BindingRunnerOptions;
-  private readonly hub = new BlueprintEventHub();
+  /** 事件总线（T5.1）：loadAndStart 时确定（opts.bus 注入或自建）；环保护警告走 print 通道 */
+  private bus: EventBus | null = null;
   private readonly entries: RuntimeEntry[] = [];
   private seq = 0;
   private stopped = false;
@@ -512,6 +520,8 @@ export class BindingRunner {
   async loadAndStart(): Promise<void> {
     if (this.loaded || this.stopped) return;
     this.loaded = true;
+    // 事件总线（T5.1）：可注入共享实例（跨 UI 实例广播）；环保护警告 → 控制台 print
+    const bus = this.opts.bus ?? (this.bus = createEventBus({ onWarn: (m) => this.print(m) }));
     const bindings = collectBoundNodes(this.opts.asset);
     const specs = editorSpecMap();
     for (const binding of bindings) {
@@ -536,10 +546,17 @@ export class BindingRunner {
             this.print(`[错误] 蓝图 ${ir.name}${where}：${err.message}`);
             this.opts.onError?.(err.message);
           },
-          onDebug: hubDebugSink(tag, this.hub),
+          // 自定义事件 → 总线回灌（零侵入 T2.6 模式）：总线按 target 路由到其它实例
+          onDebug: runtimeEventSink(tag, bus),
           vars: varsFromIR(ir),
         });
-        this.hub.add(tag, rt);
+        bus.register({
+          id: tag,
+          assetPath: binding.path,
+          uiId: this.opts.uiId,
+          boundNodes: nameSet,
+          rt,
+        });
         this.entries.push({ tag, path: binding.path, ir, rt, nameSet });
         this.print(
           `[绑定] 已加载 ${binding.path}（${ir.name}；绑定节点：${binding.nodes.map((n) => n.name).join('、')}）`,
@@ -561,15 +578,12 @@ export class BindingRunner {
   }
 
   /**
-   * 事件路由（renderUI onEvent → 这里）：把事件发给持有该节点名的 runtime。
-   * payload 非空统一包成 { value }（解释器把它注入 event.custom 的 value / arg0 输出脚）。
-   * 无绑定 / 节点不属于任何绑定子树 → 静默丢弃（未启动 rt.emit 也按解释器语义丢弃）。
+   * 事件路由（renderUI onEvent → 这里）：经事件总线（T5.1）投递——target='node'，
+   * 只达绑定该节点名的 runtime（payload 统一包 { value }，总线 routeEvent 完成）。
+   * 未加载 / 节点不属于任何绑定子树 → 静默丢弃（未启动 rt.emit 也按解释器语义丢弃）。
    */
   routeEvent(evt: UIRenderEvent): void {
-    for (const entry of this.entries) {
-      if (!entry.nameSet.has(evt.nodeName)) continue;
-      entry.rt.emit(evt.event, evt.payload === undefined ? undefined : { value: evt.payload });
-    }
+    this.bus?.routeEvent(evt);
   }
 
   /** 停止全部 runtime（窗口关闭 / 刷新 / 重载时调用；幂等）。 */
@@ -577,7 +591,7 @@ export class BindingRunner {
     if (this.stopped) return;
     this.stopped = true;
     for (const entry of this.entries) {
-      this.hub.remove(entry.tag);
+      this.bus?.unregister(entry.tag); // 总线注销：后续事件不再投递
       entry.rt.stop(); // 解释器 stop：清队 + abort signal + 复位状态槽
     }
   }

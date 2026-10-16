@@ -20,7 +20,8 @@
  *  - 事件入口约定（与 src/nodes/events.ts 对齐）：event.start 为启动入口（start() 触发）；
  *    event.custom 的实例经 params.eventName 绑定事件名（无该参数时回退：节点 title 命中
  *    IREventDef.name 即视为绑定）；event.listen 经 eventName 输入引脚（内联默认值或纯节点链）
- *    绑定。事件参数注入：IREventDef.params 按名 + 位置式 arg0~arg2（占位脚），listen 注入 args 对象。
+ *    绑定。事件参数注入：IREventDef.params 按名 + 位置式 arg0~arg2（占位脚），custom /
+ *    listen 的具名输出脚按名注入，listen 另注入 args 对象（T5.3 起两者一致）。
  */
 import type {
   IRAsset,
@@ -390,7 +391,14 @@ class BlueprintRuntime implements RuntimeHandle {
           }
         } else if (node.type === TYPE_EVENT_LISTEN) {
           if ((await this.resolveListenName(g, node)) === ev.name) {
-            targets.push({ graph: g, nodeId: node.id, seed: { args: { ...ev.args } } });
+            // 具名参数注入（T5.3）：与 event.custom 同语义，IREventDef.params 按名扩展输出脚
+            // （如 count / label 可直接连数据边）；args 输出脚保持「完整参数对象」语义
+            //（同名冲突以 args 对象优先，未声明事件由散键兜底）。
+            targets.push({
+              graph: g,
+              nodeId: node.id,
+              seed: { ...buildEventOutputs(def, ev.args), args: { ...ev.args } },
+            });
           }
         }
       }
