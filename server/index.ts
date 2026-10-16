@@ -188,6 +188,14 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       return
     }
 
+    // T0.6 项目管理器：整文件夹导入为新项目（body: { sourcePath, name? }）
+    if (pathname === '/api/projects/import-folder' && req.method === 'POST') {
+      const body = await readJson(req)
+      const result = fsApi.importProjectFolder(PROJECTS_ROOT, body.sourcePath, body.name)
+      sendJson(res, 201, result)
+      return
+    }
+
     if (pathname === '/api/watch' && req.method === 'GET') {
       handleWatch(req, res, url.searchParams.get('path') ?? '')
       return

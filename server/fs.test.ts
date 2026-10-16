@@ -20,6 +20,7 @@ import {
   createProject,
   deletePathSafe,
   importIntoProject,
+  importProjectFolder,
   isPathWithin,
   listProjects,
   movePath,
@@ -519,6 +520,148 @@ describe('watch', () => {
         await waitFor(() => events.some((e) => e.path === 'p.txt' && e.type === 'unlink'), 5000, 'poll unlink')
       } finally {
         handle.close()
+      }
+    })
+  })
+})
+
+/* ============================================================
+ * 整文件夹导入为项目（T0.6 项目管理器「导入项目」）
+ * ============================================================ */
+
+describe('importProjectFolder（T0.6）', () => {
+  test('导入含 project.json 的文件夹：整体复制、显示名来自 project.json、列表可见', () => {
+    withRoot((root) => {
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'bps-impfull-'))
+      try {
+        fs.writeFileSync(
+          path.join(outside, 'project.json'),
+          JSON.stringify({ name: '外部项目', mainUI: 'ui/custom.ui.json', engineVersion: '0.1.0', plugins: {} }),
+        )
+        fs.mkdirSync(path.join(outside, 'ui'))
+        fs.writeFileSync(path.join(outside, 'ui', 'custom.ui.json'), '{"version":2}')
+        fs.writeFileSync(path.join(outside, 'README.md'), 'hello')
+
+        const folderName = path.basename(outside)
+        const r = importProjectFolder(root, outside)
+        assert.equal(r.ok, true)
+        assert.equal(r.scaffolded, false, '已含 project.json，不应补脚手架')
+        assert.equal(r.renamed, false)
+        assert.equal(r.project.path, folderName)
+        assert.equal(r.project.name, '外部项目')
+        assert.equal(r.project.mainUI, 'ui/custom.ui.json')
+        assert.equal(r.files, 3)
+
+        const dest = path.join(root, folderName)
+        assert.equal(
+          fs.readFileSync(path.join(dest, 'project.json'), 'utf8'),
+          fs.readFileSync(path.join(outside, 'project.json'), 'utf8'),
+          'project.json 应原样复制',
+        )
+        assert.ok(fs.existsSync(path.join(dest, 'ui', 'custom.ui.json')))
+        assert.ok(fs.existsSync(path.join(dest, 'README.md')))
+
+        const list = listProjects(root)
+        assert.equal(list.length, 1)
+        assert.equal(list[0].path, folderName)
+        assert.equal(list[0].name, '外部项目')
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true })
+      }
+    })
+  })
+
+  test('导入空文件夹：补脚手架（标准目录 + 最小 project.json + 空 main.ui.json）', () => {
+    withRoot((root) => {
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'bps-impempty-'))
+      try {
+        assert.equal(fs.readdirSync(outside).length, 0)
+        const r = importProjectFolder(root, outside, '导入的空项目')
+        assert.equal(r.ok, true)
+        assert.equal(r.scaffolded, true)
+        assert.equal(r.renamed, false)
+        assert.equal(r.project.path, '导入的空项目')
+        assert.equal(r.project.name, '导入的空项目')
+        assert.equal(r.project.mainUI, 'ui/main.ui.json')
+
+        const dest = path.join(root, '导入的空项目')
+        for (const dir of ['ui', 'logic', 'assets', 'plugins', '.history']) {
+          assert.ok(fs.statSync(path.join(dest, dir)).isDirectory(), `缺少目录 ${dir}`)
+        }
+        const pf = JSON.parse(fs.readFileSync(path.join(dest, 'project.json'), 'utf8')) as Record<string, unknown>
+        assert.equal(pf.name, '导入的空项目')
+        assert.equal(pf.mainUI, 'ui/main.ui.json')
+        assert.equal(pf.engineVersion, ENGINE_VERSION)
+        const ui = JSON.parse(fs.readFileSync(path.join(dest, 'ui', 'main.ui.json'), 'utf8')) as {
+          version: number
+          root: { type: string }
+        }
+        assert.equal(ui.version, 2)
+        assert.equal(ui.root.type, 'vbox')
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true })
+      }
+    })
+  })
+
+  test('导入无 project.json 但含 ui/*.ui.json 的文件夹：mainUI 探测到第一个', () => {
+    withRoot((root) => {
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'bps-impprobe-'))
+      try {
+        fs.mkdirSync(path.join(outside, 'ui'))
+        fs.writeFileSync(path.join(outside, 'ui', 'detail.ui.json'), '{"version":2}')
+        fs.writeFileSync(path.join(outside, 'ui', 'main.ui.json'), '{"version":2}')
+        fs.mkdirSync(path.join(outside, 'logic'))
+        fs.writeFileSync(path.join(outside, 'logic', 'helper.ts'), 'export const x = 1')
+
+        const r = importProjectFolder(root, outside, '探测项目')
+        assert.equal(r.scaffolded, true)
+        assert.equal(r.project.mainUI, 'ui/detail.ui.json', '应探测 ui/*.ui.json 的第一个（COLLATOR 排序）')
+
+        const dest = path.join(root, '探测项目')
+        assert.ok(fs.existsSync(path.join(dest, 'ui', 'detail.ui.json')), '源 UI 资产应原样保留')
+        assert.ok(fs.existsSync(path.join(dest, 'logic', 'helper.ts')))
+        const pf = JSON.parse(fs.readFileSync(path.join(dest, 'project.json'), 'utf8')) as { mainUI: string }
+        assert.equal(pf.mainUI, 'ui/detail.ui.json')
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true })
+      }
+    })
+  })
+
+  test('非法导入：文件路径 400 / 源缺失 404 / 相对路径 400 / 非法项目名 400', () => {
+    withRoot((root) => {
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'bps-impbad-'))
+      try {
+        const file = path.join(outside, 'not-a-dir.txt')
+        fs.writeFileSync(file, 'x')
+        expectFsError(() => importProjectFolder(root, file), 400, '源是文件')
+        expectFsError(() => importProjectFolder(root, path.join(outside, 'missing')), 404, '源不存在')
+        expectFsError(() => importProjectFolder(root, 'relative/path'), 400, '相对路径')
+        expectFsError(() => importProjectFolder(root, outside, 'a/b'), 400, 'name 含路径分隔符')
+        // name 为空串时回落到源文件夹名（合法），不应抛错
+        assert.equal(importProjectFolder(root, outside, '   ').ok, true)
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true })
+      }
+    })
+  })
+
+  test('重名自动后缀（不覆盖已有项目）', () => {
+    withRoot((root) => {
+      createProject(root, 'Dup', 'empty')
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'bps-impdup-'))
+      try {
+        fs.writeFileSync(path.join(outside, 'project.json'), '{}')
+        const r1 = importProjectFolder(root, outside, 'Dup')
+        assert.equal(r1.renamed, true)
+        assert.equal(r1.project.path, 'Dup (2)')
+        const r2 = importProjectFolder(root, outside, 'dup')
+        assert.equal(r2.renamed, true)
+        assert.equal(r2.project.path, 'dup (3)', '大小写变体也算重名（后缀基于传入名）')
+        assert.ok(fs.existsSync(path.join(root, 'Dup', 'project.json')), '原项目未被触碰')
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true })
       }
     })
   })

@@ -1,0 +1,400 @@
+/*
+ * Dock 外壳样式（T0.3）—— 全部视觉取自 src/shell/theme/theme.css 的 token，
+ * 禁止新增硬编码颜色 / 间距；组件尺寸常量（MIN_PANE_PX / SASH_PX）与 tree.ts / DockShell.tsx 注释保持一致。
+ */
+
+/* ===== 页面骨架 ===== */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+.shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-md);
+}
+
+/* ===== 顶栏 ===== */
+.toolbar {
+  flex: none;
+  height: var(--toolbar-h);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.toolbar-left,
+.toolbar-center,
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.toolbar-logo {
+  padding: 0 var(--space-2);
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.toolbar-project {
+  padding: 0 var(--space-2);
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  border-left: 1px solid var(--border);
+}
+
+.toolbar-btn {
+  height: var(--panel-header-h);
+  padding: 0 var(--space-2);
+  font-size: var(--font-sm);
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toolbar-btn:hover:not(:disabled) {
+  background: var(--bg-input);
+  border-color: var(--border);
+}
+
+.toolbar-btn:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+/* 面板下拉菜单 */
+.toolbar-menu-wrap {
+  position: relative;
+}
+
+.toolbar-menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  z-index: 100;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.toolbar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-sm);
+  font-family: var(--font-ui);
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.toolbar-menu-item:hover {
+  background: var(--bg-input);
+}
+
+.toolbar-menu-dot {
+  flex: none;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+}
+
+.toolbar-menu-dot.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ===== dock 区 ===== */
+.dock-area {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.dock-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-size: var(--font-sm);
+}
+
+.dock-split {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dock-split-h {
+  flex-direction: row;
+}
+
+.dock-split-v {
+  flex-direction: column;
+}
+
+/* pane 最小尺寸（MIN_PANE_PX = 120）由 DockShell 内联注入 */
+
+/* ===== 分隔条（厚度 = --space-1 = 4px，与 DockShell 的 SASH_PX 一致） ===== */
+.dock-sash {
+  flex: none;
+  position: relative;
+  z-index: 2;
+  background: var(--border);
+}
+
+.dock-sash-h {
+  width: var(--space-1);
+  cursor: col-resize;
+}
+
+.dock-sash-v {
+  height: var(--space-1);
+  cursor: row-resize;
+}
+
+.dock-sash:hover,
+.dock-sash-active {
+  background: var(--accent);
+}
+
+body.dock-resizing {
+  user-select: none;
+}
+
+body.dock-resizing-h,
+body.dock-resizing-h * {
+  cursor: col-resize !important;
+}
+
+body.dock-resizing-v,
+body.dock-resizing-v * {
+  cursor: row-resize !important;
+}
+
+/* ===== 面板 tabs 组 ===== */
+.dock-tabs {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+}
+
+.dock-tabs-bar {
+  flex: none;
+  height: var(--tab-h);
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  overflow-x: auto;
+}
+
+.dock-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: grab;
+  border-right: 1px solid var(--border);
+}
+
+.dock-tab.active {
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.dock-tab.dragging {
+  opacity: 0.5;
+}
+
+.dock-tabs-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+}
+
+.dock-btn {
+  width: var(--panel-header-h);
+  height: calc(var(--tab-h) - var(--space-2));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-md);
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.dock-btn:hover:not(:disabled) {
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+.dock-btn:disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.dock-tabs-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.dock-tab-page {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.dock-panel-placeholder {
+  padding: var(--space-4);
+  color: var(--text-dim);
+  font-size: var(--font-sm);
+  line-height: 1.8;
+}
+
+.dock-panel-placeholder-title {
+  margin-bottom: var(--space-2);
+  color: var(--text);
+  font-size: var(--font-md);
+}
+
+/* ===== 拖放高亮（Godot 式蓝色） ===== */
+.dock-drop-overlay {
+  position: absolute;
+  z-index: 10;
+  pointer-events: none;
+  background: var(--selection);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+}
+
+body.dock-dragging,
+body.dock-dragging * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+/* ===== 工作区面板（中央资产 tabs） ===== */
+.workspace {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-tabs {
+  flex: none;
+  height: var(--tab-h);
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-input);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  overflow-x: auto;
+}
+
+.workspace-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+}
+
+.workspace-tab.active {
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.workspace-dirty {
+  color: var(--warning);
+  font-size: var(--font-xs);
+}
+
+.workspace-tab-close {
+  padding: 0 var(--space-1);
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.workspace-tab-close:hover {
+  color: var(--text);
+  background: var(--bg-input);
+}
+
+.workspace-empty-tabs {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+}
+
+.workspace-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}

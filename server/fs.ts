@@ -818,3 +818,168 @@ function snapshotDir(
   }
   return out
 }
+
+/* ============================================================
+ * 整文件夹导入为项目（POST /api/projects/import-folder · T0.6 项目管理器）
+ * ============================================================ */
+
+export interface ImportFolderResult {
+  ok: true
+  /** 新导入的项目摘要（path = 安全根内的项目文件夹名） */
+  project: ProjectSummary
+  /** 复制的文件数 / 字节数 */
+  files: number
+  bytes: number
+  /** 目标重名自动改名（`xxx (2)`）时为 true */
+  renamed: boolean
+  /** 源不含 project.json、由服务端补脚手架时为 true */
+  scaffolded: boolean
+}
+
+/**
+ * 把本地任意文件夹整体导入为一个新项目（项目管理器「导入项目」）：
+ *  - sourcePath 必须为绝对路径且是**目录**（文件路径拒绝 400）；允许位于安全根外（只读语义，
+ *    与 /api/import 一致）；
+ *  - name 缺省时用源文件夹名；目标重名不覆盖，自动 ` (2)` / ` (3)` 后缀；
+ *  - 源含 project.json → 整体复制入安全根；
+ *  - 源不含 project.json → 复制后按 PLAN §4.1 补脚手架：缺失标准目录补齐 +
+ *    最小 project.json（mainUI 探测 ui/*.ui.json 的第一个，没有则新建空 main.ui.json）。
+ */
+export function importProjectFolder(root: string, sourcePath: unknown, name?: unknown): ImportFolderResult {
+  if (typeof sourcePath !== 'string' || !sourcePath.trim()) {
+    throw new FsError(400, 'sourcePath 必须为非空字符串')
+  }
+  if (sourcePath.includes('\0')) throw new FsError(400, 'sourcePath 含非法字符（NUL）')
+  if (!path.isAbsolute(sourcePath)) {
+    throw new FsError(400, 'sourcePath 必须为绝对路径（本地文件夹路径）')
+  }
+  let srcSt: fs.Stats
+  try {
+    srcSt = fs.statSync(sourcePath)
+  } catch {
+    throw new FsError(404, `源路径不存在：${sourcePath}`)
+  }
+  if (!srcSt.isDirectory()) throw new FsError(400, `源路径不是文件夹：${sourcePath}`)
+
+  // 目标名：优先显式 name，否则源文件夹名；统一走项目名合法性校验
+  const rawName = typeof name === 'string' && name.trim() ? name : path.basename(path.resolve(sourcePath))
+  const targetName = validateProjectName(rawName)
+
+  fs.mkdirSync(root, { recursive: true })
+  let dest = path.join(path.resolve(root), targetName)
+  let renamed = false
+  if (fs.existsSync(dest) || hasCaseInsensitiveSibling(root, targetName)) {
+    dest = uniqueProjectDir(dest)
+    renamed = true
+  }
+
+  const counter = { files: 0, bytes: 0 }
+  copyTreeCounted(path.resolve(sourcePath), dest, counter)
+
+  const hadProjectFile = fs.existsSync(path.join(dest, 'project.json'))
+  if (!hadProjectFile) scaffoldProject(dest, targetName)
+
+  const pf = readProjectFileLoose(dest)
+  const folder = toPosixRel(root, dest)
+  return {
+    ok: true,
+    project: {
+      name: typeof pf.name === 'string' && pf.name ? pf.name : path.basename(dest),
+      path: folder,
+      mainUI: typeof pf.mainUI === 'string' ? pf.mainUI : null,
+      engineVersion: typeof pf.engineVersion === 'string' ? pf.engineVersion : null,
+      mtime: new Date().toISOString(),
+    },
+    files: counter.files,
+    bytes: counter.bytes,
+    renamed,
+    scaffolded: !hadProjectFile,
+  }
+}
+
+/** 项目目录重名时生成 `name (2)` / `name (3)` 形式的不冲突目录（整个名字追加后缀，不拆扩展名） */
+function uniqueProjectDir(dest: string): string {
+  const dir = path.dirname(dest)
+  const base = path.basename(dest)
+  for (let i = 2; i < 1000; i++) {
+    const cand = path.join(dir, `${base} (${i})`)
+    if (!fs.existsSync(cand) && !hasCaseInsensitiveSibling(dir, `${base} (${i})`)) return cand
+  }
+  throw new FsError(500, '无法生成不冲突的项目目录名')
+}
+
+/** 递归复制目录并统计文件数 / 字节数（跳过符号链接等特殊条目防环，与 buildTreeNode 处理一致） */
+function copyTreeCounted(src: string, dest: string, counter: { files: number; bytes: number }): void {
+  fs.mkdirSync(dest, { recursive: true })
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(src, { withFileTypes: true })
+  } catch {
+    return // 源目录不可读：返回已复制部分（statSync 已确认顶层目录存在）
+  }
+  for (const ent of entries) {
+    const s = path.join(src, ent.name)
+    const d = path.join(dest, ent.name)
+    if (ent.isDirectory()) {
+      copyTreeCounted(s, d, counter)
+    } else if (ent.isFile()) {
+      const st = fs.statSync(s)
+      fs.copyFileSync(s, d)
+      counter.files++
+      counter.bytes += st.size
+    }
+    // 符号链接等特殊类型忽略（源可能含 node_modules junction 等，防环）
+  }
+}
+
+/**
+ * 源文件夹缺 project.json 时补最小脚手架（PLAN §4.1）：
+ * 标准目录补齐 → 探测 mainUI → 写最小 project.json（无任何 ui/*.ui.json 时新建空 main.ui.json）。
+ */
+function scaffoldProject(projectDir: string, name: string): void {
+  for (const dir of PROJECT_DIRS) fs.mkdirSync(path.join(projectDir, dir), { recursive: true })
+  let mainUI = detectMainUI(projectDir)
+  if (!mainUI) {
+    mainUI = 'ui/main.ui.json'
+    fs.mkdirSync(path.dirname(path.join(projectDir, mainUI)), { recursive: true })
+    fs.writeFileSync(path.join(projectDir, mainUI), JSON.stringify(EMPTY_MAIN_UI, null, 2), 'utf8')
+  }
+  const pf: ProjectFile = {
+    name,
+    mainUI,
+    engineVersion: ENGINE_VERSION,
+    plugins: {},
+  }
+  fs.writeFileSync(path.join(projectDir, 'project.json'), JSON.stringify(pf, null, 2), 'utf8')
+}
+
+/** mainUI 探测：ui/ 目录下第一个 *.ui.json（按 COLLATOR 排序保证确定性），没有则 null */
+function detectMainUI(projectDir: string): string | null {
+  const uiDir = path.join(projectDir, 'ui')
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(uiDir, { withFileTypes: true })
+  } catch {
+    return null
+  }
+  const candidates = entries
+    .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.ui.json'))
+    .map((e) => e.name)
+    .sort((a, b) => COLLATOR.compare(a, b))
+  return candidates.length > 0 ? `ui/${candidates[0]}` : null
+}
+
+/** 补脚手架时新建的空 main.ui.json（结构与 templates/empty 的 UI 资产一致） */
+const EMPTY_MAIN_UI = {
+  version: 2,
+  name: 'main',
+  root: {
+    id: 'ui_root',
+    name: 'root',
+    type: 'vbox',
+    transform: { position: { x: 0, y: 0 }, size: { w: 960, h: 640 }, rotation: 0 },
+    theme: { padding: 8 },
+    props: { spacing: 4 },
+    children: [],
+  },
+}

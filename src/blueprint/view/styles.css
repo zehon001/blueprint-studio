@@ -1,0 +1,329 @@
+/*
+ * Blueprint Studio v2 —— 蓝图视觉系统样式（T2.1，PLAN §8.1 视觉复刻清单）
+ *
+ * 约定：所有颜色 / 间距 / 字号一律引用 src/shell/theme/theme.css 的 token（var(--xxx)），
+ * 禁止硬编码色值；JS 内联取色走 tokens.ts（pinColor / headColorFor / rawToken）。
+ * 本文件在 BPGraphCanvas.tsx 中于 @xyflow/react 基础样式之后 import，覆盖其默认值。
+ */
+
+/* ============ 画布（§8.1：暗色网格背景、无限平移缩放） ============ */
+
+.bp-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.bp-canvas .react-flow {
+  background: var(--bg-canvas);
+}
+
+/* 框选矩形（selectionOnDrag）与平移抓手 */
+.bp-canvas .react-flow__selection {
+  background: var(--selection);
+}
+
+.bp-canvas .react-flow__node {
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  color: var(--text);
+}
+
+/* ============ 节点体（§8.1：UE5 节点质感） ============ */
+
+.bp-node {
+  min-width: 170px;
+  background: var(--node-bg);
+  border: 1px solid var(--node-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 3px 10px var(--node-border);
+  cursor: grab;
+}
+
+/* 悬停微亮 */
+.bp-node:hover {
+  filter: brightness(1.08);
+}
+
+/* 选中：琥珀描边（prop 与 ReactFlow .selected 双通道） */
+.bp-node--selected,
+.react-flow__node.selected .bp-node {
+  border-color: var(--node-selected);
+  box-shadow: 0 0 0 1.5px var(--node-selected), 0 3px 10px var(--node-border);
+}
+
+/* ============ 节点头（§8.1：分类配色 + 图标 + 标题/副标题） ============ */
+
+.bp-node-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--node-title-h);
+  padding: 0 10px;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.bp-node-icon {
+  font-size: var(--font-md);
+  line-height: 1;
+}
+
+.bp-node-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.bp-node-title {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bp-node-subtitle {
+  font-size: var(--font-xs);
+  line-height: 1.2;
+  color: var(--text);
+  opacity: 0.72;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 未知节点：头内标题换行布局压缩 */
+.bp-variant-unknown .bp-node-head {
+  height: auto;
+  min-height: var(--node-title-h);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+/* 节点注释（IRNode.comment） */
+.bp-node-comment {
+  padding: 2px 10px;
+  font-size: var(--font-xs);
+  font-style: italic;
+  color: var(--text-disabled);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ============ 参数行（本期只读；编辑属 T2.4 检视器） ============ */
+
+.bp-node-params {
+  padding: var(--space-1) 10px;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.bp-node-param {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.bp-node-param-label {
+  color: var(--text-dim);
+}
+
+.bp-node-param-value {
+  color: var(--text);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============ 引脚区（§8.1：输入左 / 输出右，颜色按 pinColor） ============ */
+
+.bp-node-pins {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-1) 0 var(--space-2);
+}
+
+.bp-pin-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.bp-pin-col--in {
+  align-items: flex-start;
+}
+
+.bp-pin-col--out {
+  align-items: flex-end;
+}
+
+.bp-pin-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 20px;
+  padding: 0 10px;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.bp-pin-row--in {
+  justify-content: flex-start;
+}
+
+.bp-pin-row--out {
+  justify-content: flex-end;
+}
+
+.bp-pin-label {
+  white-space: nowrap;
+}
+
+/* ---- Handle：数据 = 圆（内联 --pin-color 取色），exec = 白三角（clip-path） ---- */
+
+.bp-canvas .react-flow__handle.bp-handle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--pin-any);
+}
+
+.bp-pin-row .bp-handle--in {
+  left: -5px;
+}
+
+.bp-pin-row .bp-handle--out {
+  right: -5px;
+}
+
+/* exec 引脚：白色三角（UE5 同款，两侧同为右向三角） */
+.bp-canvas .react-flow__handle.bp-handle-exec {
+  width: 12px;
+  height: 12px;
+  background: var(--pin-exec);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+/* 数据引脚：圆形，颜色经 --pin-color（pinColor）注入 */
+.bp-canvas .react-flow__handle.bp-handle-data {
+  border-radius: 50%;
+  background: var(--pin-color, var(--pin-any));
+}
+
+/* 未知节点降级引脚：空心圆（灰） */
+.bp-canvas .react-flow__handle.bp-handle--degraded {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--pin-any);
+}
+
+/* ---- 内联默认值编辑框（未连线数据输入引脚；§8.1） ---- */
+
+.bp-pin-default {
+  height: 17px;
+  width: 64px;
+  padding: 0 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  line-height: 1;
+}
+
+.bp-pin-default:focus {
+  outline: 1px solid var(--focus-ring);
+}
+
+.bp-pin-default--bool {
+  width: auto;
+  height: auto;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.bp-pin-default--select {
+  padding: 0 2px;
+}
+
+/* ============ 变量 Get/Set：无头紧凑样式（§8.1） ============ */
+
+.bp-node-var {
+  min-width: 110px;
+  background: var(--node-var-bg);
+  border: 1px solid var(--node-var-border);
+  border-left: 3px solid var(--var-color, var(--pin-any));
+  border-radius: var(--radius-sm);
+  box-shadow: 0 2px 6px var(--node-border);
+  padding: 2px 6px;
+  cursor: grab;
+}
+
+.bp-node-var:hover {
+  filter: brightness(1.1);
+}
+
+.bp-node-var.bp-node--selected,
+.react-flow__node.selected .bp-node-var {
+  border-color: var(--node-selected);
+  box-shadow: 0 0 0 1.5px var(--node-selected), 0 2px 6px var(--node-border);
+}
+
+.bp-node-var .bp-pin-row--var {
+  min-height: 20px;
+  justify-content: center;
+}
+
+.bp-var-title {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* ============ 连线（§8.1：exec 实线白 + 三角端头；数据彩虚线；贝塞尔） ============ */
+
+.bp-edge-path {
+  fill: none;
+}
+
+.bp-edge-exec {
+  stroke: var(--edge-exec);
+  stroke-width: 2.4px;
+}
+
+.bp-edge-data {
+  stroke: var(--bp-edge-color, var(--edge-data-default));
+  stroke-width: 1.8px;
+  stroke-dasharray: 7 5;
+}
+
+/* 选中连线：黄绿高亮（压过类型色，靠选择器特异性） */
+.react-flow__edge.selected .bp-edge-path {
+  stroke: var(--edge-selected);
+  stroke-width: 2.8px;
+}
+
+/* 悬停加粗 */
+.react-flow__edge:hover .bp-edge-path {
+  stroke-width: 3px;
+}
+
+/* 运行时流动动画钩子（T5.4 激活：data.flowing = true 时挂 .bp-edge--flow） */
+.bp-edge-path.bp-edge--flow {
+  stroke-dasharray: 7 5;
+  animation: bp-edge-dash 0.45s linear infinite;
+}
+
+@keyframes bp-edge-dash {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
