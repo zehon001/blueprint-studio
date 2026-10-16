@@ -1,0 +1,114 @@
+/*
+ * Blueprint Studio v2 —— 主题 token 样式表（T0.8）
+ *
+ * 两套视觉体系：
+ *   1) 基础层：Godot 4 深色编辑器质感（PLAN §6 编辑器外壳）
+ *   2) 蓝图层：UE5 蓝图默认配色（PLAN §8.1 视觉复刻清单：引脚色 / 节点头配色 / 连线 / 画布）
+ *
+ * 约定：
+ *   - 本文件只声明 CSS 自定义属性（token），不写任何组件样式；
+ *     组件样式一律引用这里的变量，禁止硬编码颜色 / 间距。
+ *   - JS 侧（ReactFlow / Canvas / SVG 内联样式）请从 src/shell/theme/tokens.ts 取值，
+ *     theme.test.ts 强制校验 tokens.ts 与本文件同名 token 值一致。
+ *   - 由 dock 外壳（T0.3）负责 import 挂载；当前暂无入口引用属预期。
+ *   - 目前仅深色主题；若未来增加浅色主题，改用 :root[data-theme] 作用域并保持 token 名不变。
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ===== 1. 基础层（Godot 深色编辑器） ===== */
+
+  /* —— 背景层级：app 最底 → 面板 → 面板标题栏 → 输入框；画布比 app 更深以突出蓝图 —— */
+  --bg-app: #191919;
+  --bg-panel: #1e1e1e;
+  --bg-panel-header: #252525;
+  --bg-input: #292929;
+  --bg-canvas: #141414;
+
+  /* —— 边框 / 分隔线 —— */
+  --border: #2e2e2e;
+  --border-strong: #3f3f3f;
+
+  /* —— 文本 —— */
+  --text: #e0e0e0;
+  --text-dim: #9e9e9e;
+  --text-disabled: #5c5c5c;
+
+  /* —— 强调 / 选中：Godot 编辑器蓝 —— */
+  --accent: #4f8cc9;
+  --accent-hover: #63a0dc;
+  --selection: rgba(79, 140, 201, 0.35); /* 框选 / 选中底色（半透明覆盖） */
+  --focus-ring: #7fb2e5;                 /* 键盘焦点描边 */
+
+  /* —— 状态色 —— */
+  --success: #67c06b;
+  --warning: #e2b34a;
+  --error: #e05c5c;
+
+  /* —— 间距标尺（4px 基准）—— */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+
+  /* —— 圆角 —— */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+
+  /* —— 字号（Godot 编辑器默认 13px 为基准档）—— */
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-lg: 15px;
+
+  /* —— 字体栈 —— */
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace;
+  --font-ui: 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+
+  /* —— 布局尺寸 —— */
+  --panel-header-h: 28px; /* 面板标题栏高 */
+  --toolbar-h: 36px;      /* 顶部工具栏高 */
+  --tab-h: 30px;          /* 工作区 tab 高 */
+
+  /* ===== 2. 蓝图层（UE5 蓝图默认配色，PLAN §8.1） ===== */
+
+  /* —— 引脚色（UE5 标准；对照 UEdGraphSchema_K2 默认值微调对比度）—— */
+  --pin-exec: #f2f2f2;   /* exec：白（三角引脚） */
+  --pin-bool: #a41a1a;   /* bool：红（UE 默认 #8E000D 提亮适配深底） */
+  --pin-int: #008f8b;    /* int：青绿 teal */
+  --pin-float: #5cff5c;  /* float / real：绿 */
+  --pin-string: #f050f0; /* string：洋红 */
+  --pin-object: #008cff; /* UIObject / 对象引用：蓝 */
+  --pin-any: #9a9a9a;    /* any / wildcard：灰 */
+
+  /* —— 节点头分类配色 —— */
+  --node-head-event: #b12121;    /* 事件节点：红 */
+  --node-head-function: #1573d6; /* 函数调用节点：蓝 */
+  --node-head-pure: #2f9e4f;     /* 纯函数节点：绿 */
+  --node-head-flow: #6a6a6a;     /* 流程控制节点：灰 */
+  --node-head-plugin: #8b3fbf;   /* 插件节点：紫 */
+  /* 变量 Get/Set：无头紧凑样式（PLAN §8.1），左缘用引脚色标记变量类型 */
+  --node-var-bg: #262626;
+  --node-var-border: #3d3d3d;
+
+  /* —— 连线 —— */
+  --edge-exec: #f2f2f2;          /* exec：实线白 */
+  --edge-data-default: #9a9a9a;  /* 数据线默认色（普通数据线按两端引脚色着色，此为未着色/wildcard 兜底） */
+  --edge-selected: #d4e157;      /* 选中 / 悬停连线高亮（UE 黄绿） */
+
+  /* —— 画布 —— */
+  --bp-grid-dot: #333333;        /* 网格点（画布底 --bg-canvas 上） */
+  --bp-comment-bg: rgba(150, 150, 150, 0.1);    /* 注释框默认填充（UE 注释默认灰、可调色） */
+  --bp-comment-border: rgba(150, 150, 150, 0.38); /* 注释框默认描边 */
+
+  /* —— 节点体 —— */
+  --node-bg: #1f1f1f;
+  --node-border: #0f0f0f;
+  --node-selected: #d8a03f; /* 选中节点描边（UE 琥珀金） */
+  --node-title-h: 32px;     /* 节点头高度 */
+}

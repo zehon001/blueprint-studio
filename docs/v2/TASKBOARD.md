@@ -36,14 +36,14 @@
 
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
-| T0.1 | 契约定义：IR / 项目文件 / NodeSpec / 插件清单的 TS 类型与文档 | `src/ir/types.ts`、`docs/v2/adr/001-ir.md` 等 | — | Arch | PLAN §4/§5/§13/§14 所列结构全部有类型定义与字段注释；typecheck 通过 | 待办 |
+| T0.1 | 契约定义：IR / 项目文件 / NodeSpec / 插件清单的 TS 类型与文档 | `src/ir/types.ts`、`docs/v2/adr/001-ir.md` 等 | — | Arch | PLAN §4/§5/§13/§14 所列结构全部有类型定义与字段注释；typecheck 通过 | 完成 · 2026-10-17（产出说明见 §6） |
 | T0.2 | 服务端项目 FS API（安全根内 CRUD / 读目录树 / 文件监视）+ 模板脚手架 | `server/fs.ts`、`templates/` | T0.1 | Server | 新建项目→目录结构符合 PLAN §4.1；越权路径被拒；增删改经 REST 可用 | 待办 |
 | T0.3 | Dock 外壳与面板注册框架（拖拽吸附 / 布局持久化） | `src/shell/dock/` | T0.1 | Shell | 任意面板可拖到四边/中心成 tab；布局刷新后还原；新面板注册 ≤10 行代码 | 待办 |
 | T0.4 | 多窗口拆合（BroadcastChannel 按序重放） | `src/shell/windows/` | T0.3 | Shell | 拆出的面板与主窗状态实时一致（双向改 store 均同步）；关闭弹窗内容回主窗；弹窗被拦截时降级新标签页 | 待办 |
-| T0.5 | 统一命令栈（immer patches）+ 快捷键框架 | `src/shell/commands/` | — | Shell | 蓝图/UI/属性三域各接一个示例命令；Ctrl+Z/Shift+Z 正确跨域撤销；快捷键注册含冲突检测 | 待办 |
+| T0.5 | 统一命令栈（immer patches）+ 快捷键框架 | `src/shell/commands/` | — | Shell | 蓝图/UI/属性三域各接一个示例命令；Ctrl+Z/Shift+Z 正确跨域撤销；快捷键注册含冲突检测 | 完成 · 2026-10-17（产出说明见 §6） |
 | T0.6 | 项目管理器页（最近 / 新建模板 / 导入文件夹 / 打开） | `src/shell/project-manager/` | T0.2 | Shell | 新建→进入主编辑器；最近列表持久化；导入任意文件夹成功打开 | 待办 |
 | T0.7 | 文件系统面板（树 / 右键增删改重命名 / 拖入导入） | `src/panels/file-system/` | T0.2, T0.5 | Shell | 增删改重命名全可用且可撤销；与磁盘实际状态一致 | 待办 |
-| T0.8 | 主题系统（Godot 深色 token + UE5 蓝图配色 token） | `src/shell/theme/` | — | Shell | 全部颜色/间距 token 化无硬编码；蓝图节点引脚色符合 PLAN §8.1 表 | 待办 |
+| T0.8 | 主题系统（Godot 深色 token + UE5 蓝图配色 token） | `src/shell/theme/` | — | Shell | 全部颜色/间距 token 化无硬编码；蓝图节点引脚色符合 PLAN §8.1 表 | 完成 · 2026-10-17（产出说明见 §6） |
 
 ### M1 UI 闭环
 
@@ -131,6 +131,12 @@
 | TA.2 | E2E 冒烟（新建→拼UI→连蓝图→运行→观察） | `tests/e2e/` | M2 起 | QA | PLAN §20.3 场景脚本化可重复执行 | 待办 |
 | TA.3 | 视觉复刻度对比（截图 vs UE5/Godot 参考 + 交互清单勾验） | `tests/visual/` 基线 | M2/M7 | QA | §8/§6 清单逐项出具勾验报告 | 待办 |
 
+### 节点库（贯穿）
+
+| ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
+|---|---|---|---|---|---|---|
+| T13.1 | 基础节点库：PLAN §13.1 全部内置分类（flow/events/variables/math/string/container/convert/ui/system） | `src/nodes/` | T0.1 | Nodes | §13.1 清单分类齐全；NodeSpec 契约一致；关键节点有单测；扩展只需加模块+注册一行 | 待办 |
+
 ### 任务卡模板（新增卡用）
 
 ```markdown
@@ -155,8 +161,9 @@ T6.1 ─ T6.2/T6.3/T6.4 ─ T6.5/T6.6 ─ M7
 ## 5. 当前状态
 
 - 看板初始化：2026-10-17 · 全部 `待办` · 无在途卡
-- 下一步：PM-Agent 从 T0.1（契约定义）与 T0.2/T0.8（无依赖并行项）开始派发
+- 2026-10-17 PM-Agent 单会话执行：B0（地基准备）已提交；B1 三卡（T0.1/T0.5/T0.8）完成并验收；B2 派发 T0.2/T2.5/T13.1/T1.1
+- 单会话模式下协作协议微调：不逐卡建 git 分支，改为 PM 按批次在 `v2` 分支提交（每批次一次 commit，卡状态在本表跟踪）；Agent 产出统一由 PM 验收（typecheck + 单测 + 抽查）
 
 ## 6. 进度纪要（PM 维护，倒序追加）
 
-（暂无）
+- **2026-10-17 · B0+B1**：v2 分支建立；v1.1 源码清退（main 历史保留）；多入口（index/editor/runtime.html）+ `@` 别名 + 新依赖（immer/esbuild/CodeMirror 6）。B1：T0.1 完成——`src/ir/types.ts` 46 个导出 + ADR 001~004；Arch 规范化决策（已广播，后续卡遵守）：① exec 引脚显式写 `"type":"exec"`；② select 型引脚 = `"type":"string"` + `options:[{value,label}]`；③ 事件参数 `number` 定型为 `float`/`int`。T0.5 完成——命令栈（immer patches 统一时间栈、跨域撤销、ReplayNotice）+ 快捷键注册（冲突检测），26 测试绿。T0.8 完成——63 个 token（Godot 深色 + UE5 蓝图 §8.1 全表），CSS↔TS 一致性测试，6 测试绿。typecheck 全绿、全量 32 测试绿。
