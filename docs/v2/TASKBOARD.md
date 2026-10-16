@@ -37,7 +37,7 @@
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
 | T0.1 | 契约定义：IR / 项目文件 / NodeSpec / 插件清单的 TS 类型与文档 | `src/ir/types.ts`、`docs/v2/adr/001-ir.md` 等 | — | Arch | PLAN §4/§5/§13/§14 所列结构全部有类型定义与字段注释；typecheck 通过 | 完成 · 2026-10-17（产出说明见 §6） |
-| T0.2 | 服务端项目 FS API（安全根内 CRUD / 读目录树 / 文件监视）+ 模板脚手架 | `server/fs.ts`、`templates/` | T0.1 | Server | 新建项目→目录结构符合 PLAN §4.1；越权路径被拒；增删改经 REST 可用 | 待办 |
+| T0.2 | 服务端项目 FS API（安全根内 CRUD / 读目录树 / 文件监视）+ 模板脚手架 | `server/fs.ts`、`templates/` | T0.1 | Server | 新建项目→目录结构符合 PLAN §4.1；越权路径被拒；增删改经 REST 可用 | 完成 · 2026-10-17（产出说明见 §6） |
 | T0.3 | Dock 外壳与面板注册框架（拖拽吸附 / 布局持久化） | `src/shell/dock/` | T0.1 | Shell | 任意面板可拖到四边/中心成 tab；布局刷新后还原；新面板注册 ≤10 行代码 | 待办 |
 | T0.4 | 多窗口拆合（BroadcastChannel 按序重放） | `src/shell/windows/` | T0.3 | Shell | 拆出的面板与主窗状态实时一致（双向改 store 均同步）；关闭弹窗内容回主窗；弹窗被拦截时降级新标签页 | 待办 |
 | T0.5 | 统一命令栈（immer patches）+ 快捷键框架 | `src/shell/commands/` | — | Shell | 蓝图/UI/属性三域各接一个示例命令；Ctrl+Z/Shift+Z 正确跨域撤销；快捷键注册含冲突检测 | 完成 · 2026-10-17（产出说明见 §6） |
@@ -49,7 +49,7 @@
 
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
-| T1.1 | UI 节点库 schema（PLAN §7.1 全部节点 + 属性声明） | `src/ui-editor/schema/` | T0.1 | UIEditor | 4 类节点齐全；每个属性有类型/默认值/分组；检视器可纯 schema 驱动 | 待办 |
+| T1.1 | UI 节点库 schema（PLAN §7.1 全部节点 + 属性声明） | `src/ui-editor/schema/` | T0.1 | UIEditor | 4 类节点齐全；每个属性有类型/默认值/分组；检视器可纯 schema 驱动 | 完成 · 2026-10-17（产出说明见 §6） |
 | T1.2 | DOM 渲染器（编辑态/运行态共用，编辑冻结交互） | `src/runtime/render/` | T1.1 | UIEditor+Runtime | 同一 UI 树两态渲染一致；容器布局正确嵌套 | 待办 |
 | T1.3 | 2D 视口（选择/框选/移动/对齐吸附/缩放/键盘微调） | `src/ui-editor/viewport/` | T1.2 | UIEditor | PLAN §7.2 操作全可用；操作均入命令栈可撤销 | 待办 |
 | T1.4 | UI 树面板（树形/拖拽重排父子/右键菜单） | `src/panels/scene-tree/` | T1.1, T0.5 | UIEditor | 拖拽改变父子即时反映到视口；右键含「添加节点/复制/删除/附加逻辑资产(占位)」 | 待办 |
@@ -135,7 +135,7 @@
 
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
-| T13.1 | 基础节点库：PLAN §13.1 全部内置分类（flow/events/variables/math/string/container/convert/ui/system） | `src/nodes/` | T0.1 | Nodes | §13.1 清单分类齐全；NodeSpec 契约一致；关键节点有单测；扩展只需加模块+注册一行 | 待办 |
+| T13.1 | 基础节点库：PLAN §13.1 全部内置分类（flow/events/variables/math/string/container/convert/ui/system） | `src/nodes/` | T0.1 | Nodes | §13.1 清单分类齐全；NodeSpec 契约一致；关键节点有单测；扩展只需加模块+注册一行 | 完成 · 2026-10-17（产出说明见 §6） |
 
 ### 任务卡模板（新增卡用）
 
@@ -161,9 +161,11 @@ T6.1 ─ T6.2/T6.3/T6.4 ─ T6.5/T6.6 ─ M7
 ## 5. 当前状态
 
 - 看板初始化：2026-10-17 · 全部 `待办` · 无在途卡
-- 2026-10-17 PM-Agent 单会话执行：B0（地基准备）已提交；B1 三卡（T0.1/T0.5/T0.8）完成并验收；B2 派发 T0.2/T2.5/T13.1/T1.1
+- 2026-10-17 PM-Agent 单会话执行：B0（地基准备）已提交；B1 三卡（T0.1/T0.5/T0.8）完成并验收；B2 完成 T0.2/T13.1/T1.1，T2.5 因 API 连接错误退回重派（并入 B3）；B3 派发 T0.3/T0.6/T2.1/T2.8/T2.5
 - 单会话模式下协作协议微调：不逐卡建 git 分支，改为 PM 按批次在 `v2` 分支提交（每批次一次 commit，卡状态在本表跟踪）；Agent 产出统一由 PM 验收（typecheck + 单测 + 抽查）
 
 ## 6. 进度纪要（PM 维护，倒序追加）
+
+- **2026-10-17 · B2**：T0.2 完成——FS API（安全根越权 8 样本全拒、CRUD/move/tree/import、SSE watch）+ 两模板；27 测试 + REST E2E 实测。T13.1 完成——**77 个内置节点**（九分类）循环采用状态机机制（ADR-005 裁定），32 测试。T1.1 完成——23 种 UI 节点 schema（四类 + listColumns 结构化列定义），7 测试。T2.5 解释器派发失败（Agent API 连接错误，无产出），并入 B3 重派。契约增补 **ADR-005**（PM 代 Arch）：NodeRunContext 增补可选 `ui/notify/clipboardWrite/openUrl`；多出口触发暂不改契约（循环状态机方案）；UI 属性统一存 props、ADR-002 事件名修正 selectionChanged。全量 66 测试绿、typecheck 绿。
 
 - **2026-10-17 · B0+B1**：v2 分支建立；v1.1 源码清退（main 历史保留）；多入口（index/editor/runtime.html）+ `@` 别名 + 新依赖（immer/esbuild/CodeMirror 6）。B1：T0.1 完成——`src/ir/types.ts` 46 个导出 + ADR 001~004；Arch 规范化决策（已广播，后续卡遵守）：① exec 引脚显式写 `"type":"exec"`；② select 型引脚 = `"type":"string"` + `options:[{value,label}]`；③ 事件参数 `number` 定型为 `float`/`int`。T0.5 完成——命令栈（immer patches 统一时间栈、跨域撤销、ReplayNotice）+ 快捷键注册（冲突检测），26 测试绿。T0.8 完成——63 个 token（Godot 深色 + UE5 蓝图 §8.1 全表），CSS↔TS 一致性测试，6 测试绿。typecheck 全绿、全量 32 测试绿。

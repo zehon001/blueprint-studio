@@ -85,7 +85,7 @@ MyTool/
         "theme": {},
         "props": {},
         "logicAsset": "logic/main.bp.json",   // 绑定逻辑资产（§4.2）
-        "events": ["itemSelected"],           // 关注的内建事件（事件面板展示）
+        "events": ["selectionChanged", "doubleClicked"],           // 关注的内建事件（事件面板展示）
         "children": []
       }
     ]

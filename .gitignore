@@ -4,3 +4,4 @@ assets/uploads/
 .DS_Store
 *.log
 .env
+_projects/

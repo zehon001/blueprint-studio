@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "name": "main",
+  "root": {
+    "id": "ui_root",
+    "name": "root",
+    "type": "vbox",
+    "transform": { "position": { "x": 0, "y": 0 }, "size": { "w": 960, "h": 640 }, "rotation": 0 },
+    "theme": { "padding": 8 },
+    "props": { "spacing": 4 },
+    "children": []
+  }
+}

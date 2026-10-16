@@ -381,6 +381,16 @@ export interface PinSpec {
   defaultValue?: unknown;
 }
 
+/** UI 访问器（ADR-005：解释器注入到 NodeRunContext.ui；缺失时节点须降级不抛错） */
+export interface UiHandle {
+  /** 按名查找绑定 UI 子树中的节点（找到返回节点对象，找不到返回 null） */
+  find(name: string): unknown;
+  /** 读 UI 节点属性值（attr 如 text / value / checked / items / visible） */
+  read(name: string, attr: string): unknown;
+  /** 写 UI 节点属性值 */
+  write(name: string, attr: string, value: unknown): void;
+}
+
 /** 节点运行上下文（解释器构造，NodeRunFn 第一参数） */
 export interface NodeRunContext {
   /** 当前执行的节点实例 id（调试观察 / 高亮上报用） */
@@ -399,6 +409,12 @@ export interface NodeRunContext {
   delay(ms: number): Promise<void>;
   /** 运行中止信号（运行窗口关闭 / 手动停止时置位；长任务节点应响应） */
   signal: AbortSignal;
+  /** UI 访问器（ADR-005：绑定 UI 节点运行时由解释器注入；未绑定为 undefined，ui.* 节点降级） */
+  ui?: UiHandle;
+  /** 通用系统钩子（system.notify / clipboardWrite / openUrl 用；缺失时节点降级） */
+  notify?(message: string): void;
+  clipboardWrite?(text: string): void;
+  openUrl?(url: string): void;
 }
 
 /** 节点单次执行结果 */
