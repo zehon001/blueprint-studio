@@ -9,9 +9,12 @@
  *  - 项目列表 / 从模板新建项目（templates/ 目录即模板，递归复制 + 模板变量替换）
  *  - 项目内文件 CRUD / 移动重命名（move）/ 外部路径导入（import）
  *  - 目录树读取（隐藏 .history）
+ *  - .history 自动快照（T7.4）：文件覆盖 / 删除 / 恢复前自动留存旧内容到 <项目>/.history/
+ *    （每文件快照数有上限，超出淘汰最旧；上限经环境变量 BP_HISTORY_LIMIT 配置），并提供
+ *    列出快照（listHistory）与按快照恢复（restoreHistory）的数据源，路由见 ../server/index.ts
  *  - 文件监视：原生 fs.watch（Windows 支持 recursive）+ 轮询兜底，防抖 200ms
  *
- * 不做（后续卡）：.history 快照写入（T7.4）、esbuild 转译（T3.3）、插件执行（T6.3）、
+ * 不做（后续卡）：esbuild 转译（T3.3，已由 ./transpile.ts 承接）、插件执行（T6.3）、
  * WS 调试协议（T5.4）、最近项目列表持久化（T0.6）。
  *
  * 路径参数约定：所有 /api/tree /api/file /api/move /api/import 的 path 均为
@@ -35,6 +38,17 @@ export const PROJECT_DIRS = ['ui', 'logic', 'assets', 'plugins', '.history'] as 
 
 /** 目录树 / 监视中隐藏的目录名（.history 为 T7.4 快照目录） */
 const HIDDEN_DIR_NAMES: ReadonlySet<string> = new Set(['.history'])
+
+/** .history 自动快照目录名（T7.4；保留目录：不可经文件级写 API 直接触碰） */
+const HISTORY_DIR_NAME = '.history'
+
+/**
+ * 相对 posix 路径中是否含有隐藏段（.history）——SSE watch 事件过滤用（T7.4）：
+ * 快照写入由服务端自动完成，不应对客户端产生「文件变化」事件（文件树会把它当普通文件合并）。
+ */
+export function isHiddenRelPath(relPosix: string): boolean {
+  return relPosix.split('/').some((seg) => HIDDEN_DIR_NAMES.has(seg))
+}
 
 /** 内置项目模板（templates/ 下的目录名） */
 export const TEMPLATES = ['empty', 'log-analyzer'] as const
@@ -407,33 +421,51 @@ export function readFileSafe(
 }
 
 /** PUT /api/file：写入文本文件，父目录不存在则自动创建；目标已是目录则拒绝 */
-export function writeFileSafe(root: string, relPath: unknown, content: unknown): { path: string; size: number } {
+export function writeFileSafe(
+  root: string,
+  relPath: unknown,
+  content: unknown,
+): { path: string; size: number; snapshotTs?: string } {
   if (typeof relPath !== 'string' || !relPath.trim()) throw new FsError(400, 'path 必须为非空字符串')
   if (typeof content !== 'string') throw new FsError(400, 'content 必须为字符串（二进制请走 /api/import）')
   const scope = resolveProjectScoped(root, relPath)
   if (scope.relInProject === '') throw new FsError(400, 'path 必须指向项目内文件')
+  assertNotHistoryPath(scope.relInProject) // T7.4：.history 由服务端管理，不可经文件 API 直写
   if (fs.existsSync(scope.abs) && fs.statSync(scope.abs).isDirectory()) {
     throw new FsError(400, `目标是目录，不能作为文件写入：${scope.relInProject}`)
   }
+  // T7.4 保存前快照：覆盖已存在文件时先把旧内容留存 .history（新建文件不产生快照）
+  const snapshotTs = snapshotFile(scope)
   fs.mkdirSync(path.dirname(scope.abs), { recursive: true })
   fs.writeFileSync(scope.abs, content, 'utf8')
-  return { path: toPosixRel(root, scope.abs), size: Buffer.byteLength(content, 'utf8') }
+  return {
+    path: toPosixRel(root, scope.abs),
+    size: Buffer.byteLength(content, 'utf8'),
+    snapshotTs: snapshotTs ?? undefined,
+  }
 }
 
 /** DELETE /api/file：删除文件或目录（递归）；禁止删除项目根本身 */
-export function deletePathSafe(root: string, relPath: string): { path: string; kind: 'file' | 'dir' } {
+export function deletePathSafe(
+  root: string,
+  relPath: string,
+): { path: string; kind: 'file' | 'dir'; snapshotTs?: string } {
   const scope = resolveProjectScoped(root, relPath)
   if (scope.relInProject === '') {
     throw new FsError(400, '不能删除项目根目录（删除项目属项目管理器职责，后续卡处理）')
   }
+  assertNotHistoryPath(scope.relInProject) // T7.4：禁止经 DELETE 清空 .history 快照
   let st: fs.Stats
   try {
     st = fs.statSync(scope.abs)
   } catch {
     throw new FsError(404, `路径不存在：${scope.relInProject}`)
   }
+  // T7.4：删除普通文件前留一份快照（DoD「文件级误删可从快照恢复」——
+  // 文件删除后仍可经 /api/history/restore 按快照找回；目录删除不做递归快照）
+  const snapshotTs = st.isFile() ? snapshotFile(scope) : null
   fs.rmSync(scope.abs, { recursive: true, force: false })
-  return { path: toPosixRel(root, scope.abs), kind: st.isDirectory() ? 'dir' : 'file' }
+  return { path: toPosixRel(root, scope.abs), kind: st.isDirectory() ? 'dir' : 'file', snapshotTs: snapshotTs ?? undefined }
 }
 
 /** POST /api/move：移动 / 重命名（body: { from, to, overwrite? }），支持跨项目 */
@@ -446,8 +478,10 @@ export function movePath(
   if (!fromStr.trim() || !toStr.trim()) throw new FsError(400, 'from / to 必须为非空字符串')
   const src = resolveProjectScoped(root, fromStr)
   if (src.relInProject === '') throw new FsError(400, '不能整体移动 / 重命名项目目录')
+  assertNotHistoryPath(src.relInProject) // T7.4：不得把快照移出 .history
   const dst = resolveProjectScoped(root, toStr)
   if (dst.relInProject === '') throw new FsError(400, '目标不能是项目目录本身')
+  assertNotHistoryPath(dst.relInProject) // T7.4：不得向 .history 内移动 / 重命名
   const sameTarget =
     src.abs.toLowerCase() === dst.abs.toLowerCase() || (!IS_WIN && src.abs === dst.abs)
   if (sameTarget) return { path: toPosixRel(root, dst.abs), moved: false } // 同名 move = no-op
@@ -481,6 +515,200 @@ function copyAny(src: string, dest: string): void {
   } else if (st.isFile()) {
     fs.mkdirSync(path.dirname(dest), { recursive: true })
     fs.copyFileSync(src, dest)
+  }
+}
+
+/* ============================================================
+ * .history 自动快照（T7.4 · 保存前快照 / 删除前快照 / 恢复）
+ * ============================================================ */
+
+/** 每文件保留的快照数默认上限（快照上限可配：经环境变量 BP_HISTORY_LIMIT 覆盖） */
+export const HISTORY_LIMIT_DEFAULT = 20
+
+/**
+ * 快照时间戳（即快照文件名主干）：`20261017-142530-123`；同一毫秒内多次快照时追加
+ * 零填充序号 `-002`（保证文件名字典序 = 时间序，淘汰最旧时无需解析时间）。
+ * 恢复端点回传的 ts 必须匹配本格式（天然排除路径分隔符 / 上跳，防注入）。
+ */
+const HISTORY_TS_RE = /^\d{8}-\d{6}-\d{3}(?:-\d{1,4})?$/
+
+/**
+ * 解析快照上限（每文件保留份数）。
+ * 配置方式选型说明：沿用本文件既有的「环境变量优先」模式（同 BP_PROJECTS_ROOT——
+ * 安全根就是经环境变量配置的），快照上限是服务端全局策略而非单项目属性，
+ * 因此不放进 project.json（那个文件用户随时会改写，且历史越多的项目越不该被它约束）。
+ * 环境变量 `BP_HISTORY_LIMIT`：正整数生效；缺失 / 非整数 / <1 一律回落默认 20。
+ */
+export function historyLimit(): number {
+  const raw = process.env.BP_HISTORY_LIMIT
+  if (raw && raw.trim()) {
+    const n = Number(raw.trim())
+    if (Number.isInteger(n) && n >= 1) return n
+  }
+  return HISTORY_LIMIT_DEFAULT
+}
+
+/**
+ * 项目内相对路径是否位于保留快照目录 .history（任意层级段命中即算——
+ * .history 在目录树任何层级都隐藏，且 Windows 文件系统大小写不敏感，
+ * 故统一按小写比较拒绝 `.HISTORY` 等变体经文件 API 写入真实快照目录）。
+ */
+export function isHistoryPath(relInProject: string): boolean {
+  return relInProject.split('/').some((seg) => seg.toLowerCase() === HISTORY_DIR_NAME)
+}
+
+/** 保留目录守卫：文件级写 API（写 / 删 / 移动两端 / 导入目标）不得直接触碰 .history */
+function assertNotHistoryPath(relInProject: string): void {
+  if (isHistoryPath(relInProject)) {
+    throw new FsError(403, `.history 为自动快照目录（由服务端管理），不可经文件 API 直接写入：${relInProject}`)
+  }
+}
+
+/** 快照目录：<项目>/.history/<项目内相对路径>/（relInProject 逐段展开，保持子目录层级） */
+function historyDirFor(projectDir: string, relInProject: string): string {
+  return path.join(projectDir, HISTORY_DIR_NAME, ...relInProject.split('/'))
+}
+
+/** 生成当前时刻的快照时间戳；同毫秒冲突时追加零填充序号 -002 / -003（保证字典序=时间序） */
+function uniqueHistoryTs(dir: string): string {
+  const d = new Date()
+  const p2 = (n: number): string => String(n).padStart(2, '0')
+  const p3 = (n: number): string => String(n).padStart(3, '0')
+  const base =
+    `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}` +
+    `-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}-${p3(d.getMilliseconds())}`
+  if (!fs.existsSync(path.join(dir, `${base}.bak`))) return base
+  for (let i = 2; i < 10000; i++) {
+    const cand = `${base}-${String(i).padStart(3, '0')}`
+    if (!fs.existsSync(path.join(dir, `${cand}.bak`))) return cand
+  }
+  throw new FsError(500, '同一毫秒内快照数超出上限（异常高频写入）')
+}
+
+/** 快照目录内的 .bak 文件名（按时间序升序 = 文件名字典序；子目录与非 .bak 忽略） */
+function listSnapshotNames(dir: string): string[] {
+  let names: string[]
+  try {
+    names = fs.readdirSync(dir)
+  } catch {
+    return [] // 目录不存在 / 不可读：无快照
+  }
+  return names.filter((n) => n.endsWith('.bak')).sort()
+}
+
+/** 按上限淘汰最旧快照（保留最新 limit 份；limit 至少 1） */
+function pruneHistory(dir: string, limit: number): void {
+  const keep = Math.max(1, limit)
+  const names = listSnapshotNames(dir)
+  for (let i = 0; i < names.length - keep; i++) {
+    try {
+      fs.rmSync(path.join(dir, names[i]), { force: true })
+    } catch {
+      /* 淘汰失败不阻断主流程（下次快照再试） */
+    }
+  }
+}
+
+/**
+ * 给项目内一个已存在的文件做快照（保存前 / 删除前 / 恢复前调用）。
+ * 目标不存在（新建）或不是普通文件 → 不产生快照，返回 null；
+ * 否则把当前内容复制到 .history 对应层级目录并按上限淘汰最旧，返回快照时间戳。
+ */
+export function snapshotFile(scope: ProjectScope, limit: number = historyLimit()): string | null {
+  let st: fs.Stats
+  try {
+    st = fs.statSync(scope.abs)
+  } catch {
+    return null // 文件不存在（新建写入）：无旧内容可快照
+  }
+  if (!st.isFile()) return null
+  const dir = historyDirFor(scope.projectDir, scope.relInProject)
+  fs.mkdirSync(dir, { recursive: true })
+  const ts = uniqueHistoryTs(dir)
+  fs.copyFileSync(scope.abs, path.join(dir, `${ts}.bak`))
+  pruneHistory(dir, limit)
+  return ts
+}
+
+/** GET /api/history 的条目（ts 供恢复端点回传；新 → 旧排序） */
+export interface HistoryEntry {
+  ts: string
+  /** 快照字节数 */
+  size: number
+  /** 快照文件修改时间（ISO） */
+  mtime: string
+}
+
+/**
+ * 列出项目内某文件的全部快照（GET /api/history）。
+ * 文件本体已删除也可查（误删恢复的入口）；path 约定与 /api/file 一致
+ * （相对安全根、首段 = 项目文件夹名）。快照位于 .history 下，本身不可查。
+ */
+export function listHistory(root: string, relPath: string): { path: string; entries: HistoryEntry[] } {
+  const scope = resolveProjectScoped(root, relPath)
+  if (scope.relInProject === '') throw new FsError(400, 'path 必须指向项目内文件')
+  if (isHistoryPath(scope.relInProject)) throw new FsError(400, '.history 为自动快照目录，不提供历史查询')
+  const dir = historyDirFor(scope.projectDir, scope.relInProject)
+  const entries: HistoryEntry[] = []
+  for (const name of listSnapshotNames(dir)) {
+    const abs = path.join(dir, name)
+    try {
+      const st = fs.statSync(abs)
+      entries.push({ ts: name.slice(0, -'.bak'.length), size: st.size, mtime: st.mtime.toISOString() })
+    } catch {
+      /* 竞态（快照刚被淘汰）：跳过 */
+    }
+  }
+  entries.reverse() // 新 → 旧
+  return { path: toPosixRel(root, scope.abs), entries }
+}
+
+/** POST /api/history/restore 的返回（preRestoreTs 非空 = 恢复前内容可再经恢复找回） */
+export interface RestoreResult {
+  ok: true
+  /** 恢复目标（相对安全根，posix） */
+  path: string
+  /** 被恢复的快照时间戳 */
+  ts: string
+  /** 恢复前给当前文件做的快照时间戳；当前文件不存在（误删恢复）时为 null */
+  preRestoreTs: string | null
+  /** 恢复后文件字节数 */
+  size: number
+}
+
+/**
+ * 用指定快照覆盖当前文件（POST /api/history/restore，body: { path, ts }）。
+ * - 文件本体可以不存在（误删恢复）：直接从快照重建；
+ * - 恢复前若当前文件存在，先为它做一份快照（与保存前快照同一机制、同一上限），
+ *   因此恢复本身可撤销（再恢复到 preRestoreTs 即回退）；
+ * - ts 经格式校验（排除路径分隔符与上跳），路径经 resolveProjectScoped 全量安全校验。
+ */
+export function restoreHistory(root: string, relPath: string, ts: unknown): RestoreResult {
+  if (typeof ts !== 'string' || !HISTORY_TS_RE.test(ts)) {
+    throw new FsError(400, 'ts 必须为快照时间戳（如 20261017-142530-123，可经 GET /api/history 查询）')
+  }
+  const scope = resolveProjectScoped(root, relPath)
+  if (scope.relInProject === '') throw new FsError(400, 'path 必须指向项目内文件')
+  assertNotHistoryPath(scope.relInProject) // 不允许把快照内容恢复进 .history 自身
+  const snapPath = path.join(historyDirFor(scope.projectDir, scope.relInProject), `${ts}.bak`)
+  if (!fs.existsSync(snapPath)) {
+    throw new FsError(404, `快照不存在：${scope.relInProject} @ ${ts}`)
+  }
+  let preRestoreTs: string | null = null
+  if (fs.existsSync(scope.abs)) {
+    if (fs.statSync(scope.abs).isDirectory()) {
+      throw new FsError(400, `恢复目标是目录，不能被文件覆盖：${scope.relInProject}`)
+    }
+    preRestoreTs = snapshotFile(scope) // 恢复前先留存当前内容（可撤销）
+  }
+  fs.mkdirSync(path.dirname(scope.abs), { recursive: true })
+  fs.copyFileSync(snapPath, scope.abs)
+  return {
+    ok: true,
+    path: toPosixRel(root, scope.abs),
+    ts,
+    preRestoreTs,
+    size: fs.statSync(scope.abs).size,
   }
 }
 
@@ -576,6 +804,7 @@ export function importIntoProject(root: string, targetDir: unknown, sourcePath: 
   if (sourcePath.includes('\0')) throw new FsError(400, 'sourcePath 含非法字符')
   if (!path.isAbsolute(sourcePath)) throw new FsError(400, 'sourcePath 必须为绝对路径（文件对话框返回值）')
   const target = resolveProjectScoped(root, targetDir)
+  assertNotHistoryPath(target.relInProject) // T7.4：导入目标不得位于 .history（含深层同名段）
   let srcSt: fs.Stats
   try {
     srcSt = fs.statSync(sourcePath)

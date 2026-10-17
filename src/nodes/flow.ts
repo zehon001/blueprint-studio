@@ -1,13 +1,10 @@
 /**
  * Blueprint Studio v2 —— 流程节点（头灰，PLAN §13.1 flow）
  *
- * 运行机制说明（NodeRunFn 契约约束）：
- * ADR-003 的 NodeRunResult.next 只支持「单次 run 激活一个 exec 出口」，
- * 节点内无法自行多次触发下游。因此循环类 / 触发类节点统一采用
- * 「循环状态机」实现：每次被触发（包括循环体链尾回连到本节点 exec 入）
- * 走一次迭代，经 body 出口给出当前迭代，完成时走 done 出口。
- * 状态按节点实例 id 隔离（见 spec.ts 状态槽），可用 reset / break 数据引脚
- * （或变量）控制重置与提前终止，与解释器实现解耦。
+ * 运行机制说明（ADR-008 契约）：NodeRunFn 可返回 async generator（多次出脚）——
+ * 循环/序列类节点在一次触发内逐迭代 yield 出脚（每迭代等循环体子链完整执行后
+ * 继续，UE5 语义，无需链尾回连）；break 等 动态引脚经 ctx.reinputs() 每迭代重估。
+ * doOnce / flipFlop / multiGate / gate 为单出口或状态机语义，仍用状态槽（spec.ts）。
  */
 import type { NodeSpec } from '../ir/types';
 import {

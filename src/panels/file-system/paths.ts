@@ -178,3 +178,28 @@ export function dedupeName(existing: readonly string[], desired: string): string
   }
   return desired
 }
+
+/* ============================================================
+ * .history 历史快照展示工具（T7.4）
+ * ============================================================ */
+
+/**
+ * 快照时间戳 → 展示文本：'20261017-142530-123' → '2026-10-17 14:25:30.123'；
+ * 同毫秒冲突序号（-002）显示为 '…123 ·2'；非法时间戳原样返回（服务端契约变化时兜底）。
+ */
+export function historyTsLabel(ts: string): string {
+  const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})-(\d{3})(?:-(\d+))?$/.exec(ts)
+  if (!m) return ts
+  const [, y, mo, d, h, mi, s, ms, seq] = m
+  return `${y}-${mo}-${d} ${h}:${mi}:${s}.${ms}${seq ? ` ·${Number(seq)}` : ''}`
+}
+
+/** 字节数展示（1024 进制）：B / KB / MB；≥10 取整，<10 保留 1 位小数；非法输入 '?' */
+export function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return '?'
+  if (n < 1024) return `${n} B`
+  const kb = n / 1024
+  if (kb < 1024) return `${kb >= 10 ? Math.round(kb) : kb.toFixed(1)} KB`
+  const mb = kb / 1024
+  return `${mb >= 10 ? Math.round(mb) : mb.toFixed(1)} MB`
+}

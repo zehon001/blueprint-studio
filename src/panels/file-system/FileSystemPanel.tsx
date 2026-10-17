@@ -8,9 +8,14 @@
  *    无法安全增量合并时整体重载；卸载断开。
  *  - 双击：文件 → workspace openAsset（.ui.json→UI / .bp.json→蓝图 / .ts·.py→脚本，
  *    其余提示不支持）；目录 → 折叠切换（不是打开）。
- *  - 右键菜单（通用 Menu 组件）：文件=打开/重命名/复制/删除；
+ *  - 右键菜单（通用 Menu 组件）：文件=打开/历史快照…/重命名/复制/删除；
  *    目录=新建文件/新建文件夹/重命名/删除/导入文件到此处；空白=新建文件/新建文件夹/刷新/导入。
  *    重命名为行内编辑（Enter 确认 Esc 取消）；删除经 confirm 后 DELETE。
+ *  - 历史快照（T7.4）：文件右键「历史快照…」弹列表（新 → 旧）→ 选择版本恢复；
+ *    恢复前服务端自动为当前内容留快照（可再恢复撤销）；恢复成功后刷新文件树，
+ *    并对该文件的激活中 tab 关闭重开以重新读盘；文件「删除」的 Ctrl+Z 撤销同样走快照
+ *    恢复（见 commands.ts 的 restore 磁盘动作）。.history 目录由服务端从树与 watch
+ *    事件中隐藏，不在面板显示。
  *  - 撤销：全部写操作经 runCommand('filesystem', ...) 入统一命令栈（见 commands.ts），
  *    undo/redo 由模块级同步执行磁盘补偿；本面板订阅通知刷新树 + toast。
  *  - 拖入导入：OS 文件拖到目录行或面板空白 → 读文本 → PUT /api/file（二进制提示走右键导入）。
@@ -22,7 +27,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { Menu, type MenuItem } from './Menu'
-import { defaultFsApi, errorMessage, type FsApi } from './api'
+import { defaultFsApi, errorMessage, type FsApi, type HistoryEntry } from './api'
 import { applyFsEvents, findNode, sortTree, type FsChangeEvent, type FsNode } from './tree-model'
 import {
   assetKindOf,
@@ -30,6 +35,8 @@ import {
   contentForNewFile,
   dedupeName,
   extLabelOf,
+  formatBytes,
+  historyTsLabel,
   joinPosix,
   newFileTemplateOf,
   parentOf,
@@ -97,6 +104,64 @@ function PromptModal(props: PromptState & { onCancel: () => void }) {
 }
 
 /* ============================================================
+ * 历史快照列表弹层（T7.4：选择快照版本恢复）
+ * ============================================================ */
+
+/** 历史快照弹层状态：目标文件节点 + 服务端返回的快照列表（新 → 旧） */
+interface HistoryState {
+  node: FsNode
+  entries: HistoryEntry[]
+}
+
+function HistoryModal(props: { state: HistoryState; onClose: () => void; onRestore: (ts: string) => void }) {
+  const { state, onClose, onRestore } = props
+  return (
+    <div
+      className="fs-modal-overlay"
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) props.onClose()
+      }}
+    >
+      <div
+        className="fs-modal fs-history-modal"
+        role="dialog"
+        aria-label={`历史快照 — ${state.node.name}`}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose()
+        }}
+      >
+        <div className="fs-modal-title">历史快照 — {state.node.name}</div>
+        <div className="fs-modal-label">
+          共 {state.entries.length} 份（新 → 旧）；恢复前会自动为当前内容留存快照，可再次恢复撤销。
+        </div>
+        {state.entries.length === 0 ? (
+          <div className="fs-history-empty">
+            暂无快照（文件被覆盖保存 / 删除时由服务端自动生成，默认每文件保留最近 20 份）
+          </div>
+        ) : (
+          <div className="fs-history-list">
+            {state.entries.map((e) => (
+              <div key={e.ts} className="fs-history-item">
+                <span className="fs-history-ts">{historyTsLabel(e.ts)}</span>
+                <span className="fs-history-size">{formatBytes(e.size)}</span>
+                <button type="button" className="fs-btn primary" onClick={() => onRestore(e.ts)}>
+                  恢复
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="fs-modal-actions">
+          <button type="button" className="fs-btn" onClick={onClose}>
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ============================================================
  * 面板
  * ============================================================ */
 
@@ -115,6 +180,19 @@ const TOAST_MS = 4000
 /** SSE 事件防抖（卡片要求 300ms；change 事件不参与） */
 const WATCH_DEBOUNCE_MS = 300
 
+/**
+ * 恢复快照后同步已打开的 tab（T7.4）：工作区只挂载「激活中」tab 的内容组件，
+ * 非激活 tab 切换到时会自动重新读盘，无需处理；激活中的 tab 内容仍在内存里，
+ * 关闭并立即重开（openAsset）以强制重新加载磁盘上的恢复结果。
+ */
+function reloadOpenTabs(relAssetPath: string): void {
+  const { openTabs, activeTabId, closeTab } = useWorkspaceStore.getState()
+  const active = openTabs.find((t) => t.id === activeTabId)
+  if (!active || active.kind === 'plugin-manager' || active.assetPath !== relAssetPath) return
+  closeTab(active.id)
+  useWorkspaceStore.getState().openAsset({ kind: active.kind, assetPath: active.assetPath, title: active.title })
+}
+
 export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   const project = useWorkspaceStore((s) => s.currentProject)
   const openAsset = useWorkspaceStore((s) => s.openAsset)
@@ -131,6 +209,8 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   const [prompt, setPrompt] = useState<PromptState | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
+  /** 历史快照弹层（T7.4；null = 关闭） */
+  const [history, setHistory] = useState<HistoryState | null>(null)
 
   /** 当前树的镜像（SSE 增量合并读取用，避免在 setState updater 里做副作用） */
   const treeRef = useRef<FsNode | null>(null)
@@ -187,6 +267,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     setMenu(null)
     setRenamingPath(null)
     setPrompt(null)
+    setHistory(null) // 切换项目 / 刷新时同步关闭历史快照弹层（T7.4）
   }, [refresh])
 
   /* —— SSE 文件监视：add/unlink 防抖 300ms 增量合并；change 不刷 —— */
@@ -200,7 +281,10 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         const data = JSON.parse(ev.data) as { events?: FsChangeEvent[] }
         if (!Array.isArray(data.events)) return
         for (const e of data.events) {
-          if (e.type !== 'change') pending.push(e) // change 不需要刷
+          if (e.type === 'change') continue // change 不需要刷
+          // T7.4：.history 快照写入理论上已被服务端 watch 过滤，这里兜底跳过双保险
+          if (e.path.split('/').includes('.history')) continue
+          pending.push(e)
         }
         if (pending.length > 0 && timer === null) {
           timer = window.setTimeout(() => {
@@ -382,8 +466,8 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   async function deleteNode(node: FsNode): Promise<void> {
     const isDir = node.type === 'dir'
     const message = isDir
-      ? `确定删除文件夹「${node.name}」及其全部内容？\n（内容级撤销需 .history 快照，本期删除暂不可撤销）`
-      : `确定删除文件「${node.name}」？\n（内容级撤销需 .history 快照，本期删除暂不可撤销）`
+      ? `确定删除文件夹「${node.name}」及其全部内容？\n（.history 快照按文件留存，文件夹删除暂不可撤销）`
+      : `确定删除文件「${node.name}」？\n（删除前服务端会自动留存 .history 快照，Ctrl+Z 可撤销删除）`
     if (!window.confirm(message)) return
     try {
       await api.deletePath(node.path)
@@ -480,6 +564,42 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   }
 
   /* ============================================================
+   * 历史快照（T7.4：浏览 / 恢复）
+   * ============================================================ */
+
+  /** 打开某文件的历史快照列表（文件已删除的场景经删除撤销的 restore 磁盘动作处理） */
+  async function openHistory(node: FsNode): Promise<void> {
+    try {
+      const r = await api.listHistory(node.path)
+      setHistory({ node, entries: r.entries })
+    } catch (e) {
+      showToast('error', `读取历史快照失败：${errorMessage(e)}`)
+    }
+  }
+
+  /** 恢复到指定快照：服务端会先为当前内容留快照；成功后刷新树并重载已打开的 tab */
+  async function restoreSnapshot(node: FsNode, ts: string): Promise<void> {
+    const rel = relInProject(node.path)
+    // 打开中的同名 tab 有未保存修改时先确认（恢复以磁盘内容为准，编辑器将重新读盘）
+    const hasDirty = useWorkspaceStore.getState().openTabs.some((t) => t.assetPath === rel && t.dirty)
+    if (hasDirty && !window.confirm(`「${node.name}」有未保存的修改，恢复历史快照将丢弃这些修改，继续？`)) {
+      return
+    }
+    try {
+      const r = await api.restore(node.path, ts)
+      setHistory(null)
+      reloadOpenTabs(rel)
+      await refresh()
+      showToast(
+        'success',
+        `已恢复「${node.name}」到 ${historyTsLabel(ts)}${r.preRestoreTs ? '（恢复前内容已留快照，可再恢复撤销）' : ''}`,
+      )
+    } catch (e) {
+      showToast('error', `恢复失败：${errorMessage(e)}`)
+    }
+  }
+
+  /* ============================================================
    * 右键菜单
    * ============================================================ */
 
@@ -490,6 +610,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   function fileMenuItems(node: FsNode): MenuItem[] {
     return [
       { label: '打开', disabled: assetKindOf(node.name) === null, onSelect: () => openFileNode(node) },
+      { label: '历史快照…', onSelect: () => void openHistory(node) },
       { label: '重命名', onSelect: () => startRename(node.path) },
       { label: '复制', onSelect: () => void duplicateNode(node) },
       { separator: true },
@@ -705,6 +826,13 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       </div>
       {menu && <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       {prompt && <PromptModal {...prompt} onCancel={() => setPrompt(null)} />}
+      {history && (
+        <HistoryModal
+          state={history}
+          onClose={() => setHistory(null)}
+          onRestore={(ts) => void restoreSnapshot(history.node, ts)}
+        />
+      )}
       {toast && <div className={`fs-toast ${toast.kind}`}>{toast.text}</div>}
     </div>
   )

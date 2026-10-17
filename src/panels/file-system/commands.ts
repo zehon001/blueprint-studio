@@ -8,8 +8,9 @@
  *  - undo/redo 时命令栈重放日志补丁，本模块的 startFsUndoSync 订阅 subscribeReplay，
  *    对被移出 / 加回的日志条目执行对应的磁盘逆 / 正操作：
  *      rename → move 回去 / 再 move 过去；create → 删除 / 按模板重建；import → 删除 / 再导入；
- *      delete 的 undo = 内容已不在，标记「需从 .history 快照恢复（T7.4 提供）」提示。
- *  - 内容级 undo 不在本卡（内容编辑保存属后续卡）；.history 快照恢复属 T7.4。
+ *      delete（文件）→ 恢复 .history 最新快照（T7.4：服务端删除文件前自动留快照）；
+ *      delete（文件夹）→ 无文件级快照，标记「暂不可撤销」提示。
+ *  - 内容级 undo 不在本卡；.history 快照浏览 / 指定版本恢复见 FileSystemPanel「历史快照…」（T7.4）。
  *
  * 磁盘补偿在补丁应用之后异步执行：失败只 toast 报错并刷新树（SSE watch 也会兜底刷新），
  * 不回滚命令栈（与 Godot「文件级撤销尽力而为 + 快照兜底」一致）。
@@ -104,6 +105,8 @@ export type FsDiskAction =
   | { action: 'delete'; path: string }
   | { action: 'mkdir'; path: string }
   | { action: 'import'; targetDir: string; sourcePath: string }
+  /** T7.4：从 .history 最新快照恢复（文件「删除」的 undo；文件不存在也可重建） */
+  | { action: 'restore'; path: string }
   | { action: 'unavailable'; message: string }
 
 /** undo：按 kind 构造逆操作 */
@@ -116,10 +119,12 @@ export function inverseActionOf(op: FsOp): FsDiskAction {
       // create/import 的逆操作都是「删掉落盘产物」；目标已不存在时服务端 404 → toast 说明
       return { action: 'delete', path: op.path ?? '' }
     case 'delete':
-      return {
-        action: 'unavailable',
-        message: '「删除」的内容级撤销需从 .history 快照恢复（T7.4 提供），本期暂无法撤销删除。',
+      // T7.4：文件删除已在服务端自动留快照 → 撤销 = 恢复最新快照（没有快照时执行层报错提示）；
+      // 文件夹删除无文件级快照，仍标记不可撤销
+      if (op.wasKind === 'dir') {
+        return { action: 'unavailable', message: '「删除文件夹」暂不可撤销（.history 快照按文件留存，目录级恢复未支持）。' }
       }
+      return { action: 'restore', path: op.path ?? '' }
   }
 }
 
@@ -234,6 +239,14 @@ export async function performDiskAction(action: FsDiskAction, api: FsApi = defau
     case 'import':
       await api.importFile(action.targetDir, action.sourcePath)
       return
+    case 'restore': {
+      // T7.4：取该文件最新一份快照恢复（服务端 entries 按新 → 旧排序）；
+      // 没有快照（如目录删除后无记录）→ 抛错由调用方 toast 提示，不回滚命令栈
+      const { entries } = await api.listHistory(action.path)
+      if (entries.length === 0) throw new Error('该文件在 .history 中没有快照，无法撤销删除')
+      await api.restore(action.path, entries[0].ts)
+      return
+    }
     case 'unavailable':
       return
   }

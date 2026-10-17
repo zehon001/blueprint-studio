@@ -1,5 +1,5 @@
 /**
- * 快捷键注册框架（T0.5 · PLAN §6.3 / §15；查改键设置界面属 T7.1，本期不做 UI）
+ * 快捷键注册框架（T0.5 · T7.1 · PLAN §6.3 / §15）
  *
  * - 归一化：大小写 / 修饰键顺序不敏感，规范形如 'Ctrl+Shift+Z'、'F5'；
  *   Ctrl 与 Meta/Cmd 等价（mac 习惯），Alt 与 Option 等价
@@ -9,8 +9,14 @@
  * - 事件适配：attachKeyboard(container) 监听 keydown，映射到已注册快捷键执行
  *   handler；已处理的键 preventDefault + stopPropagation；内层组件已处理过的
  *   事件（defaultPrevented === true）跳过，避免与 CodeMirror 等双重响应
+ * - 上下文键（T7.1）：画布族操作（复制/剪切/粘贴/删除等）由内层交互自行派发
+ *   （自带文本编辑区守卫），注册仅为设置界面展示与改键冲突保护；
+ *   attachKeyboard 派发时跳过 contextual 项，不拦截事件（画布现状不受影响）
+ * - 改键（T7.1）：rebindShortcut 冲突预检后整组替换绑定；registerDefaultShortcut
+ *   供入口级默认项（run.* / settings.open）记入回放表，resetShortcuts 重建默认表
  * - 内置默认注册：edit.undo（Ctrl+Z）、edit.redo（Ctrl+Shift+Z 与 Ctrl+Y
- *   双绑定同 id，互不冲突）、file.save（Ctrl+S，handler 暂为空实现待接线）
+ *   双绑定同 id，互不冲突）、file.save（Ctrl+S，handler 暂为空实现待接线）、
+ *   复制粘贴族上下文键（PLAN §6.3/§15 全表，handler 待「编辑上下文」接线）
  */
 import type { CommandDomain } from '../commands'
 import { redo as commandRedo, undo as commandUndo } from '../commands'
@@ -25,6 +31,13 @@ export interface ShortcutDef {
   keys: string
   /** 所属命令域（可选，仅用于设置界面分组 / 上下文启用，不参与冲突判定） */
   domain?: CommandDomain
+  /**
+   * 上下文键标记（T7.1）：画布等内层交互自行派发的操作（复制/剪切/粘贴/删除等，
+   * 它们自带文本编辑区守卫，全局拦截会破坏输入框 / CodeMirror 的原生编辑）。
+   * 注册仅为设置界面展示与改键冲突保护；attachKeyboard 派发时跳过本类项。
+   * 缺省 false = 全局派发。
+   */
+  contextual?: boolean
   /** 触发回调 */
   handler: () => void
 }
@@ -45,6 +58,8 @@ export interface ShortcutGroup {
   domain?: CommandDomain
   /** 规范化的组合键列表（如 ['Ctrl+Shift+Z', 'Ctrl+Y']） */
   bindings: string[]
+  /** 上下文键标记（设置界面展示「上下文」徽标，见 ShortcutDef.contextual） */
+  contextual?: boolean
 }
 
 /** 键盘事件子集（与 DOM KeyboardEvent 结构兼容，测试可用普通对象） */
@@ -253,9 +268,28 @@ export function listShortcuts(): ShortcutGroup[] {
       label: defs[0].label,
       ...(defs[0].domain !== undefined ? { domain: defs[0].domain } : {}),
       bindings: defs.map((d) => normalizeKeys(d.keys)),
+      ...(defs[0].contextual ? { contextual: true } : {}),
     })
   }
   return groups
+}
+
+/**
+ * 改键（T7.1 设置界面用）：把 id 的全部绑定替换为单一新组合键。
+ * 冲突预检（checkConflicts，忽略自身）不过则拒绝并返回占用者列表，注册表不动；
+ * 元数据（label / handler / domain / contextual）沿用原首个绑定。多绑定 id
+ * （如 edit.redo）改键后收拢为单组合键，「恢复默认表」（resetShortcuts）可还原。
+ */
+export function rebindShortcut(id: string, keys: string): RegisterResult {
+  const defs = defsById.get(id)
+  if (defs === undefined || defs.length === 0) throw new Error(`快捷键不存在：${id}`)
+  const combo = normalizeKeys(keys)
+  const conflicts = checkConflicts(combo, id)
+  if (conflicts.length > 0) return { ok: false, conflicts }
+  const base = defs[0]
+  unregisterShortcut(id)
+  registerShortcut({ ...base, keys: combo })
+  return { ok: true }
 }
 
 /* ---------------- 键盘事件适配 ---------------- */
@@ -273,9 +307,12 @@ export function attachKeyboard(container: HTMLElement | Window): () => void {
     if (combo === null) return
     const defs = defsByCombo.get(combo)
     if (defs === undefined || defs.length === 0) return
+    // 上下文键不入全局派发（T7.1）：由画布等内层交互自行处理，此处仅占表做冲突保护
+    const dispatchable = defs.filter((d) => !d.contextual)
+    if (dispatchable.length === 0) return
     e.preventDefault()
     e.stopPropagation()
-    for (const def of defs) {
+    for (const def of dispatchable) {
       try {
         def.handler()
       } catch (err) {
@@ -288,6 +325,35 @@ export function attachKeyboard(container: HTMLElement | Window): () => void {
 }
 
 /* ---------------- 内置默认快捷键 ---------------- */
+
+/** 上下文键默认表（T7.1 · PLAN §6.3/§15「复制粘贴」族；画布派发自有文本编辑区守卫，此处仅入表） */
+const CONTEXT_DEFAULTS: ReadonlyArray<{ id: string; label: string; keys: string[] }> = [
+  { id: 'edit.copy', label: '复制', keys: ['Ctrl+C'] },
+  { id: 'edit.cut', label: '剪切', keys: ['Ctrl+X'] },
+  { id: 'edit.paste', label: '粘贴', keys: ['Ctrl+V'] },
+  { id: 'edit.duplicate', label: '复制副本', keys: ['Ctrl+D'] },
+  { id: 'edit.selectAll', label: '全选', keys: ['Ctrl+A'] },
+  { id: 'edit.delete', label: '删除选中', keys: ['Delete', 'Backspace'] },
+]
+
+/** 入口级默认注册回放表：resetShortcuts 重建默认表时按此恢复（内置表之外、各入口自行注册的默认项） */
+const entryDefaults: { def: ShortcutDef; opts: { force?: boolean } }[] = []
+
+/**
+ * 注册「默认表级」快捷键（T7.1）：内置表之外的入口注册（main.tsx 的 run.*、
+ * 设置面板的 settings.open 等）改用本函数——立即生效，并记入回放表，
+ * resetShortcuts（设置面板「恢复默认」）重建时自动还原，入口默认键位不丢。
+ * 同 id 重复注册替换回放项（重放语义 = 最后注册者为准）。
+ */
+export function registerDefaultShortcut(def: ShortcutDef, opts: { force?: boolean } = {}): RegisterResult {
+  const result = registerShortcut(def, opts)
+  if (result.ok) {
+    const i = entryDefaults.findIndex((e) => e.def.id === def.id)
+    if (i >= 0) entryDefaults.splice(i, 1)
+    entryDefaults.push({ def, opts })
+  }
+  return result
+}
 
 /** 注册内置默认快捷键（幂等：重复调用按同 id 同组合键替换） */
 export function registerDefaultShortcuts(): void {
@@ -319,11 +385,28 @@ export function registerDefaultShortcuts(): void {
       /* 待接：保存当前编辑目标 */
     },
   })
+  // 复制粘贴族上下文键入表（T7.1 全表）：handler 待「编辑上下文」接线卡接
+  // （画布现状由 useCanvasInteractions 自行派发，attachKeyboard 不派发本组，行为不变）
+  for (const ctx of CONTEXT_DEFAULTS) {
+    for (const keys of ctx.keys) {
+      registerShortcut({
+        id: ctx.id,
+        label: ctx.label,
+        keys,
+        contextual: true,
+        handler: () => {
+          /* 待接：编辑上下文派发（复制/剪切/粘贴/删除/副本/全选） */
+        },
+      })
+    }
+  }
 }
 
-/** 清空注册表并恢复内置默认快捷键（应用启动 / 测试重置用） */
+/** 清空注册表并恢复默认表（应用启动 / 测试重置 / 设置面板「恢复默认」用）：
+ *  内置默认 + 入口级默认项回放（registerDefaultShortcut 记录者，如 run.* / settings.open） */
 export function resetShortcuts(): void {
   defsById.clear()
   defsByCombo.clear()
   registerDefaultShortcuts()
+  for (const { def, opts } of entryDefaults) registerShortcut(def, opts)
 }

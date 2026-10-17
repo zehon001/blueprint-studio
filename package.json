@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "roundtrip": "tsx --test tests/roundtrip/*.test.ts"
+    "roundtrip": "tsx --test tests/roundtrip/*.test.ts",
+    "e2e": "tsx --test tests/e2e/*.e2e.test.ts"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

@@ -7,7 +7,8 @@
  *    （add 已存在幂等、unlink 移除、父目录级联、change 不动结构）；
  *  - 命令日志与 undo 映射：runFsCommand 入栈 / undo 出栈 / redo 回栈、日志上限 100、
  *    rename/create/delete/import 的逆操作与重做操作构造正确；
- *  - api 封装：注入 fetch mock（PUT 请求体、错误映射 FsApiError、projectsRoot 缓存）；
+ *  - api 封装：注入 fetch mock（PUT 请求体、错误映射 FsApiError、projectsRoot 缓存、
+ *    T7.4 history 列表 / restore 恢复端点）；
  *  - Menu 组件（happy-dom 渲染）：点击项回调并关闭、disabled 不回调、
  *    点击外部关闭、Esc 关闭、菜单内按下不误关。
  *
@@ -21,6 +22,8 @@ import {
   contentForNewFile,
   dedupeName,
   extLabelOf,
+  formatBytes,
+  historyTsLabel,
   joinPosix,
   newFileTemplateOf,
   parentOf,
@@ -32,6 +35,7 @@ import {
   contentForCreate,
   diffLogTail,
   inverseActionOf,
+  performDiskAction,
   pushOp,
   redoActionOf,
   runFsCommand,
@@ -165,6 +169,18 @@ describe('路径工具（posix）', () => {
     // 大小写不敏感判定冲突，输出保留用户输入的大小写
     assert.equal(dedupeName(['a.ui.json'], 'A.UI.JSON'), 'A (2).UI.JSON')
     assert.equal(dedupeName(['新文件夹'], '新文件夹'), '新文件夹 (2)')
+  })
+
+  it('historyTsLabel / formatBytes：快照时间戳与字节数展示（T7.4）', () => {
+    assert.equal(historyTsLabel('20261017-142530-123'), '2026-10-17 14:25:30.123')
+    assert.equal(historyTsLabel('20261017-142530-123-002'), '2026-10-17 14:25:30.123 ·2')
+    assert.equal(historyTsLabel('not-a-ts'), 'not-a-ts')
+    assert.equal(formatBytes(0), '0 B')
+    assert.equal(formatBytes(512), '512 B')
+    assert.equal(formatBytes(1024), '1.0 KB')
+    assert.equal(formatBytes(20480), '20 KB')
+    assert.equal(formatBytes(5 * 1024 * 1024), '5.0 MB')
+    assert.equal(formatBytes(-1), '?')
   })
 
   it('validateFileName：空名 / 非法字符 / 保留设备名', () => {
@@ -360,16 +376,19 @@ describe('filesystem 命令日志与 undo 映射（T0.7 DoD）', () => {
     assert.equal(st.ops[99].path, 'p119')
   })
 
-  it('inverseActionOf：rename→move 回去、create/import→delete、delete→unavailable（T7.4 提示）', () => {
+  it('inverseActionOf：rename→move 回去、create/import→delete、delete→restore 快照（T7.4）', () => {
     const rename = inverseActionOf({ kind: 'rename', label: '', ts: '', from: 'P/a.ts', to: 'P/b.ts' })
     assert.deepEqual(rename, { action: 'move', from: 'P/b.ts', to: 'P/a.ts' })
     const create = inverseActionOf({ kind: 'create', label: '', ts: '', path: 'P/ui/a.ui.json' })
     assert.deepEqual(create, { action: 'delete', path: 'P/ui/a.ui.json' })
     const imp = inverseActionOf({ kind: 'import', label: '', ts: '', path: 'P/assets/x.log', sourcePath: 'D:/s.log' })
     assert.deepEqual(imp, { action: 'delete', path: 'P/assets/x.log' })
-    const del: FsDiskAction = inverseActionOf({ kind: 'delete', label: '', ts: '', path: 'P/a.ts', wasKind: 'file' })
-    assert.equal(del.action, 'unavailable')
-    if (del.action === 'unavailable') assert.match(del.message, /T7\.4/)
+    // T7.4：文件删除在服务端自动留了快照 → 撤销 = 恢复最新快照
+    const del = inverseActionOf({ kind: 'delete', label: '', ts: '', path: 'P/a.ts', wasKind: 'file' })
+    assert.deepEqual(del, { action: 'restore', path: 'P/a.ts' })
+    // 文件夹删除无文件级快照 → 仍不可撤销（unavailable 提示）
+    const dirDel = inverseActionOf({ kind: 'delete', label: '', ts: '', path: 'P/dir', wasKind: 'dir' })
+    assert.equal(dirDel.action, 'unavailable')
   })
 
   it('redoActionOf：rename 前移、create 按模板/内容重建、import 再导入、delete 再删', () => {
@@ -415,6 +434,38 @@ describe('filesystem 命令日志与 undo 映射（T0.7 DoD）', () => {
 
     const del = redoActionOf({ kind: 'delete', label: '', ts: '', path: 'P/a.ts' })
     assert.deepEqual(del, { action: 'delete', path: 'P/a.ts' })
+  })
+
+  it('performDiskAction：restore 取最新快照恢复；无快照报错（T7.4 删除撤销的磁盘动作）', async () => {
+    function okResponse(payload: unknown): Response {
+      return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
+    const calls: Array<{ url: string; body?: unknown }> = []
+    const api = createFsApi(async (url, init) => {
+      calls.push({ url, body: init?.body === undefined ? undefined : JSON.parse(String(init.body)) })
+      if (url.startsWith('/api/history?')) {
+        return okResponse({
+          ok: true,
+          path: 'P/a.ts',
+          entries: [
+            { ts: '20261017-150000-001', size: 3, mtime: '2026-10-17T15:00:00.001Z' },
+            { ts: '20261017-140000-000', size: 2, mtime: '2026-10-17T14:00:00.000Z' },
+          ],
+        })
+      }
+      return okResponse({ ok: true, path: 'P/a.ts', ts: '20261017-150000-001', preRestoreTs: null, size: 3 })
+    })
+    const action: FsDiskAction = { action: 'restore', path: 'P/a.ts' }
+    await performDiskAction(action, api)
+    assert.equal(calls[0].url, '/api/history?path=P%2Fa.ts', '先列快照')
+    assert.equal(calls[1].url, '/api/history/restore')
+    assert.deepEqual(calls[1].body, { path: 'P/a.ts', ts: '20261017-150000-001' }, '恢复最新一份（entries[0]）')
+    // 无快照：抛错（调用方 toast，不回滚命令栈）
+    const emptyApi = createFsApi(async () => okResponse({ ok: true, path: 'P/a.ts', entries: [] }))
+    await assert.rejects(
+      () => performDiskAction({ action: 'restore', path: 'P/a.ts' }, emptyApi),
+      /没有快照/,
+    )
   })
 
   it('diffLogTail：undo 定位移出条目、redo 定位加回条目、结构异常返回双 null', () => {
@@ -504,6 +555,31 @@ describe('api 封装（注入式 fetch）', () => {
       assert.equal((e as FsApiError).status, 0)
       return true
     })
+  })
+
+  it('listHistory / restore：T7.4 快照列表与恢复端点', async () => {
+    const calls: CapturedCall[] = []
+    const api = createFsApi(async (url, init) => {
+      calls.push({ url, method: init?.method, body: init?.body === undefined ? undefined : JSON.parse(String(init.body)) })
+      if (url.startsWith('/api/history?')) {
+        return okResponse({
+          ok: true,
+          path: 'P/ui/a.ui.json',
+          entries: [{ ts: '20261017-142530-123', size: 5, mtime: '2026-10-17T14:25:30.123Z' }],
+        })
+      }
+      return okResponse({ ok: true, path: 'P/ui/a.ui.json', ts: '20261017-142530-123', preRestoreTs: '20261017-150000-456', size: 5 })
+    })
+    const list = await api.listHistory('P/ui/a.ui.json')
+    assert.equal(list.entries.length, 1)
+    assert.equal(list.entries[0].ts, '20261017-142530-123')
+    assert.equal(calls[0].url, '/api/history?path=P%2Fui%2Fa.ui.json')
+    const r = await api.restore('P/ui/a.ui.json', '20261017-142530-123')
+    assert.equal(r.ok, true)
+    assert.equal(r.preRestoreTs, '20261017-150000-456')
+    assert.equal(calls[1].url, '/api/history/restore')
+    assert.equal(calls[1].method, 'POST')
+    assert.deepEqual(calls[1].body, { path: 'P/ui/a.ui.json', ts: '20261017-142530-123' })
   })
 
   it('projectsRoot：GET /api/projects 且结果缓存', async () => {

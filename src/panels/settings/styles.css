@@ -1,0 +1,170 @@
+/*
+ * 设置面板样式（T7.1 · 快捷键区块；全部引用 theme.css token，禁止硬编码色值 / 间距）
+ */
+.bps-settings {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+}
+
+.bps-settings-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--panel-header-h);
+  padding: 0 var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.bps-settings-title {
+  font-weight: 600;
+}
+
+.bps-settings-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+.bps-settings-reset {
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  padding: 1px var(--space-2);
+  font-size: var(--font-xs);
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+.bps-settings-reset:hover {
+  background: var(--bg-input);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.bps-settings-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.bps-settings-section {
+  margin: var(--space-2) 0 var(--space-1);
+  font-size: var(--font-md);
+  font-weight: 600;
+}
+
+.bps-settings-group-title {
+  margin: var(--space-3) 0 var(--space-1);
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+.bps-settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.bps-settings-row:hover {
+  background: var(--bg-input);
+}
+
+.bps-settings-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 上下文键徽标（画布族操作，见 SettingsPanel 的 tooltip 说明） */
+.bps-settings-badge {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  line-height: 1.6;
+  padding: 0 var(--space-1);
+}
+
+.bps-settings-keys {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 20px;
+}
+
+.bps-settings-kbd {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+  white-space: nowrap;
+}
+
+/* 监听态提示（等待用户按下新组合键） */
+.bps-settings-capturing {
+  color: var(--accent);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+
+.bps-settings-edit {
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  padding: 1px var(--space-2);
+  font-size: var(--font-xs);
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+.bps-settings-edit:hover:not(:disabled) {
+  background: var(--bg-input);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.bps-settings-edit:disabled {
+  cursor: default;
+  color: var(--text-disabled);
+  border-color: var(--border);
+}
+
+/* 冲突 / 不可绑定的红字提示（拒绝保存） */
+.bps-settings-error {
+  margin: 0 var(--space-2) var(--space-1) calc(var(--space-2) + var(--space-4));
+  color: var(--error);
+  font-size: var(--font-xs);
+}
+
+.bps-settings-note {
+  margin-top: var(--space-4);
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  line-height: 1.6;
+}

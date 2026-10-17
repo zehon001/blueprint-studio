@@ -492,7 +492,7 @@ export interface RoundtripSample {
   note?: string;
 }
 
-/** 逐节点样本：17 个可往返执行节点显式样本 + 52 个纯节点（共享构造器自动生成） */
+/** 逐节点样本：18 个可往返执行节点显式样本 + 52 个纯节点（共享构造器自动生成） */
 const nodeSamples: RoundtripSample[] = [
   ...execNodeSampleDefs.map<RoundtripSample>((d) => ({
     name: d.id,

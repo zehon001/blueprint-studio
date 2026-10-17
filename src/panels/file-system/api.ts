@@ -8,6 +8,8 @@
  *  - DELETE /api/file?path=            → { path, kind }
  *  - POST   /api/move { from, to }     → { path, moved }
  *  - POST   /api/import { targetDir, sourcePath } → { ok, target, files, bytes, renamed }
+ *  - GET    /api/history?path=         → { ok, path, entries }（T7.4 快照列表，新 → 旧）
+ *  - POST   /api/history/restore { path, ts } → { ok, path, ts, preRestoreTs, size }（恢复）
  *  - GET    /api/projects              → { ok, root, projects }（取安全根绝对路径，供「复制」走服务端本地复制）
  *  - GET    /api/watch?path=           → SSE（浏览器 EventSource 直连，见 watchUrl）
  *
@@ -58,6 +60,33 @@ export interface MoveResult {
   moved: boolean
 }
 
+/** GET /api/history 的一条快照（与 server/fs.ts 的 HistoryEntry 对齐；列表按新 → 旧排序） */
+export interface HistoryEntry {
+  /** 快照时间戳（即快照文件名主干，如 20261017-142530-123；restore 端点回传用） */
+  ts: string
+  /** 快照字节数 */
+  size: number
+  /** 快照文件修改时间（ISO） */
+  mtime: string
+}
+
+/** GET /api/history 的返回（文件已删除也可查——误删恢复入口） */
+export interface HistoryListResult {
+  path: string
+  entries: HistoryEntry[]
+}
+
+/** POST /api/history/restore 的返回（与 server/fs.ts 的 RestoreResult 对齐） */
+export interface RestoreResult {
+  ok: true
+  path: string
+  /** 被恢复的快照时间戳 */
+  ts: string
+  /** 恢复前为当前文件自动留的快照时间戳（当前文件不存在时为 null；据此可再恢复撤销） */
+  preRestoreTs: string | null
+  size: number
+}
+
 export interface FsApi {
   /** 读目录树（path = 项目文件夹名或项目内目录） */
   readTree(path: string): Promise<{ tree: FsNode }>
@@ -69,6 +98,10 @@ export interface FsApi {
   move(from: string, to: string): Promise<MoveResult>
   /** 服务端本地导入（sourcePath 为本机绝对路径；targetDir 为项目内目录） */
   importFile(targetDir: string, sourcePath: string): Promise<ImportResult>
+  /** 列出文件的历史快照（新 → 旧；T7.4——文件被删除后仍可查，供误删恢复） */
+  listHistory(path: string): Promise<HistoryListResult>
+  /** 用指定快照覆盖当前文件（恢复前服务端自动为当前内容留快照，可撤销；T7.4） */
+  restore(path: string, ts: string): Promise<RestoreResult>
   /** 安全根绝对路径（「复制」把项目内文件作为导入源时拼接用；带缓存） */
   projectsRoot(): Promise<string>
   /** SSE watch 地址（EventSource 直连） */
@@ -125,6 +158,14 @@ export function createFsApi(fetchImpl: FetchLike = (...args) => fetch(...args)):
 
     async importFile(targetDir: string, sourcePath: string) {
       return request<ImportResult>(fetchImpl, '/api/import', jsonInit('POST', { targetDir, sourcePath }))
+    },
+
+    async listHistory(path: string) {
+      return request<HistoryListResult>(fetchImpl, `/api/history?path=${encodeURIComponent(path)}`)
+    },
+
+    async restore(path: string, ts: string) {
+      return request<RestoreResult>(fetchImpl, '/api/history/restore', jsonInit('POST', { path, ts }))
     },
 
     projectsRoot(): Promise<string> {

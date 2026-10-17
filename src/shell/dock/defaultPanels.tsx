@@ -19,6 +19,7 @@ import { registerInspectorPanel } from '@/panels/inspector'
 import { registerEventsPanel } from '@/panels/events'
 import { registerPluginManagerPanel } from '@/panels/plugin-manager'
 import { registerConsolePanel } from '@/panels/console'
+import { registerSettingsPanel } from '@/panels/settings'
 import { WorkspacePanel } from './placeholderPanels'
 
 /* 内置面板 id（跨卡契约：替换实现时保持 id 不变） */
@@ -37,6 +38,7 @@ registerEventsPanel() // T5.2 事件面板（id: 'events'）
 registerPluginManagerPanel() // T6.2 插件管理（id: 'plugin-manager'）
 registerPanel({ id: PANEL_ID_WORKSPACE, title: '工作区', component: WorkspacePanel, defaultArea: 'center', singleton: true })
 registerConsolePanel() // T1.6 兑现：控制台真实现（BroadcastChannel 订阅运行窗口日志；id 不变）
+registerSettingsPanel() // T7.1 设置（快捷键全表可查可改 + 改键持久化；id: 'settings'，附 Ctrl+, 打开）
 
 /** 单面板 tabs 组 */
 function oneTabs(panelId: string): DockNode {

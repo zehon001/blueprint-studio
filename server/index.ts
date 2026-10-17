@@ -3,15 +3,17 @@
  *
  * 职责：
  *  - REST：/api/projects（列表/新建）· /api/tree · /api/file（GET/PUT/DELETE）·
- *          /api/move · /api/import · /api/watch（SSE）· /api/health
+ *          /api/move · /api/import · /api/history（T7.4 快照列表）/api/history/restore（恢复）·
+ *          /api/watch（SSE）· /api/health
  *  - TS 转译（T3.3）：/api/transpile（esbuild type-strip + (path, 内容哈希) LRU 缓存）
  *  - 插件注册表（T6.1）：/api/plugins（三源合并清单）· /api/plugins/:id（单清单详情）
  *  - 静态托管 dist/（多入口：/ · /editor.html · /runtime.html；SPA fallback 仅对已知入口）
  *  - CORS：放行 5173 开发跨域（localhost / 127.0.0.1）
  *  - WS Hub（T5.4）：/ws 调试观察正式协议（debug.v1，路由转发见 ./ws.ts）
  *
- * 明确不做（后续卡，留扩展点）：插件执行与 CLI 桥（T6.3）、.history 快照（T7.4）。
- *  - esbuild 转译（T3.3）已由本文件 /api/transpile + ./transpile.ts 承接。
+ * 明确不做（后续卡，留扩展点）：插件执行与 CLI 桥（T6.3）。
+ *  - esbuild 转译（T3.3）已由本文件 /api/transpile + ./transpile.ts 承接；
+ *  - .history 自动快照（T7.4）已由本文件 /api/history* + ./fs.ts 快照机制承接。
  *
  * 错误格式统一：成功 { ok: true, ... }；失败 { ok: false, message }。
  */
@@ -184,6 +186,21 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       return
     }
 
+    // T7.4 .history 自动快照：列出项目内某文件的全部快照（新 → 旧）。
+    // path 约定与 /api/file 一致（相对安全根、首段 = 项目文件夹名）；文件已删除也可查（误删恢复）。
+    if (pathname === '/api/history' && req.method === 'GET') {
+      sendJson(res, 200, { ok: true, ...fsApi.listHistory(PROJECTS_ROOT, url.searchParams.get('path') ?? '') })
+      return
+    }
+
+    // T7.4：按快照恢复（body: { path, ts }）；恢复前服务端自动为当前文件留一份快照（可撤销）。
+    if (pathname === '/api/history/restore' && req.method === 'POST') {
+      const body = await readJson(req)
+      const relPath = typeof body.path === 'string' ? body.path : ''
+      sendJson(res, 200, fsApi.restoreHistory(PROJECTS_ROOT, relPath, body.ts))
+      return
+    }
+
     if (pathname === '/api/move' && req.method === 'POST') {
       const body = await readJson(req)
       sendJson(res, 200, { ok: true, ...fsApi.movePath(PROJECTS_ROOT, body) })
@@ -300,7 +317,10 @@ function handleWatch(req: IncomingMessage, res: ServerResponse, relPath: string)
   )
 
   const watcher = fsApi.watchPath(scope.abs, (events) => {
-    if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ok: true, events })}\n\n`)
+    // T7.4：快照写入（.history/**）由服务端自动完成，不作为文件变化事件外发，
+    // 否则客户端文件树会把快照当普通文件合并显示
+    const visible = events.filter((e) => !fsApi.isHiddenRelPath(e.path))
+    if (!res.writableEnded && visible.length > 0) res.write(`data: ${JSON.stringify({ ok: true, events: visible })}\n\n`)
   })
   const ping = setInterval(() => {
     if (!res.writableEnded) res.write(': ping\n\n')

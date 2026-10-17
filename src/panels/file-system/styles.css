@@ -252,6 +252,54 @@
   background: var(--accent-hover);
 }
 
+/* ===== 历史快照列表弹层（T7.4） ===== */
+
+.fs-history-modal {
+  min-width: 340px;
+  max-height: calc(100% - var(--space-8));
+}
+
+.fs-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.fs-history-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+}
+
+.fs-history-ts {
+  flex: 1;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fs-history-size {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+}
+
+.fs-history-empty {
+  padding: var(--space-3) 0;
+  color: var(--text-dim);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+}
+
 /* ===== toast（面板内浮动提示） ===== */
 
 .fs-toast {
