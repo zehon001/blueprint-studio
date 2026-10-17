@@ -76,12 +76,12 @@
 |---|---|---|---|---|---|---|
 | T3.1 | 脚本编辑器（CodeMirror 6 · TS 高亮 · 诊断标记 · [蓝图/脚本]切换条） | `src/script/editor/` | T0.3 | Script | 打开 `.ts` 逻辑资产可编辑保存；切换条切到蓝图视图正常渲染 | 完成 · 2026-10-17（15 测试；诊断标记=显式占位待 T3.6，蓝图视图=占位面板待 T3.6——未虚报） |
 | T3.2 | 内建 API 与类型包（ui/vars/emit/onEvent/plugins/print/convert/format/delay） | `src/script/api/` | T0.1 | Script | PLAN §9.2 全部全局有类型声明与文档注释；TS 资产有补全 | 完成 · 2026-10-17（9 全局 JSDoc+Proxy 运行时+补全扩展；20 测试） |
-| T3.3 | TS 转译执行链（服务端 esbuild → 运行窗口沙箱执行） | `server/` + `src/runtime/sandbox/` | T2.6 | Script+Server | `.ts` 逻辑资产挂 UI 节点后运行窗口行为与蓝图等价（同一 IR） | 待办 |
-| T3.4 | 注解处理（@tool/@expose/@on → IR 变量/事件节点） | `src/script/annotations.ts` | T3.2 | Script | 脚本写 @expose → 蓝图出现对应 Get/Set；@on → 事件节点；双向（蓝图勾暴露→codegen 生成注解） | 待办 |
+| T3.3 | TS 转译执行链（服务端 esbuild → 运行窗口沙箱执行） | `server/` + `src/runtime/sandbox/` | T2.6 | Script+Server | `.ts` 逻辑资产挂 UI 节点后运行窗口行为与蓝图等价（同一 IR） | 完成 · 2026-10-17（POST /api/transpile + LRU 缓存；绑定分支按扩展名分发；混合绑定等价测试；21 测试） |
+| T3.4 | 注解处理（@tool/@expose/@on → IR 变量/事件节点） | `src/script/annotations.ts` | T3.2 | Script | 脚本写 @expose → 蓝图出现对应 Get/Set；@on → 事件节点；双向（蓝图勾暴露→codegen 生成注解） | 完成 · 2026-10-17（解析半边由 T3.6 承接，本卡补缺+双向端到端 8 测试；随 T3.8 交付） |
 | T3.5 | Codegen：IR → TS（含纯节点链内联表达式合成） | `src/script/codegen-ts.ts` | T3.4 | Script | PLAN §10 规则全实现；生成代码可读（无嵌套超 3 层的节点链展开）；roundtrip 幂等 | 完成 · 2026-10-17（表达式表 40 纯节点锁定；15 roundtrip 测试） |
 | T3.6 | 受控子集解析器：TS → IR | `src/script/parser-ts.ts` | T3.5 | Script | if/for/while/表达式/函数/emit/await 映射正确；语法错误给出行列诊断 | 完成 · 2026-10-17（行列诊断 1 起；超集折叠 snippet；与 T3.5 合并派发） |
-| T3.7 | 脚本片段节点（不可映射段兜底） | IR 扩展 + 蓝图节点 | T3.6 | Script+Blueprint | 含片段的资产往返（IR→TS→IR）无损；片段节点可展开编辑源码 | 待办 |
-| T3.8 | 双视图同步协议（保存者胜 / 过期提示重载） | 编辑器接线 | T3.5, T3.6 | Script+Arch | 两视图同开时后保存者胜，另一侧切回提示重载；无脏丢失 | 待办 |
+| T3.7 | 脚本片段节点（不可映射段兜底） | IR 扩展 + 蓝图节点 | T3.6 | Script+Blueprint | 含片段的资产往返（IR→TS→IR）无损；片段节点可展开编辑源码 | 完成 · 2026-10-17（ADR-007：引脚契约+推导+标记元数据；片段运行时 new Function；模态编辑；23 测试+roundtrip 18） |
+| T3.8 | 双视图同步协议（保存者胜 / 过期提示重载） | 编辑器接线 | T3.5, T3.6 | Script+Arch | 两视图同开时后保存者胜，另一侧切回提示重载；无脏丢失 | 完成 · 2026-10-17（sync 状态机 10 用例+DOM 端到端；蓝图视图真渲染替换占位；诊断徽标接真） |
 
 ### M4 Python
 
@@ -99,7 +99,7 @@
 | T5.1 | 事件总线（UI/系统/插件推送/自定义；目标路由 本节点/本UI/全部） | `src/runtime/events/` | T2.6 | Runtime | PLAN §11 全场景；事件间保序；旁路不死锁 | 完成 · 2026-10-17（四源入队/target 矩阵/环保护 8 跳；13 测试） |
 | T5.2 | 事件面板（内建+自定义列表 / 双击创建跳转） | `src/panels/events/` | T5.1, T2.3 | UIEditor+Blueprint | 选中 UI 节点列出其内建事件与资产自定义事件；双击建/跳事件节点 | 待办 |
 | T5.3 | 事件节点三件套（自定义事件 / 发送事件 / 监听） | `src/nodes/events.ts` | T5.1 | Nodes | 多参数事件可定义；发送→监听 E2E 通 | 完成 · 2026-10-17（T13.1 已建，本卡验收+E2E 补强：send 加 target 引脚、listen 具名参数注入；随 T5.1 交付） |
-| T5.4 | 运行时蓝图观察（WS 反向：节点高亮/exec 流动/端口实时值 150ms 批量） | 调试探针 + 编辑器叠加层 | T2.6 | Runtime | v1.1 能力全保留；编辑器开该蓝图视图自动接入；可一键关闭 | 待办 |
+| T5.4 | 运行时蓝图观察（WS 反向：节点高亮/exec 流动/端口实时值 150ms 批量） | 调试探针 + 编辑器叠加层 | T2.6 | Runtime | v1.1 能力全保留；编辑器开该蓝图视图自动接入；可一键关闭 | 完成 · 2026-10-17（WS debug.v1 协议+150ms 批量+500 上限+惰性衰减；24 测试；浏览器实测留合并点） |
 
 ### M6 插件系统
 
@@ -161,10 +161,12 @@ T6.1 ─ T6.2/T6.3/T6.4 ─ T6.5/T6.6 ─ M7
 ## 5. 当前状态
 
 - 看板初始化：2026-10-17 · 全部 `待办` · 无在途卡
-- 2026-10-17 PM-Agent 单会话执行：B0~B7 已提交；M3 核心（T3.5/T3.6）与 M5 事件完成；B8 派发 T3.3/T3.4+T3.8/T3.7/T5.4
+- 2026-10-17 PM-Agent 单会话执行：B0~B8 已提交；M0/M1/M2/M3/M5 全部完成；B9 派发 T6.2/T6.3/T6.4/T5.2（端点契约：detect POST 返回 JSON、install GET SSE 流、invoke POST JSON）
 - 单会话模式下协作协议微调：不逐卡建 git 分支，改为 PM 按批次在 `v2` 分支提交（每批次一次 commit，卡状态在本表跟踪）；Agent 产出统一由 PM 验收（typecheck + 单测 + 抽查）
 
 ## 6. 进度纪要（PM 维护，倒序追加）
+
+- **2026-10-17 · B8**：**M3 与 M5 完成**。T3.3 转译链——POST /api/transpile（esbuild+LRU 缓存+行列错误）、binding 按扩展名分发（.ts→parseScriptToIR 同一 IR、.py 提示不崩），混合绑定双 runtime 等价测试；21 测试。T3.4+T3.8——sync 状态机（保存者胜/脏冲突四按钮/保存失败不丢草稿）、蓝图视图真渲染+诊断徽标接真、注解双向端到端（裸 @expose 与 type 兜底补缺）；40 测试。T3.7——ADR-007（引脚契约/推导/标记元数据往返重建）、片段运行时（new Function+全局注入+this 变量代理）、双击模态编辑；23 测试。T5.4——WS debug.v1（subscribe/attach/mute 路由）、150ms 批量+500 上限、节点高亮/exec 流动/端口值徽标、一键关闭双向；24 测试。PM 胶水：injectSnippetRuntime 注入 binding.ts（createRuntime 前按资产合成片段 spec）。PM 验收：typecheck 0 错、构建绿、批内 135 测试绿。**M4（Python）与 M6/T6.2~T6.6、M7 为剩余主要工作**。
 
 - **2026-10-17 · B7**：T3.5+T3.6 合并交付——codegen（IR→TS：真 if/for/while 语句、纯链表达式表 40 节点+bps.* 兜底、别名机制、snippet 标记）与解析器（TS AST→IR 两遍法、行列诊断、超集折叠 IRSnippet），**roundtrip 15 测试全绿含幂等二次验证**（TA.1 TS 部分基座就绪，产出物 src/script/roundtrip.test.ts）。T5.1+T5.3——EventBus（四源入队/node·ui·all 路由矩阵/8 跳环保护/插件推送口 pushPlugin），三件套修复（send 加 target 引脚、listen 具名参数注入解释器 seed）；13 测试+T2.6/T2.5/T13.1 回归。T6.1——清单校验/规范化/三源合并（项目>静态>内置）/GET /api/plugins 两端点 + 内置清单 phone-log（read 双模式+onLine）与 feishu-cli；20 测试+E2E。PM 追认事项（待回写 ADR-004）：①合并优先级定案；②插件节点前缀=camelCase(pluginId)+'.'。PM 验收：typecheck 0 错、构建绿、批内 48 测试绿。
 
