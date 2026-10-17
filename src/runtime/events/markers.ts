@@ -15,3 +15,12 @@ export const BUS_TARGET_KEY = '__bpBusTarget';
 
 /** 总线投递时注入的回执令牌：接收实例出队回灌（onDebug 'emit'）时总线据此识别「自投递回声」并吞掉 */
 export const BUS_ECHO_KEY = '__bpBusEcho';
+
+/**
+ * UI 事件的来源节点名（非标记键，不剥离）：总线 routeEvent 注入，解释器
+ * buildEventOutputs 注入 event.custom / event.listen 的同名输出脚（ADR-010 §3）——
+ * 同一份蓝图绑定子树内多个控件时，蓝图可按来源分派（如两个按钮各自行为）。
+ * 命名走可见键（非 __ 前缀）：业务蓝图允许按名读取；系统 / 插件 / 自定义事件源
+ * 不注入（出脚值为 undefined）。
+ */
+export const BUS_SOURCE_NODE_KEY = 'sourceNode';

@@ -29,7 +29,7 @@
  * 由 event.send 节点完成）；IREventDef 具名参数按名注入输出脚由解释器负责（T2.5 / T5.3）。
  */
 import type { DebugEvent, RuntimeHandle } from '../interpreter/types';
-import { BUS_TARGET_KEY, BUS_ECHO_KEY } from './markers';
+import { BUS_TARGET_KEY, BUS_ECHO_KEY, BUS_SOURCE_NODE_KEY } from './markers';
 
 /* ============================================================
  * 对外类型
@@ -204,14 +204,16 @@ export class EventBus {
   /**
    * UI 节点事件入队（renderUI onEvent → BindingRunner.routeEvent → 这里）：
    * 交付给绑定该节点名的实例（target='node' 语义）；payload 统一包 { value }
-   * （T2.6 契约：解释器注入 event.custom 的 value / arg0 输出脚）。
+   * （T2.6 契约：解释器注入 event.custom 的 value / arg0 输出脚）；并注入
+   * sourceNode=来源节点名（ADR-010 §3：同蓝图多控件时按来源分派，出脚同名可见）。
    * 节点名不属于任何绑定 / 事件名空 → 静默丢弃。
    * 参数形状与 renderUI 的 UIRenderEvent 兼容（nodeName / event / payload，nodeType 忽略）。
    */
   routeEvent(evt: { nodeName: string; event: string; nodeType?: string; payload?: unknown }): void {
     const name = typeof evt.event === 'string' ? evt.event : '';
     if (!name || typeof evt.nodeName !== 'string' || evt.nodeName === '') return;
-    const args = evt.payload === undefined ? {} : { value: evt.payload };
+    const args: Record<string, unknown> = evt.payload === undefined ? {} : { value: evt.payload };
+    args[BUS_SOURCE_NODE_KEY] = evt.nodeName;
     this.chainHops.set(name, 0); // 外部新输入：全新传播链
     this.enqueue({
       name,

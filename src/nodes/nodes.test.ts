@@ -617,6 +617,14 @@ test('event.start / event.custom / event.listen：入口节点走 exec 出口', 
   assert.equal((await run('event.listen', ctx, { eventName: 'loaded' })).next, 'exec');
 });
 
+test('event.custom：声明 eventName 检视器参数（运行时绑定键 params.eventName 必须可编辑）', () => {
+  const spec = builtinSpecMap.get('event.custom');
+  const p = spec?.params?.find((x) => x.id === 'eventName');
+  assert.ok(p, 'event.custom 应声明 eventName 参数');
+  assert.equal(p!.type, 'string');
+  assert.equal(p!.default, '');
+});
+
 test('event.send：mock ctx.emit（对象展开 / 数组打包 / 单值打包 / 空名防护）', async () => {
   const ctx = makeCtx();
   await run('event.send', ctx, { eventName: 'loaded', args: { count: 3 } });

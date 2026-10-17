@@ -531,6 +531,38 @@ test('命令：添加节点（schema 默认属性 / 容器目标入其子 / 叶�
   assert.equal(peekUndo()?.label?.startsWith('视口：添加节点'), true, 'label 前缀「视口：」');
 });
 
+test('命令：插入预制体实例（ADR-009 正向实例化：prefab 引用 + 名字去重 + 预制体根起值 + undo）', () => {
+  initDomain(makeAsset());
+  const root = (): UINode => getSceneTreeDomain().asset!.root;
+  const prefabRoot = makeNode('panel', { id: 'p_root', name: 'root', x: 0, y: 0, w: 400, h: 300 });
+
+  const id1 = commands.commitAddPrefab('ui/prefabs/logitem.ui.json', prefabRoot, null, { x: 10, y: 20 });
+  assert.ok(id1);
+  const inst = root().children.find((c) => c.id === id1)!;
+  assert.equal(inst.prefab, 'ui/prefabs/logitem.ui.json', '写入 prefab 引用');
+  assert.equal(inst.name, 'logitem', 'name = 预制体名');
+  assert.equal(inst.type, 'panel', 'type 取预制体根（展示用；展开以预制体为准）');
+  assert.deepEqual(inst.transform.size, { w: 400, h: 300 }, 'transform 以预制体根起值（实例保留语义不吃掉设计尺寸）');
+  assert.deepEqual(inst.children, [], '实例 children 恒空（结构以预制体为准）');
+  assert.deepEqual(inst.props, {}, 'props 空 → 渲染回落预制体');
+  assert.equal(peekUndo()?.label, '视口：插入预制体实例 logitem');
+
+  // 同名再插：名字去重；再插无缓存预制体：中性占位
+  const id2 = commands.commitAddPrefab('ui/prefabs/logitem.ui.json', prefabRoot, null, { x: 0, y: 0 });
+  assert.equal(root().children.find((c) => c.id === id2)!.name, 'logitem2', '同名去重');
+  const id3 = commands.commitAddPrefab('ui/prefabs/none.ui.json', null, null, { x: 0, y: 0 });
+  const inst3 = root().children.find((c) => c.id === id3)!;
+  assert.equal(inst3.type, 'panel', '无预制体根：中性占位类型');
+  assert.deepEqual(inst3.transform.size, { w: 200, h: 200 }, '无预制体根：中性占位尺寸');
+
+  // 实例目标拒收子节点：插到实例上 → 落到其父级（根）
+  const id4 = commands.commitAddPrefab('ui/prefabs/x.ui.json', null, id1, { x: 0, y: 0 });
+  assert.ok(root().children.some((c) => c.id === id4), '实例目标 → 插为其父级（根）的子节点');
+
+  act(() => undo());
+  assert.ok(!root().children.some((c) => c.id === id4), '插入可撤销');
+});
+
 test('树工具：buildParentMap / isFreeParentType / findUINodeWithParent', () => {
   const asset = makeAsset();
   const pmap = commands.buildParentMap(asset.root);

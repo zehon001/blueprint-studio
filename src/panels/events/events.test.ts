@@ -442,7 +442,8 @@ function installFetch(): void {
     if (method === 'PUT') {
       const body = JSON.parse(String(init?.body)) as { path: string; content: string }
       fileStore.set(body.path, body.content)
-      return jsonResponse({ ok: true })
+      // 响应形状对齐真实服务端（server/index.ts PUT /api/file：{ ok, path, size }）
+      return jsonResponse({ ok: true, path: body.path, size: body.content.length })
     }
     const path = new URLSearchParams(url.includes('?') ? url.slice(url.indexOf('?') + 1) : '').get('path') ?? ''
     const content = fileStore.get(path)

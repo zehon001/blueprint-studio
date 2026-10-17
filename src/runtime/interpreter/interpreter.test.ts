@@ -717,6 +717,37 @@ test('emit 路由：event.custom 命名/位置参数注入 + event.listen args �
   rt.stop();
 });
 
+test('ADR-010：sourceNode 来源节点注入（不占 arg0~arg2 位置脚）', async () => {
+  const a = asset({
+    main: g(
+      [
+        n('c1', 'event.custom', { eventName: 'pressed' }),
+        n('p1', 't.printVal'), // sourceNode 出脚
+        n('p2', 't.printVal'), // arg0 占位脚
+        n('l1', 'event.listen', {}, { eventName: 'pressed' }),
+        n('p3', 't.printVal'), // args 完整对象
+      ],
+      [
+        e('e1', 'c1', 'exec', 'p1', 'exec'),
+        e('d1', 'c1', 'sourceNode', 'p1', 'v', 'data'),
+        e('e2', 'p1', 'exec', 'p2', 'exec'), // 串链：同一 exec 出脚只取首条下游
+        e('d2', 'c1', 'arg0', 'p2', 'v', 'data'),
+        e('e3', 'l1', 'exec', 'p3', 'exec'),
+        e('d3', 'l1', 'args', 'p3', 'v', 'data'),
+      ],
+    ),
+  });
+  const { rt, rec } = harness(a, baseSpecs);
+  rt.start();
+  rt.emit('pressed', { value: 'x', sourceNode: 'btnOK' });
+  await tick(80);
+  const parts = rec.prints.map((p) => p.parts[0]);
+  assert.equal(parts[0], 'btnOK', 'sourceNode 注入同名出脚（ADR-010 §3）');
+  assert.equal(parts[1], 'x', 'sourceNode 不占位置脚：arg0 仍 = 首个业务参数 value');
+  assert.deepEqual(parts[2], { value: 'x', sourceNode: 'btnOK' }, 'listen args 对象含 sourceNode');
+  rt.stop();
+});
+
 /* ============================================================
  * 17. 集成：@/nodes 内置节点库跑「event.start → branch → var.set → print」
  * ============================================================ */
@@ -879,6 +910,90 @@ test('ADR-008 集成：timer loop 自动持续 tick（无需回连）', async ()
   const outs = rec.prints.map((p) => Number(p.parts[0]));
   assert.ok(outs.length >= 3, `应持续 tick ≥3 次（实际 ${JSON.stringify(outs)}）`);
   assert.ok(outs.every((v, i) => v === i + 1), `ticks 应从 1 递增（实际 ${JSON.stringify(outs)}）`);
+  assert.equal(rec.errors.length, 0);
+});
+
+test('ADR-010 协作式调度：循环定时器不再饿死后续事件（tick 让出点派发积压队列）', async () => {
+  const rec: Recordings = { prints: [], errors: [], debug: [] };
+  const rt = createRuntime(
+    asset({
+      main: g(
+        [
+          n('n1', 'event.start'),
+          n('n2', 'event.timer', {}, { interval: 0.05, loop: true }),
+          n('n3', 'system.print', {}, { value: 'tick' }),
+          n('c1', 'event.custom', { eventName: 'pressed' }),
+          n('c2', 'system.print', {}, { value: '按钮点击' }),
+        ],
+        [
+          e('e1', 'n1', 'exec', 'n2', 'exec'),
+          e('e2', 'n2', 'tick', 'n3', 'exec'),
+          e('e3', 'c1', 'exec', 'c2', 'exec'),
+        ],
+      ),
+    }),
+    builtinSpecMap,
+    {
+      onPrint: (...parts) => rec.prints.push({ at: Date.now(), parts }),
+      onError: (err) => rec.errors.push({ at: Date.now(), err, graph: '', nodeId: '' }),
+    },
+  );
+  rt.start();
+  await tick(130); // 定时器先 tick ≥2 次（独占串行队列）
+  rt.emit('pressed'); // 无条件循环运行中投递 UI 事件——ADR-010 前会被饿死
+  await tick(400); // 最迟在下一个 tick 边界（50ms）被派发
+  rt.stop();
+  await tick(20);
+  const texts = rec.prints.map((p) => String(p.parts[0]));
+  assert.ok(texts.includes('按钮点击'), `循环定时器运行中事件应被派发（实际 ${JSON.stringify(texts)}）`);
+  // 定时器在派发后继续存活：按钮打印之后仍有 tick
+  const pressedAt = texts.lastIndexOf('按钮点击');
+  assert.ok(
+    texts.slice(pressedAt + 1).includes('tick'),
+    `让出派发后定时器应继续 tick（实际 ${JSON.stringify(texts)}）`,
+  );
+  assert.equal(rec.errors.length, 0, `无错误（实际 ${JSON.stringify(rec.errors)}）`);
+});
+
+test('ADR-010：让出点派发保持 FIFO 保序', async () => {
+  const rec: Recordings = { prints: [], errors: [], debug: [] };
+  const rt = createRuntime(
+    asset({
+      main: g(
+        [
+          n('n1', 'event.start'),
+          n('n2', 'event.timer', {}, { interval: 0.05, loop: true }),
+          n('t1', 'system.print', {}, { value: 'tick' }),
+          n('a1', 'event.custom', { eventName: 'evt-a' }),
+          n('a2', 'system.print', {}, { value: 'A' }),
+          n('b1', 'event.custom', { eventName: 'evt-b' }),
+          n('b2', 'system.print', {}, { value: 'B' }),
+        ],
+        [
+          e('e1', 'n1', 'exec', 'n2', 'exec'),
+          e('e2', 'n2', 'tick', 't1', 'exec'),
+          e('e3', 'a1', 'exec', 'a2', 'exec'),
+          e('e4', 'b1', 'exec', 'b2', 'exec'),
+        ],
+      ),
+    }),
+    builtinSpecMap,
+    {
+      onPrint: (...parts) => rec.prints.push({ at: Date.now(), parts }),
+      onError: (err) => rec.errors.push({ at: Date.now(), err, graph: '', nodeId: '' }),
+    },
+  );
+  rt.start();
+  await tick(60);
+  rt.emit('evt-a');
+  rt.emit('evt-b');
+  await tick(300);
+  rt.stop();
+  const texts = rec.prints.map((p) => String(p.parts[0]));
+  const ia = texts.indexOf('A');
+  const ib = texts.indexOf('B');
+  assert.ok(ia >= 0 && ib >= 0, `两个事件都应被派发（实际 ${JSON.stringify(texts)}）`);
+  assert.ok(ia < ib, `FIFO 保序：A 应先于 B（实际 ${JSON.stringify(texts)}）`);
   assert.equal(rec.errors.length, 0);
 });
 

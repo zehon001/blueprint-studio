@@ -177,12 +177,14 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
     if (pathname === '/api/file' && req.method === 'PUT') {
       const body = await readJson(req)
-      sendJson(res, 200, fsApi.writeFileSafe(PROJECTS_ROOT, body.path, body.content))
+      // ok 字段统一：客户端（事件面板挂载 / 检视器新建 / 保存为预制体 / 三处保存）
+      // 均按 { ok: boolean } 判定成败，与 GET /api/tree 等路由的 { ok: true, ... } 同约定
+      sendJson(res, 200, { ok: true, ...fsApi.writeFileSafe(PROJECTS_ROOT, body.path, body.content) })
       return
     }
 
     if (pathname === '/api/file' && req.method === 'DELETE') {
-      sendJson(res, 200, fsApi.deletePathSafe(PROJECTS_ROOT, url.searchParams.get('path') ?? ''))
+      sendJson(res, 200, { ok: true, ...fsApi.deletePathSafe(PROJECTS_ROOT, url.searchParams.get('path') ?? '') })
       return
     }
 

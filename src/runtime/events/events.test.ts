@@ -579,8 +579,10 @@ describe('T5.1 事件总线（四类源 / 路由 / 环保护）', () => {
     await waitFor(() => sink.prints.length >= 2, '两条事件到达')
     const withPayload = sink.prints[0]![0] as Record<string, unknown>
     assert.equal(withPayload['value'], 42, 'payload 统一包 { value }（T2.6 契约）')
+    assert.equal(withPayload['sourceNode'], 'btnGo', 'UI 事件注入来源节点名（ADR-010 §3）')
     const noPayload = sink.prints[1]![0] as Record<string, unknown>
     assert.equal(noPayload['value'], undefined, '无 payload 时不注入 value')
+    assert.equal(noPayload['sourceNode'], 'btnGo', '无 payload 时 sourceNode 仍注入')
     assert.ok(BUS_ECHO_KEY in noPayload, '投递附带回执令牌（接收实例回灌时防自转发）')
     assert.equal(
       sink.prints.length,

@@ -287,6 +287,7 @@ test('场景② 写 UI 资产（PUT /api/file）→ 读回一致', { skip: srvSk
     )
     const put = await api('PUT', '/api/file', { path: `${name}/ui/main.ui.json`, content: uiJson })
     assert.equal(put.status, 200)
+    assert.equal(put.json.ok, true, 'PUT 成功响应须带 ok:true（编辑器各保存/新建流程按 json.ok 判定成败）')
     assert.equal(put.json.path, `${name}/ui/main.ui.json`)
     assert.equal(put.json.size, Buffer.byteLength(uiJson, 'utf8'))
 

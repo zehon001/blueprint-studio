@@ -7,13 +7,16 @@
  * - commitDelete：删除选中（根节点不删，调用方过滤）；
  * - commitDuplicate：Ctrl+D 复制（子树全部换新 id、全树唯一名去重、偏移 20px、
  *   插到原节点之后；根节点不可复制）；
- * - commitAddNode：右键「添加节点」（schema 默认属性 + 位置取画布点击点的父局部坐标）。
+ * - commitAddNode：右键「添加节点」（schema 默认属性 + 位置取画布点击点的父局部坐标）；
+ * - commitAddPrefab：右键「添加节点 → 预制体」插入实例（T7.3 正向实例化 · ADR-009：
+ *   prefab 引用 + 名字去重 + type/transform 以预制体根起值，结构/属性渲染期回落预制体）。
  *
  * 树工具：buildParentMap / findUINodeWithParent / collectNames / isFreeParentType
  * （free = 根 / panel·scrollBox 内容区，与渲染器 layoutOfParent 的自由布局语义一致）。
  */
 import type { UIAsset, UINode, Vec2 } from '../../ir/types';
 import { defaultPropsFor, getUISchema } from '../schema';
+import { prefabLabelOf } from '../prefab';
 import { findUINode, getSceneTreeDomain, newUINodeId, runUICommand } from '../store';
 import { uniqueName } from './geometry';
 
@@ -214,7 +217,9 @@ export function commitAddNode(type: string, parentId: string | null, at: Vec2): 
 }
 
 /**
- * 解析「添加节点」的父级：null → 根；目标即根 → 根；容器目标 → 目标自身；叶子目标 → 其父级。
+ * 解析「添加节点」的父级：null → 根；目标即根 → 根；容器目标 → 目标自身；
+ * 叶子目标 / 预制体实例目标（ADR-009：实例结构以预制体为准，自身 children 渲染期被忽略）
+ * → 其父级（插为兄弟）。
  * 导出供组件侧换算父级局部坐标（与 commitAddNode 内部保持同一解析规则）。
  */
 export function resolveAddParent(root: UINode, targetId: string | null): UINode {
@@ -222,6 +227,53 @@ export function resolveAddParent(root: UINode, targetId: string | null): UINode 
   const found = findUINodeWithParent(root, targetId);
   if (!found) return root;
   if (!found.parent) return root; // 目标即根节点
+  if (found.node.prefab) return found.parent; // 实例拒收子节点（与树面板 / 渲染语义一致）
   if (getUISchema(found.node.type)?.defaultChildPolicy === 'container') return found.node;
   return found.parent;
+}
+
+/**
+ * 插入预制体实例（T7.3 正向实例化，ADR-009 §2）：
+ * 实例节点 = { prefab: path, name = 预制体名（全树唯一去重）, type/transform 取预制体根
+ * （实例 transform 保留语义 → 直接以预制体根起值，避免占位尺寸覆盖设计尺寸）,
+ * props/theme/events/logicAsset 全空 → 渲染展开时回落预制体 }；children 恒空（结构以预制体为准）。
+ * prefabRoot = 调用方已取到的预制体根（缓存命中 / 回读；缺省给中性占位——展开时结构仍以预制体为准）。
+ * 父级解析与 commitAddNode 同规则。返回新节点 id；无资产返回 null（不发命令）。
+ */
+export function commitAddPrefab(
+  prefabPath: string,
+  prefabRoot: UINode | null,
+  parentId: string | null,
+  at: Vec2,
+): string | null {
+  const asset = getSceneTreeDomain().asset;
+  if (!asset) return null;
+  const parent = resolveAddParent(asset.root, parentId);
+  const root = prefabRoot;
+  const newId = newUINodeId();
+  const label = prefabLabelOf(prefabPath);
+  const node: UINode = {
+    id: newId,
+    name: uniqueName(label, collectNames(asset.root)),
+    type: root?.type ?? 'panel',
+    transform: {
+      position: { x: at.x, y: at.y },
+      size: root
+        ? { ...root.transform.size }
+        : { w: 200, h: 200 },
+      rotation: root?.transform.rotation ?? 0,
+    },
+    theme: {},
+    props: {},
+    events: [],
+    children: [],
+    prefab: prefabPath,
+  };
+  runUICommand(`视口：插入预制体实例 ${label}`, (raw) => {
+    const draftRoot = (raw as UIAsset).root;
+    const draftParent = parent.id === draftRoot.id ? draftRoot : findUINode(draftRoot, parent.id);
+    if (!draftParent) return;
+    draftParent.children.push(node);
+  });
+  return newId;
 }

@@ -46,11 +46,15 @@ export const custom = defineNode({
   id: 'event.custom',
   title: '自定义事件',
   category: '事件',
-  keywords: ['custom event', '自定义事件', '事件定义', '入口'],
-  doc: '自定义事件的入口节点：静态定义提供 arg0~arg2 占位数据脚；运行时由解释器按 IREventDef.params 注入同名参数到输出数据脚（T5.x）。',
+  keywords: ['custom event', '自定义事件', '事件定义', '入口', '来源节点'],
+  doc: '自定义事件的入口节点：检视器「事件名」填写绑定的事件（内建事件如按钮 pressed，或资产声明的自定义事件名），事件到达时执行链从此出发；静态定义提供 arg0~arg2 占位数据脚与「来源节点」脚（UI 事件携带触发节点名，ADR-010，可接分支按来源分派），运行时由解释器按 IREventDef.params 注入同名参数到输出数据脚（T5.x）。',
+  // eventName 须声明为检视器参数（运行时绑定约定 params.eventName，见解释器 customEventName）：
+  // 未声明时检视器无编辑项、画布不回显，用户无法手动绑定事件（实机评估反馈，2026-10-18 修复）
+  params: [{ id: 'eventName', label: '事件名', type: 'string', default: '' }],
   inputs: [],
   outputs: [
     execOut(),
+    dataOut('sourceNode', 'string', '来源节点'),
     dataOut('arg0', 'any', '参数1'),
     dataOut('arg1', 'any', '参数2'),
     dataOut('arg2', 'any', '参数3'),
@@ -115,16 +119,15 @@ export const listen = defineNode({
  * （接 var.get 可动态调速/停止）。每次到期（非取消）经 ctx.emit 发布系统事件
  * 'timer'（参数 { ticks }，target 默认 ui——其它实例可 event.listen('timer') 接收）。
  *
- * 已知限制（ADR-008）：无条件循环长期占用本实例串行事件队列（ADR-005 语义），
- * 其 'timer' 系统事件滞留至 stop 清队——需要总线投递的场景建议一次性触发
- * （loop=false）或由外部事件驱动。
+ * 调度（ADR-010）：tick 边界是协作式让出点——无条件循环不再占用串行事件队列，
+ * 积压的其它事件（按钮 pressed 等）最迟在下次 tick 前被派发（延迟上限 ≈ interval）。
  */
 export const timer = defineNode({
   id: 'event.timer',
   title: '定时器',
   category: '事件',
   keywords: ['timer', '定时', 'interval', '间隔', '循环计时'],
-  doc: '一次触发自动持续计时：每 interval 秒触发一次「每次触发」出脚（loop 为真，无需回连）；cancel 或运行中止走「结束」。interval/loop/cancel 每 tick 重估（接变量可动态调速/停止）。',
+  doc: '一次触发自动持续计时：每 interval 秒触发一次「每次触发」出脚（loop 为真，无需回连）；cancel 或运行中止走「结束」。interval/loop/cancel 每 tick 重估（接变量可动态调速/停止）。tick 边界为协作让出点：循环运行中其它事件最迟在下次 tick 前被派发（ADR-010）。',
   unlimitedFires: true,
   inputs: [
     execIn(),

@@ -4,8 +4,8 @@
  * 只做三件事：JSON 解析、统一错误（{ ok:false, message } → FsApiError）、类型标注。
  * 契约以 server/index.ts 为准（不 import server 代码，避免跨界依赖）：
  *  - GET    /api/tree?path=            → { ok, tree }
- *  - PUT    /api/file { path, content }→ { path, size }
- *  - DELETE /api/file?path=            → { path, kind }
+ *  - PUT    /api/file { path, content }→ { ok, path, size, snapshotTs? }
+ *  - DELETE /api/file?path=            → { ok, path, kind, snapshotTs? }
  *  - POST   /api/move { from, to }     → { path, moved }
  *  - POST   /api/import { targetDir, sourcePath } → { ok, target, files, bytes, renamed }
  *  - GET    /api/history?path=         → { ok, path, entries }（T7.4 快照列表，新 → 旧）

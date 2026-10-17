@@ -36,6 +36,7 @@ import type {
   NodeSpec,
 } from '@/ir/types';
 import { clearAllStateSlots } from '@/nodes/spec';
+import { BUS_SOURCE_NODE_KEY } from '../events/markers';
 import type { DebugEvent, RuntimeHandle, RuntimeOptions } from './types';
 
 /* ============================================================
@@ -227,12 +228,14 @@ function indexGraph(name: string, ref: IRGraph): IndexedGraph {
  * 1. 命名注入：IREventDef.params 名单（未声明事件则用 args 的键）；
  * 2. 位置注入：按参数顺序映射到占位脚 arg0 / arg1 / arg2（与节点库静态占位脚对齐）；
  * 3. 散键兜底：args 中不在名单内的键也按名注入（命名优先于位置，避免 arg0 这类同名参数被覆盖）。
+ * sourceNode（ADR-010 §3 来源节点名）不占位置脚：只经散键兜底注入同名出脚，
+ * 避免挤压业务参数的 arg0~arg2 槽位。
  */
 function buildEventOutputs(def: IREventDef | undefined, args: Record<string, unknown>): Record<string, unknown> {
   const outs: Record<string, unknown> = {};
   const entries: [string, unknown][] = def
     ? def.params.map((p) => [p.name, args[p.name]] as [string, unknown])
-    : Object.entries(args);
+    : Object.entries(args).filter(([key]) => key !== BUS_SOURCE_NODE_KEY);
   for (const [name, value] of entries) {
     if (value !== undefined) outs[name] = value;
   }
@@ -267,6 +270,8 @@ class BlueprintRuntime implements RuntimeHandle {
   private draining = false;
   /** ADR-008：正在产出多次出脚的节点实例 id（generator 运行期间再触发 = 忽略，旧回连边安全降级为 no-op） */
   private readonly activeGenerators = new Set<string>();
+  /** ADR-010：协作式派发深度（0 = 顶层让出点；>0 = 让出派发中，嵌套链的让出点不再派发） */
+  private coopDepth = 0;
 
   constructor(asset: IRAsset, specs: Map<string, NodeSpec>, opts: RuntimeOptions) {
     this.asset = asset;
@@ -352,6 +357,31 @@ class BlueprintRuntime implements RuntimeHandle {
       }
     } finally {
       this.draining = false;
+    }
+  }
+
+  /**
+   * ADR-010 协作式调度·让出点：多次出脚节点（unlimitedFires）的 yield 边界上派发
+   * 串行队列积压事件——无条件循环（timer/whileLoop）不再把后续事件饿死在队列里。
+   * 约束：
+   *  - 仅顶层让出点派发（coopDepth 守卫）：被派发事件的链内部再遇让出点不嵌套，
+   *    防止「无限链套无限链」的派发栈失控（嵌套场景回落 ADR-008 旧语义 = 阻塞）；
+   *  - 逐条 shift 派发、await 完整链：FIFO 保序与「一次一条链」的串行语义不变；
+   *  - 让出延迟上限 ≈ 让出节点的产出间隔（如 timer 的 interval 秒）。
+   */
+  private async coopDrainPending(): Promise<void> {
+    if (this.coopDepth > 0) return;
+    while (this.running && this.pending.length > 0) {
+      const ev = this.pending.shift()!;
+      this.coopDepth += 1;
+      try {
+        await this.dispatchQueued(ev);
+      } catch (err) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        this.reportError(e, errGraph(e) ?? this.asset.entry, errNodeId(e) ?? '');
+      } finally {
+        this.coopDepth -= 1;
+      }
     }
   }
 
@@ -647,6 +677,9 @@ class BlueprintRuntime implements RuntimeHandle {
         const nextPin = pickNext(spec, node, step.value);
         const downstream = nextPin === undefined ? undefined : this.followExec(frame, node, nextPin);
         if (downstream) await this.runChain(frame, downstream, undefined, depth);
+        // ADR-010：unlimitedFires 节点（timer/whileLoop）的 yield 边界 = 让出点，
+        // 出脚子链完整执行后、下次计时/迭代前，把队列积压事件派发掉（顶层一次）
+        if (spec.unlimitedFires) await this.coopDrainPending();
       }
     } finally {
       this.activeGenerators.delete(node.id);

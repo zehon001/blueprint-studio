@@ -20,13 +20,15 @@
  *   <UIEditorPanel />
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Vec2 } from '../../ir/types';
+import type { UIAsset, UINode, Vec2 } from '../../ir/types';
 import { renderUI, updateUI, type UIRenderHandle } from '../../runtime/render/render';
 import { NODE_CATEGORIES, searchUISchemas, type UINodeSchema } from '../schema';
+import { collectPrefabPaths, getCachedPrefab, prefabLabelOf, primePrefabCache } from '../prefab';
 import { findUINode, newUINodeId, useSceneTreeDomain, useUIEditorStore } from '../store';
 import {
   buildParentMap,
   commitAddNode,
+  commitAddPrefab,
   commitDelete,
   commitDuplicate,
   commitMoves,
@@ -511,6 +513,7 @@ export function UIEditorPanel() {
     if (!assetRef.current) return;
     const surface = surfaceRef.current;
     if (!surface) return;
+    refreshPrefabItems(); // 预制体清单异步刷新（晚到由 state 更新补渲染）
     const screen = screenOf(e);
     const pt = screenToCanvas(screen, viewRef.current);
     const live = measure();
@@ -525,6 +528,91 @@ export function UIEditorPanel() {
       canvas: pt,
       targetId: hit,
     });
+  };
+
+  /* —— 预制体实例插入（T7.3 正向实例化 · ADR-009）—— */
+
+  /** 可插入预制体清单（ui/prefabs/*.ui.json；右键菜单打开时刷新） */
+  const [prefabItems, setPrefabItems] = useState<{ path: string; label: string }[]>([]);
+
+  const refreshPrefabItems = useCallback((): void => {
+    const projectPath = useUIEditorStore.getState().projectPath;
+    if (!projectPath) return;
+    void fetch(`/api/tree?path=${encodeURIComponent(`${projectPath}/ui/prefabs`)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        const items: { path: string; label: string }[] = [];
+        const walk = (node: unknown): void => {
+          if (!node || typeof node !== 'object') return;
+          const t = node as { name?: unknown; path?: unknown; type?: unknown; children?: unknown };
+          if (
+            t.type === 'file' &&
+            typeof t.path === 'string' &&
+            typeof t.name === 'string' &&
+            t.name.toLowerCase().endsWith('.ui.json')
+          ) {
+            items.push({ path: t.path.slice(projectPath.length + 1), label: prefabLabelOf(t.path) });
+            return;
+          }
+          if (Array.isArray(t.children)) t.children.forEach(walk);
+        };
+        walk((j as { tree?: unknown }).tree);
+        setPrefabItems(items);
+      })
+      .catch(() => setPrefabItems([]));
+  }, []);
+
+  /** 插入预制体实例：守卫自引用 → 取预制体根（缓存优先，未命中回读并预热）→ 入命令栈 */
+  const insertPrefabPick = (path: string): void => {
+    const assetNow = assetRef.current;
+    if (!assetNow || !menu) {
+      closeMenu();
+      return;
+    }
+    if (useUIEditorStore.getState().assetPath === path) {
+      showHint('预制体不能插入自身（会成环）');
+      closeMenu();
+      return;
+    }
+    if (collectPrefabPaths(assetNow.root).includes(path)) {
+      showHint('当前 UI 已引用该预制体；嵌套同预制体会成环，已阻止');
+      closeMenu();
+      return;
+    }
+    const install = (root: UINode | null): void => {
+      const menuNow = menu!;
+      const parent = resolveAddParent(assetNow.root, menuNow.targetId);
+      const pbox = measure().find((b) => b.id === parent.id)?.rect;
+      const local: Vec2 = pbox
+        ? { x: menuNow.canvas.x - pbox.x, y: menuNow.canvas.y - pbox.y }
+        : menuNow.canvas;
+      const id = commitAddPrefab(path, root, menuNow.targetId, local);
+      closeMenu();
+      if (id) setSelection([id]);
+    };
+    const cached = getCachedPrefab(path);
+    if (cached) {
+      install(cached.root);
+      return;
+    }
+    const projectPath = useUIEditorStore.getState().projectPath;
+    if (!projectPath) {
+      showHint('未打开项目，无法读取预制体');
+      closeMenu();
+      return;
+    }
+    void fetch(`/api/file?path=${encodeURIComponent(`${projectPath}/${path}`)}`)
+      .then(async (r) => {
+        const j = (await r.json().catch(() => ({}))) as { ok?: boolean; content?: unknown; message?: string };
+        if (!j.ok || typeof j.content !== 'string') throw new Error(j.message ?? `HTTP ${r.status}`);
+        const prefabAsset = JSON.parse(j.content) as UIAsset;
+        primePrefabCache(path, prefabAsset); // 预热：渲染展开免二次回读
+        install(prefabAsset.root);
+      })
+      .catch((err: unknown) => {
+        showHint(`预制体加载失败：${err instanceof Error ? err.message : String(err)}`);
+        closeMenu();
+      });
   };
 
   /* ============================================================
@@ -849,6 +937,24 @@ export function UIEditorPanel() {
             </>
           ) : null}
           <div className="bps-vp__menu-group">添加节点</div>
+          {prefabItems.length > 0 ? (
+            <div>
+              <div className="bps-vp__menu-group">预制体（ui/prefabs/）</div>
+              {prefabItems.map((p) => (
+                <button
+                  key={p.path}
+                  type="button"
+                  className="bps-vp__menu-item"
+                  role="menuitem"
+                  title={`插入实例：${p.path}`}
+                  onClick={() => insertPrefabPick(p.path)}
+                >
+                  <span className="bps-vp__menu-icon">⧉</span>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {menuGroups.map((g) => (
             <div key={g.category}>
               <div className="bps-vp__menu-group">{g.category}</div>
