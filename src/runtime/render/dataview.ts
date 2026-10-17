@@ -14,13 +14,27 @@
  * 行数据来源：props.items（编辑态 JSON 文本 / 运行态数组，见 common.parseRows）。
  * 全部行内容经 textContent 写入（数据不走 innerHTML，天然免疫注入）；
  * 结构重建以「签名比对」做增量：数据没变不重建 DOM（保滚动位置与选中态）。
+ *
+ * T7.6 大数据虚拟滚动：行数超过 LIST_VIRTUAL_THRESHOLD（见 src/perf/thresholds.ts，
+ * 默认 200）时切换虚拟模式——先把「组头 / 数据行 / 合并块 / 合并展开行」扁平化为
+ * 定高槽位计划（plan），body 只放总高占位（position:relative + 显式 height），DOM 仅
+ * 挂载可视区 ±LIST_VIRTUAL_BUFFER 行（绝对定位按槽位 top 排布）；滚动事件按 scrollTop
+ * 二分求可视窗口增量重建。签名比对仍在全量数据上做（patchList 不变），DOM 只建可视行。
+ * ≤ 阈值时走经典全量路径，分组/合并/rowspan 视觉与 T1.2/T1.7 完全一致。
  */
 import type { UINode } from '../../ir/types';
 import type { ListColumn, UITreeItem } from '../../ui-editor/schema';
-import { clearChildren, div, nodeOf, parseRows, span, str, type NodeCtx } from './common';
+import {
+  LIST_GROUP_HEIGHT,
+  LIST_ROW_HEIGHT,
+  LIST_VIRTUAL_BUFFER,
+  LIST_VIRTUAL_THRESHOLD,
+  LIST_VIRTUAL_VIEWPORT_FALLBACK,
+} from '../../perf/thresholds';
+import { clearChildren, div, nodeOf, parseRows, px, span, str, type NodeCtx } from './common';
 
 /* ============================================================
- * list（重点：列定义 / 颜色映射 / 分组 / 合并）
+ * list（重点：列定义 / 颜色 / 分组 / 合并 / T7.6 虚拟滚动）
  * ============================================================ */
 
 interface ListEntry {
@@ -35,6 +49,31 @@ interface ListGroup {
   entries: ListEntry[];
 }
 
+/**
+ * T7.6 虚拟滚动的扁平可视计划槽位（展开/折叠后的「视觉行」序列）：
+ * - 'group'：组头行（LIST_GROUP_HEIGHT）；
+ * - 'row'：普通数据行，或合并块未展开时的整块占位行（高 = 行数 × LIST_ROW_HEIGHT，
+ *   内容垂直居中 + ×N 计数徽标，视觉等价 T1.7 rowspan）；
+ * - 'merged'：合并块展开后的第 subIdx 行（≥1，虚线样式）。
+ */
+interface VirtualSlot {
+  kind: 'group' | 'row' | 'merged';
+  /** 槽顶相对 body 的 y 偏移（px；槽位按生成顺序递增） */
+  top: number;
+  /** 槽高（px） */
+  height: number;
+  /** 对应聚合条目（group 槽为 null） */
+  entry: ListEntry | null;
+  /** merged 展开行在被合并行数组中的下标（其余槽为 0） */
+  subIdx: number;
+  /** 组头 key（group 槽） */
+  groupKey: string;
+  /** 合并展开 key（合并块及其首行槽；点击徽标切换展开） */
+  mergeKey: string;
+  /** 展示计数：group 槽 = 组内条目数；row/merged 槽 = 被合并行数 */
+  count: number;
+}
+
 interface ListState {
   /** 上次渲染的结构签名（columns + items 原始值），未变化则不重建 DOM */
   sig: string;
@@ -46,6 +85,13 @@ interface ListState {
   collapsed: Set<string>;
   /** 展开的合并项 key（`组key::合并值`，计数徽标点击切换） */
   expanded: Set<string>;
+  /** T7.6：行数超过 LIST_VIRTUAL_THRESHOLD 时为 true（虚拟滚动路径） */
+  virtual: boolean;
+  /** T7.6：虚拟模式的扁平槽位计划（随数据 / 折叠 / 展开重建；经典路径为空） */
+  slots: VirtualSlot[];
+  /** T7.6：上次渲染的窗口下标 [winStart, winEnd)（滚动时窗口未变则跳过重建） */
+  winStart: number;
+  winEnd: number;
 }
 
 const listStates = new WeakMap<HTMLElement, ListState>();
@@ -152,6 +198,174 @@ function aggregateList(
   return groups;
 }
 
+/** 槽位计划总高（虚拟模式的 body 占位高度） */
+function planHeight(slots: readonly VirtualSlot[]): number {
+  const last = slots[slots.length - 1];
+  return last ? last.top + last.height : 0;
+}
+
+/**
+ * T7.6 虚拟滚动的可视窗口计算（纯函数，node:test 直接断言）：
+ * 返回与 [scrollTop - bufferPx, scrollTop + viewHeight + bufferPx] 相交的槽位下标区间
+ * [start, end)（二分求首个 bottom > viewTop 的槽，再线性扫到首个 top ≥ viewBottom）。
+ * 参数取结构化最小面（top/height），便于测试以普通对象构造等价槽位。
+ */
+export function computeVirtualWindow(
+  slots: ReadonlyArray<{ top: number; height: number }>,
+  scrollTop: number,
+  viewHeight: number,
+  bufferPx: number,
+): { start: number; end: number } {
+  const viewTop = scrollTop - bufferPx;
+  const viewBottom = scrollTop + viewHeight + bufferPx;
+  let lo = 0;
+  let hi = slots.length; // 二分：首个 top+height > viewTop 的槽
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (slots[mid].top + slots[mid].height > viewTop) hi = mid;
+    else lo = mid + 1;
+  }
+  let end = lo;
+  while (end < slots.length && slots[end].top < viewBottom) end++;
+  return { start: lo, end };
+}
+
+/**
+ * 由聚合结果构建虚拟槽位计划（折叠 / 展开状态已计入；与经典路径的视觉序列一一对应）：
+ * 组头（可折叠）→ 条目（相邻合并块未展开 = 整块一个定高槽；展开 = 首行 + N-1 条 merged 槽）。
+ */
+function buildVirtualPlan(
+  state: ListState,
+  groupCol: ListColumn | undefined,
+  mergeCol: ListColumn | undefined,
+): VirtualSlot[] {
+  const slots: VirtualSlot[] = [];
+  let top = 0;
+  const push = (slot: Omit<VirtualSlot, 'top'>): void => {
+    slots.push({ ...slot, top });
+    top += slot.height;
+  };
+  for (const g of aggregateList(state.rows, groupCol, mergeCol)) {
+    if (groupCol) {
+      push({
+        kind: 'group',
+        height: LIST_GROUP_HEIGHT,
+        entry: null,
+        subIdx: 0,
+        groupKey: g.key,
+        mergeKey: '',
+        count: g.entries.length,
+      });
+      if (state.collapsed.has(g.key)) continue; // 组折叠：跳过行（与经典路径一致）
+    }
+    for (const entry of g.entries) {
+      const mergeKey =
+        mergeCol && entry.rows.length > 1 ? `${g.key}::${str(entry.rows[0][mergeCol.field])}` : '';
+      if (mergeKey && state.expanded.has(mergeKey)) {
+        // 展开的合并块：首行（带徽标）+ 其余被合并行（merged 虚线槽）
+        push({ kind: 'row', height: LIST_ROW_HEIGHT, entry, subIdx: 0, groupKey: '', mergeKey, count: entry.rows.length });
+        for (let r = 1; r < entry.rows.length; r++) {
+          push({ kind: 'merged', height: LIST_ROW_HEIGHT, entry, subIdx: r, groupKey: '', mergeKey, count: entry.rows.length });
+        }
+      } else {
+        // 普通行 / 未展开合并块（整块一个槽，高 = 行数 × 行高，视觉等价 rowspan）
+        push({
+          kind: 'row',
+          height: entry.rows.length > 1 && mergeCol ? entry.rows.length * LIST_ROW_HEIGHT : LIST_ROW_HEIGHT,
+          entry,
+          subIdx: 0,
+          groupKey: '',
+          mergeKey,
+          count: entry.rows.length,
+        });
+      }
+    }
+  }
+  return slots;
+}
+
+/** 虚拟槽位 → DOM 行（绝对定位按 top 排布；内容写法与经典路径一致，经 textContent） */
+function virtualSlotEl(
+  state: ListState,
+  slot: VirtualSlot,
+  visible: ListColumn[],
+  tpl: string,
+  mergeCol: ListColumn | undefined,
+): HTMLElement {
+  if (slot.kind === 'group') {
+    const gh = div('bps-lgroup');
+    gh.style.top = px(slot.top);
+    gh.style.height = px(slot.height);
+    gh.dataset.gkey = slot.groupKey;
+    gh.appendChild(span('bps-lcaret')).textContent = state.collapsed.has(slot.groupKey) ? '▸' : '▾';
+    gh.appendChild(span()).textContent = slot.groupKey || '（未分组）';
+    gh.appendChild(span('bps-lgmeta')).textContent = `${slot.count} 条`;
+    return gh;
+  }
+  const entry = slot.entry!;
+  if (slot.kind === 'merged') {
+    // 合并展开行（虚线只读区，与经典路径 .bps-lmerged 内容一致）
+    const box = div('bps-lmerged bps-lgrid');
+    box.style.gridTemplateColumns = tpl;
+    box.style.top = px(slot.top);
+    box.style.height = px(slot.height);
+    const row = entry.rows[slot.subIdx];
+    for (const c of visible) {
+      box.appendChild(span('bps-lcell')).textContent = str(row[c.field]);
+    }
+    return box;
+  }
+  const rowEl = div('bps-lrow bps-lgrid');
+  rowEl.style.gridTemplateColumns = tpl;
+  rowEl.style.top = px(slot.top);
+  rowEl.style.height = px(slot.height);
+  rowEl.dataset.ridx = String(entry.firstIdx);
+  if (slot.mergeKey) rowEl.dataset.mergeKey = slot.mergeKey;
+  if (state.selected === entry.firstIdx) rowEl.classList.add('bps-lrow--sel');
+  const isMergedBlock = entry.rows.length > 1 && mergeCol !== undefined;
+  const row = entry.rows[slot.subIdx];
+  for (const c of visible) {
+    const cell = cellEl(c, row);
+    if (isMergedBlock) cell.classList.add('bps-lcell--span');
+    if (c === mergeCol && isMergedBlock && slot.subIdx === 0) {
+      const badge = span('bps-lcount');
+      badge.textContent = `×${entry.rows.length}`;
+      badge.title = '点击展开合并的行';
+      cell.appendChild(badge);
+    }
+    rowEl.appendChild(cell);
+  }
+  return rowEl;
+}
+
+/**
+ * T7.6：按当前 scrollTop 重算并渲染可视窗口（滚动路径；窗口未变则零开销跳过）。
+ * force=true 时先清空 body（数据 / 折叠 / 展开等全量重建后的首次灌装）。
+ * clientHeight=0（未布局 / 测试环境）按 LIST_VIRTUAL_VIEWPORT_FALLBACK 兜底估算。
+ */
+function renderVirtualWindow(el: HTMLElement, state: ListState, force: boolean): void {
+  const body = el.querySelector<HTMLElement>('.bps-lbody');
+  if (!body || !state.virtual || state.slots.length === 0) return;
+  const viewH = el.clientHeight > 0 ? el.clientHeight : LIST_VIRTUAL_VIEWPORT_FALLBACK;
+  const { start, end } = computeVirtualWindow(
+    state.slots,
+    el.scrollTop,
+    viewH,
+    LIST_VIRTUAL_BUFFER * LIST_ROW_HEIGHT,
+  );
+  if (!force && start === state.winStart && end === state.winEnd) return;
+  state.winStart = start;
+  state.winEnd = end;
+  const groupCol = state.columns.find((c) => c.groupBy);
+  const mergeCol = state.columns.find((c) => c.mergeDuplicates && c !== groupCol);
+  const visible = state.columns.filter((c) => c !== groupCol);
+  const tpl = gridTemplate(visible);
+  clearChildren(body);
+  for (let i = start; i < end; i++) {
+    body.appendChild(virtualSlotEl(state, state.slots[i], visible, tpl, mergeCol));
+  }
+}
+
 /** 渲染表头 + 分组行体（全量重建 body/head 内容；数据驱动，经 textContent 写入） */
 function renderListBody(el: HTMLElement, state: ListState): void {
   const head = el.querySelector<HTMLElement>('.bps-lhead');
@@ -166,11 +380,8 @@ function renderListBody(el: HTMLElement, state: ListState): void {
   // 同一网格，合并条目的单元格 grid-row:span N 跨行占位（视觉 rowspan）；
   // 无合并列保持 T1.2 行级网格（与 table 同款结构）。
   const rowspan = mergeCol !== undefined;
-  body.classList.toggle('bps-lbody--grid', rowspan);
-  if (rowspan) body.style.gridTemplateColumns = tpl;
-  else body.style.gridTemplateColumns = '';
 
-  // 表头
+  // 表头（两态共用）
   clearChildren(head);
   if (visible.length) {
     head.style.display = 'grid';
@@ -184,12 +395,40 @@ function renderListBody(el: HTMLElement, state: ListState): void {
     head.style.display = 'none';
   }
 
-  // 行体
   clearChildren(body);
   if (!state.rows.length) {
+    // 空数据：退出虚拟态（类 / 占位高复位），渲染等待提示
+    state.virtual = false;
+    state.slots = [];
+    state.winStart = 0;
+    state.winEnd = 0;
+    body.classList.remove('bps-lbody--grid', 'bps-lbody--virtual');
+    body.style.gridTemplateColumns = '';
+    body.style.height = '';
     body.appendChild(span('bps-lempty')).textContent = '（等待数据…）';
     return;
   }
+
+  // T7.6 虚拟滚动：行数超阈值 → 只建可视窗口 DOM（body 为总高占位容器）
+  state.virtual = state.rows.length > LIST_VIRTUAL_THRESHOLD;
+  body.classList.toggle('bps-lbody--virtual', state.virtual);
+  if (state.virtual) {
+    body.classList.remove('bps-lbody--grid');
+    body.style.gridTemplateColumns = '';
+    state.slots = buildVirtualPlan(state, groupCol, mergeCol);
+    body.style.height = px(planHeight(state.slots));
+    renderVirtualWindow(el, state, true);
+    return;
+  }
+
+  // 经典路径（≤ 阈值）：全量重建（T1.2/T1.7 原行为；退出虚拟态时复位占位高）
+  state.slots = [];
+  state.winStart = 0;
+  state.winEnd = 0;
+  body.style.height = '';
+  body.classList.toggle('bps-lbody--grid', rowspan);
+  if (rowspan) body.style.gridTemplateColumns = tpl;
+  else body.style.gridTemplateColumns = '';
   const groups = aggregateList(state.rows, groupCol, mergeCol);
   for (const g of groups) {
     if (groupCol) {
@@ -300,10 +539,21 @@ export function createListNode(_node: UINode, ctx: NodeCtx): HTMLElement {
   el.append(head, body);
   el.addEventListener('click', (e) => onListClick(el, e, ctx), { signal: ctx.signal });
   el.addEventListener('dblclick', (e) => onListDblclick(el, e, ctx), { signal: ctx.signal });
+  // T7.6 虚拟滚动：滚动容器是 list 根元素（.bps-list overflow:auto）；滚动时按
+  // scrollTop 重算可视窗口增量重建（窗口未变零开销跳过；非虚拟态 no-op）
+  el.addEventListener(
+    'scroll',
+    () => {
+      const st = listStates.get(el);
+      if (st) renderVirtualWindow(el, st, false);
+    },
+    { signal: ctx.signal },
+  );
   return el;
 }
 
-/** list：签名比对增量更新（columns / items 未变则不重建，保选中态与展开态） */
+/** list：签名比对增量更新（columns / items 未变则不重建，保选中态与展开态）。
+ * 签名比对始终在全量数据上做（T7.6 语义不变）；超阈值行数时 DOM 只建可视窗口。 */
 export function patchList(el: HTMLElement, node: UINode, _ctx: NodeCtx): void {
   const columns = Array.isArray(node.props.columns) ? (node.props.columns as ListColumn[]) : [];
   const items = node.props.items;
@@ -317,6 +567,10 @@ export function patchList(el: HTMLElement, node: UINode, _ctx: NodeCtx): void {
       selected: -1,
       collapsed: new Set(),
       expanded: new Set(),
+      virtual: false,
+      slots: [],
+      winStart: 0,
+      winEnd: 0,
     };
     listStates.set(el, state);
   }

@@ -23,11 +23,18 @@
  * 与 render/style.ts 同理，node:test + tsx 无法加载 css，组件需保持可直接单测。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { renderUI, type UIRenderEvent, type UIRenderHandle } from './render/render'
+import { renderUI, updateUI, type UIRenderEvent, type UIRenderHandle } from './render/render'
 import { BindingRunner } from './binding'
 import { DebugProbe } from './debug-probe'
 import type { UIAsset } from '../ir/types'
 import { parseUIAsset } from '../ui-editor/store'
+import {
+  clearPrefabCache,
+  findPrefabCycle,
+  getCachedPrefab,
+  prefetchPrefabs,
+  setPrefabLoaderContext,
+} from '../ui-editor/prefab'
 import { parseMainUI, runtimeWindowTitle, RUNTIME_PROBE_CHANNEL, type RuntimeMode } from '../shell/runtime-launch'
 import { CONSOLE_CHANNEL, type ConsoleMessage } from '../panels/console/ConsolePanel'
 
@@ -250,6 +257,13 @@ export default function RuntimeApp(props: RuntimeAppProps) {
       } catch (err) {
         throw new Error(`解析失败：${err instanceof Error ? err.message : String(err)}`)
       }
+      // ADR-009（T7.3）：运行窗口装载 UI 前预取树内全部预制体（含嵌套）——「刷新即重取」，
+      // 预制体改动经重跑/刷新反射到运行态；循环引用在渲染前显式报中文错误（带重试）。
+      setPrefabLoaderContext({ projectPath: p.project, fetchImpl })
+      clearPrefabCache()
+      await prefetchPrefabs(asset.root)
+      const cycle = findPrefabCycle(asset.root, (path) => getCachedPrefab(path))
+      if (cycle) throw new Error(cycle)
       setApp({ params: p, phase: 'ready', message: '', uiPath, asset })
     } catch (err) {
       setApp({
@@ -292,13 +306,20 @@ export default function RuntimeApp(props: RuntimeAppProps) {
   // runner 异步加载 .bp.json 并 start()，单个蓝图失败只记控制台不阻断渲染。
   useEffect(() => {
     if (app.phase !== 'ready' || !app.asset || !contentRef.current) return
-    const handle = renderUI(app.asset, {
+    // 预制体补拉完成回调（T7.3）：重放本 effect 的资产刷新占位。localHandle 先声明后
+    // 赋值，闭包经它取到本 effect 的句柄（跨 effect 的 handleRef 可能已被新资产替换）。
+    let localHandle: UIRenderHandle | null = null
+    localHandle = renderUI(app.asset, {
       mode: 'runtime',
       onEvent: (evt) => {
         ;(propsRef.current.onEvent ?? defaultOnEvent)(evt)
         runnerRef.current?.routeEvent(evt)
       },
+      onPrefabLoad: () => {
+        if (localHandle && app.asset) updateUI(localHandle, app.asset)
+      },
     })
+    const handle = localHandle
     contentRef.current.appendChild(handle.el)
     handleRef.current = handle
     const project = app.params?.project

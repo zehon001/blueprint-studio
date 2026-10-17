@@ -359,6 +359,55 @@
   cursor: not-allowed;
 }
 
+/* ===== 预制体区（T7.3 · ADR-009：单选实例节点时显示） ===== */
+
+.insp-prefab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.insp-prefab-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.insp-prefab-title {
+  flex: none;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.insp-prefab-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+}
+
+.insp-prefab-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.insp-prefab-hint {
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+  line-height: 1.4;
+}
+
 /* ===== 内建事件区（PLAN §7.3：选中 UI 节点时显示） ===== */
 
 .insp-events {

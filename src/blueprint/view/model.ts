@@ -421,8 +421,10 @@ export function irToFlow(
       }));
     const laidOut = autoLayoutPositions(entries, links);
     const shifted = offsetAvoidingPositioned(laidOut, entriesById, positionedBoxes);
+    // T7.6：按 id 建 Map 后写回（原 nodes.find 为 O(n²)，千节点新建资产布局时放大常数）
+    const flowNodeById = new Map(nodes.map((n) => [n.id, n]));
     for (const [id, p] of shifted) {
-      const flowNode = nodes.find((n) => n.id === id);
+      const flowNode = flowNodeById.get(id);
       if (flowNode) flowNode.position = p;
     }
   }

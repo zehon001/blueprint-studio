@@ -155,6 +155,8 @@ export function UIEditorPanel() {
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [dragKind, setDragKind] = useState<DragState['kind'] | null>(null);
   const [boxes, setBoxes] = useState<PickEntry[]>([]);
+  // 预制体补拉计数（T7.3 · ADR-009）：渲染期异步补拉成功的占位刷新信号
+  const [prefabTick, setPrefabTick] = useState(0);
 
   /* —— refs（事件处理器内取最新值）—— */
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -193,7 +195,7 @@ export function UIEditorPanel() {
     rootRef.current?.focus({ preventScroll: true });
   }, []);
 
-  /* —— 渲染同步：资产变化 → renderUI / updateUI —— */
+  /* —— 渲染同步：资产变化（或预制体补拉完成）→ renderUI / updateUI —— */
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -204,7 +206,9 @@ export function UIEditorPanel() {
       return;
     }
     if (!handleRef.current) {
-      const h = renderUI(asset, { mode: 'edit' });
+      // onPrefabLoad（ADR-009）：渲染期补拉成功的占位刷新——bump prefabTick 让本 effect
+      // 重跑（updateUI 增量更新；回调存于渲染 state，updateUI 沿用同一回调）。
+      const h = renderUI(asset, { mode: 'edit', onPrefabLoad: () => setPrefabTick((t) => t + 1) });
       handleRef.current = h;
       canvas.insertBefore(h.el, canvas.firstChild); // 渲染层在下，overlay 在上
     } else {
@@ -217,7 +221,7 @@ export function UIEditorPanel() {
       }
     }
     setBoxes(measure());
-  }, [asset, measure]);
+  }, [asset, measure, prefabTick]);
 
   /* —— 卸载清理 —— */
   useEffect(

@@ -157,6 +157,10 @@ export function checkDrop(root: UINode, dragId: string, targetId: string, zone: 
     return { ok: false, reason: '不能排列在根节点两侧' };
   }
   if (zone === 'inside') {
+    // ADR-009（T7.3）：实例节点的结构以预制体为准，拒收子节点（要改结构先断开预制体）
+    if (target.prefab) {
+      return { ok: false, reason: '实例节点结构以预制体为准，不能添加子节点（可先断开预制体）' };
+    }
     const schema = getUISchema(target.type);
     if (schema?.defaultChildPolicy === 'none') {
       return { ok: false, reason: `「${schema.title}」是叶子节点，不能包含子节点` };

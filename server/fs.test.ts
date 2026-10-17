@@ -187,7 +187,9 @@ describe('模板与项目', () => {
       const list = ui.root.children[1]
       assert.equal(list.type, 'list')
       assert.equal(list.logicAsset, 'logic/main.bp.json')
-      assert.ok(list.events?.includes('itemSelected'))
+      // T7.6 顺带对齐：list 内建事件名为 selectionChanged（ADR-002 修正名，与
+      // schema/渲染器/模板一致；B13+B14 模板事件名即修后本断言未同步——预存失败修复）
+      assert.ok(list.events?.includes('selectionChanged'))
 
       const ir = JSON.parse(fs.readFileSync(path.join(p, 'logic', 'main.bp.json'), 'utf8')) as {
         version: number

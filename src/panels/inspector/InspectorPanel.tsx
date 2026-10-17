@@ -30,6 +30,9 @@ import {
   useUIEditorStore,
 } from '@/ui-editor/store'
 import { getUISchema, type PropDef } from '@/ui-editor/schema'
+import { expandPrefabNode, getCachedPrefab } from '@/ui-editor/prefab'
+import { openPrefabTab } from '@/ui-editor/prefabTab'
+import { detachPrefabCommand } from '@/panels/scene-tree/commands'
 import { PropEditor } from './PropEditors'
 import {
   PROPTYPE_LABELS,
@@ -116,6 +119,17 @@ export function InspectorPanel() {
     return out
   }, [asset, selection])
 
+  /* —— 预制体（T7.3 · ADR-009）：单选实例 → 缓存中的预制体根（显示值/schema 以有效节点为准） —— */
+  const single = nodes.length === 1 ? nodes[0]! : null
+  const cachedPrefabRoot = single?.prefab ? (getCachedPrefab(single.prefab)?.root ?? null) : null
+  /** 展示用节点：单选实例且预制体已缓存 → 展开后的有效节点（属性显示预制体合并值） */
+  const displayNodes = useMemo<UINode[]>(() => {
+    if (single && single.prefab && cachedPrefabRoot) {
+      return [expandPrefabNode(single, getCachedPrefab).node]
+    }
+    return nodes
+  }, [single, cachedPrefabRoot, nodes])
+
   useEffect(
     () => () => {
       if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
@@ -164,9 +178,10 @@ export function InspectorPanel() {
     }
   }, [logicAsset, projectPath])
 
-  /* —— schema 驱动：单选取全量属性，多选取共同属性交集 —— */
-  const firstSchema = nodes.length > 0 ? getUISchema(nodes[0]!.type) : undefined
-  const hasUnknownType = nodes.some((n) => getUISchema(n.type) === undefined)
+  /* —— schema 驱动：单选取全量属性，多选取共同属性交集 ——
+     实例节点（ADR-009）：schema 以预制体根 type 为准（实例 type 是实例化时刻快照） —— */
+  const firstSchema = nodes.length > 0 ? getUISchema(displayNodes[0]!.type) : undefined
+  const hasUnknownType = displayNodes.some((n) => getUISchema(n.type) === undefined)
   const defs = useMemo(() => {
     if (nodes.length === 0) return []
     if (nodes.length === 1) return firstSchema?.props ?? []
@@ -176,8 +191,18 @@ export function InspectorPanel() {
   /* —— 搜索过滤（命中组自动展开 = 搜索态忽略折叠记忆） —— */
   const keyword = search.trim()
   const searching = keyword.length > 0
-  const rows = propRowStates(nodes, searching ? filterPropDefs(defs, keyword) : defs)
+  // 行值取展示节点（实例 = 有效节点，显示预制体合并值）；提交仍写实例自身 props（覆盖）
+  const rows = propRowStates(displayNodes, searching ? filterPropDefs(defs, keyword) : defs)
   const groups = groupPropRows(rows)
+
+  /** 断开预制体（物化）：单命令入栈可撤销；预制体未缓存时拒绝并提示 */
+  function detachPrefab(): void {
+    if (!single) return
+    const r = detachPrefabCommand(single.id)
+    if (r === 'prefab-missing') showToast('断开失败：预制体未加载（如文件已删，请重新打开资产）')
+    else if (r === 'not-instance') showToast('该节点不是预制体实例')
+    else if (r === 'ok') showToast('已断开预制体：预制体内容已物化为当前节点子树（可撤销）')
+  }
 
   /* —— 提交：单命令应用到全部选中节点（可撤销） —— */
   function commitProp(def: PropDef, value: unknown): void {
@@ -218,10 +243,9 @@ export function InspectorPanel() {
   }
 
   /* ============ 选中（单选 / 多选） ============ */
-  const single = nodes.length === 1 ? nodes[0]! : null
   const builtInEvents = single ? (firstSchema?.events ?? []) : []
   const showEvents = single !== null && (builtInEvents.length > 0 || customEvents.length > 0)
-  const typeSummary = [...new Set(nodes.map((n) => getUISchema(n.type)?.title ?? n.type))].join('、')
+  const typeSummary = [...new Set(displayNodes.map((n) => getUISchema(n.type)?.title ?? n.type))].join('、')
 
   const header =
     single !== null ? (
@@ -261,6 +285,32 @@ export function InspectorPanel() {
         ) : null}
       </div>
       <div className="insp-body">
+        {single?.prefab ? (
+          <div className="insp-prefab">
+            <div className="insp-prefab-head">
+              <span className="insp-prefab-title">预制体</span>
+              <span className="insp-prefab-path" title={`预制体文件：${single.prefab}`}>
+                ⧉ {single.prefab}
+              </span>
+            </div>
+            <div className="insp-prefab-actions">
+              <button type="button" className="insp-btn" onClick={() => openPrefabTab(single.prefab as string)}>
+                编辑预制体
+              </button>
+              <button
+                type="button"
+                className="insp-btn"
+                title="把预制体内容物化为本节点子树并解除引用（可撤销）"
+                onClick={detachPrefab}
+              >
+                断开预制体
+              </button>
+            </div>
+            <div className="insp-prefab-hint">
+              属性修改即实例覆盖（仅写实例自身）；结构以预制体为准——双击树中实例行也可进入编辑。
+            </div>
+          </div>
+        ) : null}
         {hasUnknownType ? (
           <div className="insp-note">存在未知类型节点，仅显示可识别的共同属性</div>
         ) : null}
@@ -287,7 +337,7 @@ export function InspectorPanel() {
                       <PropRow
                         key={row.def.id}
                         row={row}
-                        nodes={nodes}
+                        nodes={displayNodes}
                         root={asset?.root ?? nodes[0]!}
                         onCommit={commitProp}
                         onPlaceholder={showToast}

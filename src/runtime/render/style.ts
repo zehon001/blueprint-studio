@@ -110,6 +110,12 @@ export const UI_RENDER_CSS = `
 .bps-lbody--grid .bps-lrow--sel .bps-lcell{background:var(--selection);}
 .bps-lcell--span{align-self:stretch;display:flex;align-items:center;gap:4px;}
 .bps-lbody--grid > .bps-lgroup,.bps-lbody--grid > .bps-lempty,.bps-lbody--grid > .bps-lmerged{grid-column:1 / -1;}
+
+/* T7.6 list 虚拟滚动（行数 > LIST_VIRTUAL_THRESHOLD，见 src/perf/thresholds.ts）：
+   行体为相对定位占位容器（显式总高 = 槽位计划总高），行 / 组头 / 合并块绝对定位按槽位
+   top 排布（内联样式写入）；行体本身不再是网格容器（.bps-lbody--grid 已移除）。 */
+.bps-lbody--virtual{position:relative;}
+.bps-lbody--virtual > .bps-lrow,.bps-lbody--virtual > .bps-lgroup,.bps-lbody--virtual > .bps-lmerged{position:absolute;left:0;right:0;}
 .bps-tree{overflow:auto;padding:2px 0;}
 .bps-treeitem{display:flex;align-items:center;gap:2px;padding:1px 4px;white-space:nowrap;}
 .bps-treeitem--sel{background:var(--selection);}
@@ -117,6 +123,11 @@ export const UI_RENDER_CSS = `
 
 /* ── 未知类型兜底 ───────────────────────────────────── */
 .bps-unknown-tag{color:var(--text-disabled);font-size:var(--font-sm);}
+
+/* ── 预制体占位（T7.3 · ADR-009：缓存未命中 / 循环引用 / 超深的就地中文提示） ── */
+.bps-prefab-placeholder{display:flex;align-items:center;gap:6px;min-width:80px;padding:4px 10px;background:var(--bg-input);border:1px dashed var(--border-strong);border-radius:var(--radius-sm);color:var(--text-dim);font-size:var(--font-sm);overflow:hidden;}
+.bps-prefab-placeholder-icon{flex:none;}
+.bps-prefab-placeholder-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 `;
 
 /**

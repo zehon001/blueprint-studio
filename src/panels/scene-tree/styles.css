@@ -121,6 +121,19 @@
   font-size: var(--font-xs);
 }
 
+/* 预制体实例徽标（T7.3 · ADR-009）：⧉ 文件主干，title 为完整路径 */
+.st-prefab {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  padding: 0 var(--space-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent);
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+}
+
 /* 行内重命名编辑框（Enter 确认 Esc 取消） */
 .st-rename-input {
   flex: 1;

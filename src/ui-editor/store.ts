@@ -17,6 +17,11 @@ import { nanoid } from 'nanoid'
 import type { Draft } from 'immer'
 import type { UIAsset, UINode } from '@/ir/types'
 import { registerDomainState, runCommand, useEditorStore } from '@/shell/commands'
+import {
+  clearPrefabCache,
+  prefetchPrefabs,
+  setPrefabLoaderContext,
+} from './prefab'
 
 /* ---------------- 命令域（scene-tree 持有资产） ---------------- */
 
@@ -93,6 +98,12 @@ export const useUIEditorStore = create<UIEditorState>()((set, get) => ({
         return
       }
       const asset = parseUIAsset(String(json.content ?? ''))
+      // ADR-009（T7.3）：打开资产即重建预制体缓存并预取树内全部预制体（含嵌套）——
+      // 「每次打开/刷新重新拉取」就是预制体改动反射到引用处的机制；拉取失败静默
+      // （渲染期占位 + 补拉兜底，不阻断打开）。
+      setPrefabLoaderContext({ projectPath })
+      clearPrefabCache()
+      await prefetchPrefabs(asset.root)
       // 装载非编辑：经 registerDomainState 替换域状态（不入 undo 栈 → 不置脏标记），
       // 并剔除该域旧历史（旧资产的补丁对新资产不再适用）
       registerDomainState<SceneTreeDomainState>('scene-tree', { asset })

@@ -43,6 +43,7 @@ import {
   validateFileName,
 } from './paths'
 import { mkdirViaPlaceholder, onFsNotice, onFsRefresh, runFsCommand, type FsNoticeKind } from './commands'
+import { PREFAB_DIR } from '@/ui-editor/prefab'
 import './menu.css'
 import './styles.css'
 
@@ -621,6 +622,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   function dirMenuItems(node: FsNode): MenuItem[] {
     return [
       { label: '新建文件', onSelect: () => setPrompt(newFilePrompt(node.path)) },
+      { label: '新建预制体', onSelect: () => setPrompt(newPrefabPrompt()) },
       { label: '新建文件夹', onSelect: () => void createDir(node.path) },
       { label: '重命名', onSelect: () => startRename(node.path) },
       { label: '删除', danger: true, onSelect: () => void deleteNode(node) },
@@ -632,6 +634,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   function blankMenuItems(dirPath: string): MenuItem[] {
     return [
       { label: '新建文件', onSelect: () => setPrompt(newFilePrompt(dirPath)) },
+      { label: '新建预制体', onSelect: () => setPrompt(newPrefabPrompt()) },
       { label: '新建文件夹', onSelect: () => void createDir(dirPath) },
       { label: '刷新', onSelect: () => void refresh() },
       { separator: true },
@@ -652,6 +655,43 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         void createFile(dirPath, name)
       },
     }
+  }
+
+  /**
+   * 新建预制体（T7.3 · ADR-009）：名字输入 → 固定写入 ui/prefabs/<名>.ui.json（空 UI 模板，
+   * 目录不存在由服务端 PUT 自动创建）；复用 createFile（兄弟名去重 / 行内重命名 / 文件系统域可撤销）。
+   */
+  function newPrefabPrompt(): PromptState {
+    return {
+      title: '新建预制体',
+      label: `预制体名（自动补 .ui.json；写入「${PREFAB_DIR}/」）`,
+      placeholder: '如 list-item',
+      value: '',
+      confirmText: '创建',
+      onConfirm: (name) => {
+        setPrompt(null)
+        void createPrefab(name)
+      },
+    }
+  }
+
+  /** 新建预制体：名字清洗（去已有 .ui.json 后缀）→ 固定目录 createFile */
+  async function createPrefab(rawName: string): Promise<void> {
+    const stem = rawName.trim().replace(/\.ui\.json$/i, '')
+    if (!stem) {
+      showToast('error', '预制体名不能为空')
+      return
+    }
+    const fileName = `${stem}.ui.json`
+    const invalid = validateFileName(fileName)
+    if (invalid) {
+      showToast('error', invalid)
+      return
+    }
+    // 项目根相对路径前缀 = 项目（树路径与 relInProject 同源）；无项目时面板本就显示空态
+    const base = projectPath ?? ''
+    if (!base) return
+    await createFile(joinPosix(base, PREFAB_DIR), fileName)
   }
 
   function importPrompt(dirPath: string): PromptState {

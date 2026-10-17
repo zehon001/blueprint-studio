@@ -139,6 +139,11 @@ export function BPGraphCanvas({
         // （§8.2 第 1 条「右键呼出节点搜索」依赖 onPaneContextMenu）。
         panOnDrag={[1]}
         multiSelectionKeyCode={multiSelectionKeyCode}
+        // T7.6 千节点虚拟化：只渲染视口内（±少量越界）的节点/连线，视口外不进 DOM
+        //（React Flow 官方大图选项；节点 registry 不受影响——选择/跳转/对齐仍可操作
+        // 视口外节点）。首次 fitView 在节点测得尺寸前触发，超大图初始取景可能略偏，
+        // 随首次平移/缩放自校正（实机精度属 PM 浏览器验证项）。
+        onlyRenderVisibleElements
         fitView
         fitViewOptions={{ padding: 0.2 }}
         connectionLineType={ConnectionLineType.Bezier}

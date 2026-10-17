@@ -13,6 +13,10 @@
  * 追加记录：ADR-005 附加说明（T6.4）为 NodeRunContext 增补可选 projectName / callPlugin
  * （插件节点动态注册的运行上下文扩展；均为可选字段，旧运行路径不受影响，详见字段注释）。
  *
+ * 追加记录：ADR-009（T7.3）为 UINode 增补可选 prefab 字段（UI 预制体实例引用——项目内
+ * 相对路径指向另一个 .ui.json；合并/循环检测/断开物化语义见 docs/v2/adr/009-ui-prefab.md）。
+ * version 不升：可选字段向后兼容，旧资产读取即无预制体。
+ *
  * 契约级变更（字段增删、语义修改）必须先在 docs/v2/adr/ 落 ADR 并由 PM-Agent 知会，
  * 再修改本文件；禁止绕过 ADR 直接改类型。
  */
@@ -360,7 +364,14 @@ export interface UINode {
   events?: string[];
   /** 挂载的逻辑资产路径（相对项目根，如 'logic/main.bp.json'） */
   logicAsset?: string;
-  /** 子节点列表（叶子节点为空数组） */
+  /**
+   * 预制体引用（ADR-009，可选）：项目内相对路径（如 'ui/prefabs/list-item.ui.json'），
+   * 设有该字段的节点为「实例节点」——渲染/检视器展示以「展开后的有效节点」为准：
+   * 结构（type/children）取预制体根，name/transform/id 保留实例自身值，
+   * props/theme 由实例浅覆盖预制体根；循环引用与超深嵌套在展开期检出（中文错误）。
+   */
+  prefab?: string;
+  /** 子节点列表（叶子节点为空数组；实例节点的 children 被忽略——结构以预制体为准） */
   children: UINode[];
 }
 

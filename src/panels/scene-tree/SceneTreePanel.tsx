@@ -19,9 +19,17 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { Menu, type MenuItem } from '@/panels/file-system/Menu'
+import { validateFileName } from '@/panels/file-system/paths'
 import { getUISchema, type UINodeSchema } from '@/ui-editor/schema'
+import {
+  PREFAB_DIR,
+  prefabLabelOf,
+  primePrefabCache,
+  toPrefabRoot,
+} from '@/ui-editor/prefab'
+import { openPrefabTab } from '@/ui-editor/prefabTab'
 import { collectUINodeIds, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
-import type { UINode } from '@/ir/types'
+import type { UIAsset, UINode } from '@/ir/types'
 import { AddNodeMenu } from './AddNodeMenu'
 import {
   addUINodeCommand,
@@ -29,6 +37,7 @@ import {
   duplicateUINodeCommand,
   moveUINodeCommand,
   renameUINodeCommand,
+  saveAsPrefabCommand,
 } from './commands'
 import {
   ancestorIds,
@@ -227,6 +236,59 @@ export function SceneTreePanel() {
   }
 
   /* ============================================================
+   * 预制体（T7.3 · ADR-009）
+   * ============================================================ */
+
+  /** 保存为预制体：确认名 → 子树写出 ui/prefabs/<名>.ui.json → 节点转为实例（可撤销） */
+  async function saveAsPrefab(node: UINode): Promise<void> {
+    const assetNow = assetRef.current
+    const projectPath = useUIEditorStore.getState().projectPath
+    if (!assetNow || !projectPath) return
+    if (node.id === assetNow.root.id) {
+      showToast('error', '根节点不能保存为预制体（整资产没有宿主可引用）')
+      return
+    }
+    const raw = window.prompt(`保存「${node.name}」为预制体（写入 ${PREFAB_DIR}/，输入文件名）`, node.name)
+    if (raw === null) return // 取消
+    const stem = raw.trim().replace(/\.ui\.json$/i, '')
+    if (!stem) {
+      showToast('error', '预制体名称不能为空')
+      return
+    }
+    const fileName = `${stem}.ui.json`
+    const invalid = validateFileName(fileName)
+    if (invalid) {
+      showToast('error', invalid)
+      return
+    }
+    const path = `${PREFAB_DIR}/${fileName}`
+    // 预制体定义 = 节点子树深拷贝；events/logicAsset 属实例装配，不写入预制体（ADR-009 §5）
+    const prefabAsset: UIAsset = { version: 2, name: prefabLabelOf(path), root: toPrefabRoot(node) }
+    try {
+      const r = await fetch('/api/file', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: `${projectPath}/${path}`,
+          content: `${JSON.stringify(prefabAsset, null, 2)}\n`,
+        }),
+      })
+      const json = (await r.json()) as { ok?: boolean; message?: string }
+      if (!json.ok) {
+        showToast('error', `保存预制体失败：${json.message ?? ''}`)
+        return
+      }
+    } catch (err) {
+      showToast('error', `保存预制体失败：${err instanceof Error ? err.message : String(err)}`)
+      return
+    }
+    primePrefabCache(path, prefabAsset) // 本地内容立即可用，免去回读
+    if (!saveAsPrefabCommand(node.id, path)) return
+    setSelection([node.id])
+    showToast('success', `已保存预制体 ${path}；右键实例 → 编辑预制体可继续修改`)
+  }
+
+  /* ============================================================
    * 右键菜单
    * ============================================================ */
 
@@ -237,11 +299,12 @@ export function SceneTreePanel() {
   function nodeMenuItems(node: UINode): MenuItem[] {
     const schema = getUISchema(node.type)
     const isContainer = schema?.defaultChildPolicy === 'container'
-    return [
+    // ADR-009：实例节点结构以预制体为准——拒收子节点，菜单按实例/普通分叉
+    const items: MenuItem[] = [
       {
         label: '添加子节点',
-        disabled: !isContainer,
-        hint: isContainer ? undefined : '仅容器类型',
+        disabled: !isContainer || !!node.prefab,
+        hint: node.prefab ? '结构以预制体为准' : isContainer ? undefined : '仅容器类型',
         onSelect: () => {
           if (menu) setAddMenu({ x: menu.x, y: menu.y, parentId: node.id })
         },
@@ -249,10 +312,17 @@ export function SceneTreePanel() {
       { label: '复制', onSelect: () => duplicateNode(node) },
       { label: '重命名', onSelect: () => startRename(node) },
       { label: '附加逻辑资产', onSelect: () => showToast('info', 'T2.6 接入') },
-      { label: '保存为预制体', onSelect: () => showToast('info', 'T7.3 接入') },
-      { separator: true },
-      { label: '删除', danger: true, onSelect: () => deleteNode(node) },
     ]
+    if (node.prefab) {
+      items.push({
+        label: `编辑预制体（${prefabLabelOf(node.prefab)}）`,
+        onSelect: () => openPrefabTab(node.prefab as string),
+      })
+    } else {
+      items.push({ label: '保存为预制体', onSelect: () => void saveAsPrefab(node) })
+    }
+    items.push({ separator: true }, { label: '删除', danger: true, onSelect: () => deleteNode(node) })
+    return items
   }
 
   /* ============================================================
@@ -285,7 +355,11 @@ export function SceneTreePanel() {
           }}
           onDoubleClick={(e) => {
             e.stopPropagation()
-            if (!isRenaming) startRename(node)
+            if (isRenaming) return
+            // ADR-009（T7.3）：双击实例节点进入预制体编辑（打开该 .ui.json 为新 tab）；
+            // 普通节点保持行内重命名。
+            if (node.prefab) openPrefabTab(node.prefab)
+            else startRename(node)
           }}
           onContextMenu={(e) => {
             e.preventDefault()
@@ -388,6 +462,11 @@ export function SceneTreePanel() {
           ) : (
             <span className="st-name">{node.name}</span>
           )}
+          {node.prefab ? (
+            <span className="st-prefab" title={`预制体：${node.prefab}（双击进入编辑）`}>
+              ⧉ {prefabLabelOf(node.prefab)}
+            </span>
+          ) : null}
           <span className="st-type">{schema?.title ?? node.type}</span>
         </div>
       </Fragment>

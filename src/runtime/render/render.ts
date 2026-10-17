@@ -32,12 +32,27 @@
  *   父容器尺寸的比例；仅 free 语境生效，渲染期换算为 CSS 百分比（无状态——父容器 resize
  *   天然重排）。left/top 优先于 right/bottom（同轴互斥）；有效锚点接管该轴定位（schema
  *   新建节点的 position 恒为 {0,0} 缺省，若 position 优先锚点将永远无法生效）；
- *   无 anchors → 行为与 T1.2 完全一致（向后兼容）。
+ *   无 anchors → 行为与 T1.2 完全一致（向后兼容）；
+ * - prefab 实例（T7.3 · ADR-009）：节点带 UINode.prefab 时在 reconcile 前展开为有效节点
+ *   （expandPrefabNode：结构取预制体根、实例浅覆盖 props/theme、保留实例 id/name/transform）。
+ *   渲染器为同步架构——预制体资产由装载方（编辑器 store / 运行窗口）打开时预取入缓存
+ *   （src/ui-editor/prefab.ts）；缓存未命中渲染占位节点（__prefab_placeholder）并经
+ *   ensurePrefabLoaded 异步补拉，成功后回调 opts.onPrefabLoad 通知调用方 updateUI 刷新。
+ *   实例元素带 data-prefab（完整路径）供树/检视器联动与测试。
  */
 import type { UIAsset, UINode, Size2 } from '../../ir/types';
 import { getUISchema } from '../../ui-editor/schema';
-import { bindNode, clamp, num, type NodeCtx } from './common';
-import { rendererFor } from './nodes';
+import {
+  ensurePrefabLoaded,
+  expandPrefabNode,
+  getCachedPrefab,
+  isPrefabExpanded,
+  prefabNeedsLoad,
+  PREFAB_PLACEHOLDER_TEXT,
+  PREFAB_PLACEHOLDER_TYPE,
+} from '../../ui-editor/prefab';
+import { bindNode, clamp, div, num, span, str, type NodeCtx } from './common';
+import { rendererFor, type NodeRenderer } from './nodes';
 import { ensureRenderStyle } from './style';
 
 /** 渲染事件（onEvent 的载荷；事件名与 src/ui-editor/schema 的 BuiltInEvent 一致） */
@@ -59,6 +74,12 @@ export interface RenderOptions {
   onEvent?: (evt: UIRenderEvent) => void;
   /** 编辑视口缩放（T1.3 用；作用于 .bps-ui-root 的 scale 变换，默认 1） */
   scale?: number;
+  /**
+   * 预制体补拉完成回调（T7.3 · ADR-009，可选）：渲染期遇到未缓存 prefab 而发起的
+   * 异步补拉成功后调用（失败不调用，避免占位→刷新→失败循环）。调用方应触发一次
+   * updateUI（如编辑器视口 tick / 运行窗口重放资产）让占位替换为真实内容。
+   */
+  onPrefabLoad?: () => void;
 }
 
 /** 渲染句柄（renderUI 返回；updateUI / destroy 的凭据） */
@@ -117,10 +138,12 @@ function layoutOfParent(parentType: string): ChildLayout {
   }
 }
 
-/** 公共属性：data-* 标记 + visible（display:none）+ tooltip（title） */
+/** 公共属性：data-* 标记 + visible（display:none）+ tooltip（title）+ prefab 路径标记 */
 function applyCommon(el: HTMLElement, node: UINode): void {
   el.dataset.uid = node.id;
   el.dataset.nodeType = node.type;
+  if (node.prefab) el.dataset.prefab = node.prefab; // ADR-009：实例元素可溯源到预制体文件
+  else delete el.dataset.prefab;
   const visible = node.props?.visible !== false;
   el.dataset.visible = visible ? 'true' : 'false';
   el.style.display = visible ? '' : 'none';
@@ -264,13 +287,67 @@ function applyTransform(el: HTMLElement, node: UINode, layout: ChildLayout): voi
 }
 
 /* ============================================================
+ * 预制体实例展开（T7.3 · ADR-009）
+ * ============================================================ */
+
+/**
+ * 预制体占位渲染器（缓存未命中 / 循环 / 超深时的就地中文提示，不入 nodes.ts 注册表）：
+ * dashed 框 + 文本（props[PREFAB_PLACEHOLDER_TEXT]），patch 就地更新文本——补拉成功后
+ * 同 uid 换 type 走重建路径替换为真实内容。
+ */
+const prefabPlaceholderRenderer: NodeRenderer = {
+  create: (node) => {
+    const el = div('bps-node bps-prefab-placeholder');
+    const icon = span('bps-prefab-placeholder-icon');
+    icon.textContent = '⧉';
+    const label = span('bps-prefab-placeholder-label');
+    label.textContent = str(node.props?.[PREFAB_PLACEHOLDER_TEXT]);
+    el.append(icon, label);
+    return el;
+  },
+  patch: (el, node) => {
+    const label = el.querySelector<HTMLElement>('.bps-prefab-placeholder-label');
+    if (label) label.textContent = str(node.props?.[PREFAB_PLACEHOLDER_TEXT]);
+  },
+};
+
+/** 渲染器分发：占位节点走内建占位渲染器，其余按类型查注册表（未知类型走 unknownRenderer） */
+function rendererForNode(node: UINode): NodeRenderer {
+  return node.type === PREFAB_PLACEHOLDER_TYPE ? prefabPlaceholderRenderer : rendererFor(node.type);
+}
+
+/** 渲染期一次性的补拉安排：未缓存且未失败 → ensurePrefabLoaded，成功即通知调用方刷新 */
+function schedulePrefabLoad(path: string, state: RenderState): void {
+  if (!prefabNeedsLoad(path)) return; // 已缓存 / 已失败（失败重试只能经 clearPrefabCache）
+  void ensurePrefabLoaded(path).then((status) => {
+    if (status === 'loaded') state.opts.onPrefabLoad?.();
+  });
+}
+
+/**
+ * 节点 → 渲染用有效节点（ADR-009 §2）：
+ * - 非 prefab 节点恒等返回（热路径零开销）；
+ * - 已展开产物（isPrefabExpanded）恒等返回——展开是递归的，reconcile 逐层都会过这里，
+ *   二次展开会让循环引用的链式检测失效（chain 每次从空开始 → 无限递归）；
+ * - prefab 实例展开为有效节点；未缓存 → 占位节点 + 安排补拉（成功后 onPrefabLoad 刷新）；
+ *   循环 / 超深 → 占位节点就地显示中文错误。
+ */
+function effectiveNode(node: UINode, state: RenderState): UINode {
+  if (!node.prefab || isPrefabExpanded(node)) return node;
+  const expanded = expandPrefabNode(node, getCachedPrefab);
+  if (expanded.missing) schedulePrefabLoad(node.prefab, state);
+  return expanded.node;
+}
+
+/* ============================================================
  * keyed reconcile（lite）
  * ============================================================ */
 
 /**
  * 宿主内按 uid 增量重建子节点集合：
+ * - 先对每个子节点做 prefab 展开（ADR-009：实例 → 有效节点 / 占位）；
  * - uid 相同且类型不变 → 复用元素（patch 就地更新）；
- * - uid 相同但类型变化 → 重建元素；
+ * - uid 相同但类型变化 → 重建元素（预制体补拉完成后的占位 → 真实内容走这里）；
  * - 新 uid → 创建；消失的 uid → 移除；顺序按 children 数组对齐（仅在需要时搬动 DOM）。
  * 返回与 children 一一对应的元素数组（postChildren 用）。
  */
@@ -281,6 +358,7 @@ function reconcileChildren(
   state: RenderState,
 ): HTMLElement[] {
   const layout = layoutOfParent(parentType);
+  const effChildren = children.map((cn) => effectiveNode(cn, state));
   // 现有节点元素索引（宿主内混入的非节点元素一律移除，保持宿主只含渲染节点）
   const existing = new Map<string, HTMLElement>();
   for (const child of Array.from(host.childNodes)) {
@@ -293,14 +371,14 @@ function reconcileChildren(
   const kept = new Set<HTMLElement>();
   const ordered: HTMLElement[] = [];
   let cursor: ChildNode | null = null;
-  for (const cn of children) {
+  for (const cn of effChildren) {
     let el = existing.get(cn.id);
     if (el && el.dataset.nodeType !== cn.type) {
       el.remove(); // 同 uid 换类型：DOM 骨架不同，重建
       el = undefined;
     }
     if (!el) {
-      el = rendererFor(cn.type).create(cn, state.ctx);
+      el = rendererForNode(cn).create(cn, state.ctx);
       if (state.opts.mode === 'edit') freezeFocus(el);
     }
     // 顺序对齐：cursor 是上一个已就位的兄弟；不在期望位置才搬动
@@ -316,7 +394,7 @@ function reconcileChildren(
   }
 
   for (let i = 0; i < ordered.length; i++) {
-    patchNodeEl(ordered[i], children[i], layout, state);
+    patchNodeEl(ordered[i], effChildren[i]!, layout, state);
   }
   return ordered;
 }
@@ -326,7 +404,7 @@ function patchNodeEl(el: HTMLElement, node: UINode, layout: ChildLayout, state: 
   bindNode(el, node);
   applyCommon(el, node);
   applyTransform(el, node, layout);
-  const r = rendererFor(node.type);
+  const r = rendererForNode(node);
   r.patch(el, node, state.ctx);
   if (r.childHost) {
     const host = r.childHost(el);
@@ -338,16 +416,17 @@ function patchNodeEl(el: HTMLElement, node: UINode, layout: ChildLayout, state: 
 
 /** 根节点 reconcile：.bps-ui-root 下只保留一个根节点元素（uid+type 相同则复用） */
 function reconcileRoot(rootEl: HTMLElement, root: UINode, state: RenderState): void {
+  const eff = effectiveNode(root, state); // 根也可以是预制体实例（整资产实例化）
   const first = rootEl.firstElementChild as HTMLElement | null;
   let el: HTMLElement | undefined;
-  if (first && first.dataset.uid === root.id && first.dataset.nodeType === root.type) {
+  if (first && first.dataset.uid === eff.id && first.dataset.nodeType === eff.type) {
     el = first;
   } else {
     if (first) first.remove();
-    el = rendererFor(root.type).create(root, state.ctx);
+    el = rendererForNode(eff).create(eff, state.ctx);
     rootEl.appendChild(el);
   }
-  patchNodeEl(el, root, 'free', state); // 根节点永远处于自由布局语境
+  patchNodeEl(el, eff, 'free', state); // 根节点永远处于自由布局语境
   if (state.opts.mode === 'edit') freezeFocus(el);
 }
 

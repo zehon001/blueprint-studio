@@ -118,10 +118,10 @@
 |---|---|---|---|---|---|---|
 | T7.1 | 快捷键全表 + 设置界面（可查可改 + 冲突检测） | `src/shell/keymap/` | T0.5 | Shell | PLAN §15 表落齐；改键持久化 | 完成 · 2026-10-17（全表补齐复制粘贴族上下文键 copy/cut/paste/duplicate/selectAll/delete 双绑定 + settings.open(Ctrl,,入回放表)；设置面板查改：捕获改键、冲突红字拒绝、bps.keymap.v1 持久化 + 启动加载 + 恢复默认；上下文键仅入表做冲突保护不参与派发，画布/CodeMirror 现状不破坏；typecheck 0 错、全量 874 绿=基线 830+本卡 26） |
 | T7.2 | 模板项目（空 / 日志分析器示例） | `templates/` | M6 | Nodes+Shell | 新建向导可选模板；日志分析器模板开箱可跑 | 完成 · 2026-10-17（两模板 B0/B2 交付；「开箱可跑」由 B12 蓝图补全 + 实机 10 行渲染验证达成；fs.test 断言同步） |
-| T7.3 | UI 预制体（.ui.json 嵌套实例化 / 双击进入编辑） | UI 编辑器 | T1.4 | UIEditor | 预制体改动反射到引用处；实例可覆盖部分属性 | 待办 |
+| T7.3 | UI 预制体（.ui.json 嵌套实例化 / 双击进入编辑） | UI 编辑器 | T1.4 | UIEditor | 预制体改动反射到引用处；实例可覆盖部分属性 | 完成 · 2026-10-17（自测摘要：ADR-009 契约先行——UINode 增可选 `prefab`（项目内相对路径），version 不升；合并语义 = 结构（type/children）以预制体为准、实例 id/name/transform 保留、props/theme 浅覆盖、events/logicAsset 回落（空数组/空串视为未声明）；反射机制 = 打开资产/运行刷新时清缓存 + BFS 传递预取（store.openUIAsset 与 RuntimeApp.load 装载前各拉一次），渲染期未命中渲染占位 + 异步补拉成功回调 onPrefabLoad 触发 updateUI 刷新（失败抑制重试防循环）；循环引用链式检测 + 16 层深度上限，中文错误——运行窗装载期阻断（可重试）、编辑器就地占位不阻断；编辑器入口——树面板实例徽标「⧉ 主干」/ 双击与右键「编辑预制体」开新 tab /「保存为预制体」占位转正（子树导出 ui/prefabs/ 并转实例：children/props 清空、id/name/transform/events 保留，可撤销）/ 检视器「预制体」区（路径 + 编辑预制体 + 断开物化：有效值冻结 + 子树全新 id/名去重 + 嵌套实例引用保留，可撤销）/ 实例拒收子节点（菜单置灰 + 拖拽 inside 拒绝）/ 文件树右键「新建预制体」固定写 ui/prefabs/；src/ui-editor/prefab.test.ts 23 测试 + src/runtime/render/prefab.test.ts 7 测试（缓存命中/未命中补拉刷新/反射/循环/嵌套/运行态同构）；typecheck 0 错、全量 912 绿 0 失败（≥基线 874；含并行 T7.6 卡 8 测试）；dataview.ts / nodes.ts 未改动，T7.6 文件边界未触碰） |
 | T7.4 | .history 自动快照（保存前快照 / 恢复入口） | `server/` | T0.2 | Server | 文件级误删可从快照恢复；快照上限可配 | 完成 · 2026-10-17（自测摘要：PUT 覆盖 / DELETE 文件前自动快照到 `<项目>/.history/<相对路径>/<时间戳>.bak`（子目录保层级；新建不产生）；每文件上限默认 20、环境变量 `BP_HISTORY_LIMIT` 可配、超出淘汰最旧；GET /api/history 列表 + POST /api/history/restore 恢复（恢复前当前内容自动留快照，再恢复即撤销）；.history 及其大小写变体不可经 /api/file 写 / DELETE / move / import（403），树与 watch 事件均隐藏；文件右键「历史快照…」弹层选版恢复并重载已打开 tab，文件删除 Ctrl+Z 经快照恢复（目录删除除外）；server/history.test.ts 15 测试 + 面板测试增 3 项；typecheck 0 错、全量 874 绿=基线 830+并行卡 26+本卡 18） |
 | T7.5 | 文档（用户手册 / 节点开发指南 / 插件开发指南） | `docs/` | — | PM+QA | 三份文档成稿且与实现一致（含 §9.2 脚本示例可复制运行） | 完成 · 2026-10-17（docs/user-manual.md、node-dev-guide.md、plugin-dev-guide.md：节点/引脚/API 逐项对照源码核对，§9.2 示例按实现校订并经 parseScriptToIR 实测零折叠可复制运行，与 PLAN 差异注记见手册 §5.6/§11 与两指南尾节） |
-| T7.6 | 性能（千节点蓝图渲染 / 10 万行日志列表虚拟化） | 各处优化 | M6 | Runtime+QA | 千节点图流畅平移缩放；10 万行列表滚动不掉帧 | 待办 |
+| T7.6 | 性能（千节点蓝图渲染 / 10 万行日志列表虚拟化） | 各处优化 | M6 | Runtime+QA | 千节点图流畅平移缩放；10 万行列表滚动不掉帧 | 完成 · 2026-10-17（自测摘要：**A 千节点**——1000 节点样本（20 forLoop 执行链+20 纯数据链，979 连线）irToFlow 含 dagre 自动布局 ≈190-200ms、已定位纯映射 0.8ms（编辑命令后视图重生成不触发全量重排，dagre 仅对无 position 新资产触发一次——现状确认）、flowToIR/edgesToIR 0.4ms、serializeIR 2.2ms、validateIR 12ms（issues=0）；宽松阈值断言 500/200ms 见 perf.test.ts 头注（机器差异取 ≥10× 余量）；画布开 `onlyRenderVisibleElements` 视口虚拟化 + irToFlow 布局写回 O(n²)→Map；BPNode 已 memo、T5.4 叠加层空闲返原引用——现状确认）。**B 10 万行 list 虚拟滚动**——行数 >200（`LIST_VIRTUAL_THRESHOLD`，常量集中 `src/perf/thresholds.ts` 可调：阈值 200/缓冲 ±20/行高 24px）切换虚拟模式：全量数据扁平化为定高槽位计划（组头/行/合并块/展开行），DOM 只建可视区±缓冲（绝对定位+body 总高占位）；签名比对仍在全量数据做（no-op 更新 11ms 保留原语义）；10 万行首渲染 DOM 仅 34 行（vs 经典路径 10 万行）、renderUI 46ms、单次滚动窗口重建 1-2ms、总高占位 2400000px 断言正确；选中/合并展开/分组兼容（滚走滚回选中标记保留）；listColumns/多文件归并（phone-log）既有测试全绿。本卡 8 测试（perf 4+virtual 4）；typecheck 0 错、全量 888 测试 887 绿 0 失败 1 skip（基线不减，顺带修复 fs.test 预存断言：模板 list 事件名 itemSelected→selectionChanged 与 B13+B14 模板即修对齐）；千节点实机流畅度留 PM 浏览器走查（首帧 fitView 在未测量节点上取景或略偏，随首次平移自校正——代码已注） |
 
 ### 贯穿（QA）
 
@@ -129,7 +129,7 @@
 |---|---|---|---|---|---|---|
 | TA.1 | roundtrip 幂等测试框架（IR→TS→IR、IR→Py→IR；含片段节点） | `tests/roundtrip/` | T3.6 | QA | `npm run roundtrip` 全绿；新节点必须补样例入库 | 完成 · 2026-10-17（TS 部分全绿 23 测试+计数守卫门禁；IR→Py 部分随 T4 落地后补入；顺带修复 sequence/setTitle 两个 roundtrip 缺陷） |
 | TA.2 | E2E 冒烟（新建→拼UI→连蓝图→运行→观察） | `tests/e2e/` | M2 起 | QA | PLAN §20.3 场景脚本化可重复执行 | 完成 · 2026-10-17（自测摘要：服务在跑时 `npm run e2e` 6 场景 5 绿 1 skip——场景⑥依赖 T7.4；服务未跑时 6 skipped 0 failed 退出码 0；typecheck 0 错；全量基线 830 绿不变；重跑可重复，自建项目清理无残留） |
-| TA.3 | 视觉复刻度对比（截图 vs UE5/Godot 参考 + 交互清单勾验） | `tests/visual/` 基线 | M2/M7 | QA | §8/§6 清单逐项出具勾验报告 | 待办 |
+| TA.3 | 视觉复刻度对比（截图 vs UE5/Godot 参考 + 交互清单勾验） | `tests/visual/` 基线 | M2/M7 | QA | §8/§6 清单逐项出具勾验报告 | 基线就绪 · 2026-10-17（tests/visual/CHECKLIST.md + gui-test-screenshots/ 4 张基线；勾验判定需人工视觉，待用户复核） |
 
 ### 节点库（贯穿）
 
@@ -161,10 +161,12 @@ T6.1 ─ T6.2/T6.3/T6.4 ─ T6.5/T6.6 ─ M7
 ## 5. 当前状态
 
 - 看板初始化：2026-10-17 · 全部 `待办` · 无在途卡
-- 2026-10-17 PM-Agent 单会话执行：B0~B10 已提交；**M0/M1/M2/M3/M5/M6 全部完成 + TA.1（TS 部分）**；B11/B12 实机评估修复批次已提交；剩余：M4（Python/Pyodide，用户裁定暂缓）、T7.3/T7.6、TA.3
+- 2026-10-17 PM-Agent 单会话执行：B0~B10 已提交；**M0/M1/M2/M3/M5/M6 全部完成 + TA.1（TS 部分）**；B11/B12 实机评估修复批次已提交；剩余：M4（Python/Pyodide，用户裁定暂缓）；T7.3/T7.6/TA.3 基线已交付（TA.3 待人工勾验）
 - 单会话模式下协作协议微调：不逐卡建 git 分支，改为 PM 按批次在 `v2` 分支提交（每批次一次 commit，卡状态在本表跟踪）；Agent 产出统一由 PM 验收（typecheck + 单测 + 抽查）
 
 ## 6. 进度纪要（PM 维护，倒序追加）
+
+- **2026-10-17 · B15（T7.3+T7.6+TA.3 基线，2 并行卡 + PM 走查）**：**T7.3 UI 预制体（ADR-009）**——UINode.prefab 可选引用（version 不升）；合并语义：结构以预制体为准、实例 id/name/transform 保留、props/theme 浅覆盖、events/logicAsset 空值回落；编辑器 openUIAsset/运行窗口 load 前 BFS 预取缓存（改动反射=每次打开/刷新重取，未命中占位+异步补拉刷新）；树徽标/双击/右键「编辑预制体」/检视器「断开预制体」（物化单命令可撤销）/文件树「新建预制体」；循环检测（自引用/互引用/深度上限）。30 测试。**T7.6 性能**——蓝图：React Flow onlyRenderVisibleElements 视口虚拟化 + irToFlow 布局写回 O(n²)→O(n)（BPNode 已 memo、dagre 仅新资产触发）；列表：>200 行虚拟滚动（全量签名比对保留、可视区 ±20 行绝对定位、分组/合并/rowspan 语义一致），阈值集中在 src/perf/thresholds.ts；8 测试（千节点映射<500ms 实测 190-200ms；10 万行首渲染 DOM 34 行、滚动窗口 1-2ms）。**TA.3 基线**——tests/visual/CHECKLIST.md（§8.1/§8.2/§7.2/§6 勾验清单）+ gui-test-screenshots/ 4 张基线截图，判定待用户人工复核。PM 实机走查：预制体实例渲染+徽标 ✓、1 万行 DOM 34 行 ✓、千节点打开 3.4s、平移后 DOM 1333→406（虚拟化生效）✓。PM 验收：**912 测试全绿、typecheck 0 错、构建绿**。T7.6 顺带修复 fs.test 模板事件名过期断言。**至此 M7 全部完成（T7.5 文档三份成稿）、TA.2 完成；剩余：M4（用户裁定暂缓）与 TA.1 的 Py 部分（随 M4）；TA.3 待人工勾验。已知限制见 ADR-009 与各卡报告（预制体循环引用编辑器不阻断打开、实例内部子节点选中不落树、虚拟行定高 24px）。**
 
 - **2026-10-17 · B13+B14（M7 主体 + TA.2，4 并行卡）**：**T7.1 快捷键设置**——默认表补齐复制族（copy/cut/paste/duplicate/selectAll/delete，contextual 标记：入表展示与冲突保护、attachKeyboard 跳过以免破坏 CodeMirror 原生行为）；设置面板（id 'settings'，Ctrl+,）：全表列出/改键捕获/冲突红字拒绝/恢复默认，localStorage 'bps.keymap.v1' 稀疏覆盖+启动回放（冲突/失效跳过）；26 测试。**T7.4 .history 快照**——PUT 覆盖/DELETE/恢复前自动快照至 `<项目>/.history/<相对路径>/<时间戳>.bak`（同毫秒零填充序号保序）；上限 20 份经 `BP_HISTORY_LIMIT` 可配；GET /api/history + POST /api/history/restore（恢复可撤销）；文件面板右键「历史快照…」+ Ctrl+Z 恢复误删；.history 三端隐藏（树/SSE/写路径 403 封死）；18 测试。**T7.5 三份文档**——user-manual.md（448 行，含 §9.2 校订示例实测零诊断）/node-dev-guide.md（235 行，ADR-008 三形态+门禁义务）/plugin-dev-guide.md（203 行）；核对出 9 项实现-文档不一致（已在文档注明，3 项轻量随即修复：模板 list 事件名 selectionChanged/roundtrip 注释计数/flow.ts 头注释旧语义）。**TA.2 E2E 脚本化**——tests/e2e/（node:test 直连 API 链路，零新依赖）：新建项目→UI 写读→蓝图（forLoop ADR-008 进程内执行观察 0,1,2）→transpile 诊断→插件注册表→.history 快照，6 场景全绿；服务未跑自动 skip（退出码 0）。PM 验收：**全量 874 绿、typecheck 0 错、构建绿、e2e 6/6**（8791 干净实例验证；8790 旧进程需重启才带 T7.4 端点）。**M7 剩余：T7.3 预制体、T7.6 性能；TA.3 视觉对比**。
 
