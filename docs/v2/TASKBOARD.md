@@ -107,10 +107,10 @@
 |---|---|---|---|---|---|---|
 | T6.1 | 插件清单格式 + 三源注册表（内置/项目/静态目录合并去重） | `plugins-registry/`、`server/plugins/registry.ts` | T0.1, T0.2 | Plugin+Server | 三源清单正确合并；清单 schema 校验 | 完成 · 2026-10-17（20 测试+E2E；优先级定案 项目>静态>内置；前缀 camelCase 待 PM 追认进 ADR-004） |
 | T6.2 | 插件管理子界面（列表/徽标/两按钮/进度日志） | `src/panels/plugin-manager/` | T6.1 | Plugin | §14.2 全交互；最新版时更新按钮置灰 disabled；安装日志实时滚动 | 完成 · 2026-10-17（42 测试；四态徽标/SSE 流/并发 detect；已注册进 dock+工作区 tab） |
-| T6.3 | CLI 检测/安装/更新执行器（strategy: winget/npm-global/download-zip/custom-cmd；版本解析） | `server/plugins/executor.ts` | T6.1 | Server | detect 失败=未安装；安装后状态自动刷新；命令可被设置覆盖；执行流式回传日志 | 待办 |
+| T6.3 | CLI 检测/安装/更新执行器（strategy: winget/npm-global/download-zip/custom-cmd；版本解析） | `server/plugins/executor.ts` | T6.1 | Server | detect 失败=未安装；安装后状态自动刷新；命令可被设置覆盖；执行流式回传日志 | 完成 · 2026-10-17（重派后核对补全+真实 server 冒烟；detect/install SSE/invoke+并发锁） |
 | T6.4 | 插件节点动态注册（清单 → NodeSpec → 蓝图可搜可用） | `src/nodes/dynamic.ts` | T6.1, T2.2 | Plugin | 节点出现在右键搜索；exec/数据引脚可用；调用走 CLI 桥/自定义执行器 | 完成 · 2026-10-17（19 测试；specs 懒加载按需并入；invoke 降级不崩；NodeRunContext 增补 callPlugin/projectName 记入 ADR-005） |
-| T6.5 | 手机日志插件（双模式 + Android 日志解析 + 多文件时间归并） | `plugins-registry/phone-log.json` + 执行器 | T6.3, T6.4 | Plugin | §14.3 全项：adb dump/流式两节点；3 份乱序样本→按时间稳定有序；两种 Android 格式可解析 | 待办 |
-| T6.6 | 飞书 CLI 插件清单（检测/安装/更新 + 节点封装，不实现功能本体） | `plugins-registry/feishu-cli.json` | T6.3 | Plugin | 未安装显示下载；已装最新置灰更新；节点仅封装（调用透传 CLI 输出） | 待办 |
+| T6.5 | 手机日志插件（双模式 + Android 日志解析 + 多文件时间归并） | `plugins-registry/phone-log.json` + 执行器 | T6.3, T6.4 | Plugin | §14.3 全项：adb dump/流式两节点；3 份乱序样本→按时间稳定有序；两种 Android 格式可解析 | 完成 · 2026-10-17（文件模式 3 份乱序全序稳定（时间→文件序→行序 tie-break）；onLine WS 持续流 plugin.push；解析单源复用 src/nodes/convert） |
+| T6.6 | 飞书 CLI 插件清单（检测/安装/更新 + 节点封装，不实现功能本体） | `plugins-registry/feishu-cli.json` | T6.3 | Plugin | 未安装显示下载；已装最新置灰更新；节点仅封装（调用透传 CLI 输出） | 完成 · 2026-10-17（invoke.cmdTemplate 透传封装；字段追认进 ADR-004） |
 
 ### M7 打磨
 
@@ -127,7 +127,7 @@
 
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
-| TA.1 | roundtrip 幂等测试框架（IR→TS→IR、IR→Py→IR；含片段节点） | `tests/roundtrip/` | T3.6 | QA | `npm run roundtrip` 全绿；新节点必须补样例入库 | 待办 |
+| TA.1 | roundtrip 幂等测试框架（IR→TS→IR、IR→Py→IR；含片段节点） | `tests/roundtrip/` | T3.6 | QA | `npm run roundtrip` 全绿；新节点必须补样例入库 | 完成 · 2026-10-17（TS 部分全绿 23 测试+计数守卫门禁；IR→Py 部分随 T4 落地后补入；顺带修复 sequence/setTitle 两个 roundtrip 缺陷） |
 | TA.2 | E2E 冒烟（新建→拼UI→连蓝图→运行→观察） | `tests/e2e/` | M2 起 | QA | PLAN §20.3 场景脚本化可重复执行 | 待办 |
 | TA.3 | 视觉复刻度对比（截图 vs UE5/Godot 参考 + 交互清单勾验） | `tests/visual/` 基线 | M2/M7 | QA | §8/§6 清单逐项出具勾验报告 | 待办 |
 
@@ -161,10 +161,12 @@ T6.1 ─ T6.2/T6.3/T6.4 ─ T6.5/T6.6 ─ M7
 ## 5. 当前状态
 
 - 看板初始化：2026-10-17 · 全部 `待办` · 无在途卡
-- 2026-10-17 PM-Agent 单会话执行：B0~B9 已提交；M0/M1/M2/M3/M5 + M6 编辑器侧完成；B10 派发 T6.3+T6.5+T6.6（合并 Server）与 TA.1（tsconfig 已纳入 tests/、npm run roundtrip 脚本已加）
+- 2026-10-17 PM-Agent 单会话执行：B0~B10 已提交；**M0/M1/M2/M3/M5/M6 全部完成 + TA.1（TS 部分）**；剩余：M4（Python/Pyodide）、M7 打磨、TA.1 的 Py 部分；合并点流程进行中（浏览器 E2E → 合回 main）
 - 单会话模式下协作协议微调：不逐卡建 git 分支，改为 PM 按批次在 `v2` 分支提交（每批次一次 commit，卡状态在本表跟踪）；Agent 产出统一由 PM 验收（typecheck + 单测 + 抽查）
 
 ## 6. 进度纪要（PM 维护，倒序追加）
+
+- **2026-10-17 · B10**：**M6 完成**。T6.3 执行器（重派核对补全）：detect（versionRegex+semver 逐段+cmdOverride）/install SSE（四策略+并发锁+自动重 detect）/invoke 通用通道+持续流管理器。T6.5 手机日志：文件模式 3 份乱序样本全序稳定（时间→文件序→行序 tie-break）、设备模式 dump+启发式过滤、onLine WS plugin.push 持续流（idle 5s 停流抗瞬断）、解析单源复用节点库；真实 server 冒烟 PASS。T6.6 飞书：invoke.cmdTemplate 透传（ADR-004 追认）。TA.1：tests/roundtrip/ 门禁（76 样本+计数恒等式+守卫自检），顺带修复 sequence 标记正则与 ui.setTitle 反查两个 roundtrip 缺陷并移出无映射清单（无映射余 8 项=暂无脚本映射类）。PM 验收：**全量 745 测试绿、typecheck 0 错、构建绿**；ADR-004 追认三事项（合并优先级/camelCase 前缀/invoke 字段）。
 
 - **2026-10-17 · B9**：T6.2 插件管理——四态徽标/更新按钮置灰/SSE 日志流（fetch 流解析不用 EventSource）/并发 detect（池 3）/确认框/取消复位；42 测试。T6.4 动态注册——清单→NodeSpec（select/file[] 映射、紫头）、specs 懒加载按需并入（无插件节点零请求）、invoke 降级不崩、NodeRunContext 增补 callPlugin/projectName（ADR-005 附加级）；19 测试+端到端。T5.2 事件面板——两节列表/双击路由表（跳转/创建/快捷挂载蓝图）/entry 点标/.ts 粗扫；25 测试。T6.3 再遇 API 中断失败（B10 重派）。PM 胶水：事件/插件面板注册进 dock、插件 tab 接线、snippet-runtime callPlugin 桥接。PM 验收：typecheck 0 错、构建绿、批内 86 测试绿。
 
