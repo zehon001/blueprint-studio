@@ -97,7 +97,7 @@
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
 | T5.1 | 事件总线（UI/系统/插件推送/自定义；目标路由 本节点/本UI/全部） | `src/runtime/events/` | T2.6 | Runtime | PLAN §11 全场景；事件间保序；旁路不死锁 | 完成 · 2026-10-17（四源入队/target 矩阵/环保护 8 跳；13 测试） |
-| T5.2 | 事件面板（内建+自定义列表 / 双击创建跳转） | `src/panels/events/` | T5.1, T2.3 | UIEditor+Blueprint | 选中 UI 节点列出其内建事件与资产自定义事件；双击建/跳事件节点 | 待办 |
+| T5.2 | 事件面板（内建+自定义列表 / 双击创建跳转） | `src/panels/events/` | T5.1, T2.3 | UIEditor+Blueprint | 选中 UI 节点列出其内建事件与资产自定义事件；双击建/跳事件节点 | 完成 · 2026-10-17（25 测试；双击路由表全覆盖含快捷挂载；已注册进 dock） |
 | T5.3 | 事件节点三件套（自定义事件 / 发送事件 / 监听） | `src/nodes/events.ts` | T5.1 | Nodes | 多参数事件可定义；发送→监听 E2E 通 | 完成 · 2026-10-17（T13.1 已建，本卡验收+E2E 补强：send 加 target 引脚、listen 具名参数注入；随 T5.1 交付） |
 | T5.4 | 运行时蓝图观察（WS 反向：节点高亮/exec 流动/端口实时值 150ms 批量） | 调试探针 + 编辑器叠加层 | T2.6 | Runtime | v1.1 能力全保留；编辑器开该蓝图视图自动接入；可一键关闭 | 完成 · 2026-10-17（WS debug.v1 协议+150ms 批量+500 上限+惰性衰减；24 测试；浏览器实测留合并点） |
 
@@ -106,9 +106,9 @@
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
 | T6.1 | 插件清单格式 + 三源注册表（内置/项目/静态目录合并去重） | `plugins-registry/`、`server/plugins/registry.ts` | T0.1, T0.2 | Plugin+Server | 三源清单正确合并；清单 schema 校验 | 完成 · 2026-10-17（20 测试+E2E；优先级定案 项目>静态>内置；前缀 camelCase 待 PM 追认进 ADR-004） |
-| T6.2 | 插件管理子界面（列表/徽标/两按钮/进度日志） | `src/panels/plugin-manager/` | T6.1 | Plugin | §14.2 全交互；最新版时更新按钮置灰 disabled；安装日志实时滚动 | 待办 |
+| T6.2 | 插件管理子界面（列表/徽标/两按钮/进度日志） | `src/panels/plugin-manager/` | T6.1 | Plugin | §14.2 全交互；最新版时更新按钮置灰 disabled；安装日志实时滚动 | 完成 · 2026-10-17（42 测试；四态徽标/SSE 流/并发 detect；已注册进 dock+工作区 tab） |
 | T6.3 | CLI 检测/安装/更新执行器（strategy: winget/npm-global/download-zip/custom-cmd；版本解析） | `server/plugins/executor.ts` | T6.1 | Server | detect 失败=未安装；安装后状态自动刷新；命令可被设置覆盖；执行流式回传日志 | 待办 |
-| T6.4 | 插件节点动态注册（清单 → NodeSpec → 蓝图可搜可用） | `src/nodes/dynamic.ts` | T6.1, T2.2 | Plugin | 节点出现在右键搜索；exec/数据引脚可用；调用走 CLI 桥/自定义执行器 | 待办 |
+| T6.4 | 插件节点动态注册（清单 → NodeSpec → 蓝图可搜可用） | `src/nodes/dynamic.ts` | T6.1, T2.2 | Plugin | 节点出现在右键搜索；exec/数据引脚可用；调用走 CLI 桥/自定义执行器 | 完成 · 2026-10-17（19 测试；specs 懒加载按需并入；invoke 降级不崩；NodeRunContext 增补 callPlugin/projectName 记入 ADR-005） |
 | T6.5 | 手机日志插件（双模式 + Android 日志解析 + 多文件时间归并） | `plugins-registry/phone-log.json` + 执行器 | T6.3, T6.4 | Plugin | §14.3 全项：adb dump/流式两节点；3 份乱序样本→按时间稳定有序；两种 Android 格式可解析 | 待办 |
 | T6.6 | 飞书 CLI 插件清单（检测/安装/更新 + 节点封装，不实现功能本体） | `plugins-registry/feishu-cli.json` | T6.3 | Plugin | 未安装显示下载；已装最新置灰更新；节点仅封装（调用透传 CLI 输出） | 待办 |
 
@@ -161,10 +161,12 @@ T6.1 ─ T6.2/T6.3/T6.4 ─ T6.5/T6.6 ─ M7
 ## 5. 当前状态
 
 - 看板初始化：2026-10-17 · 全部 `待办` · 无在途卡
-- 2026-10-17 PM-Agent 单会话执行：B0~B8 已提交；M0/M1/M2/M3/M5 全部完成；B9 派发 T6.2/T6.3/T6.4/T5.2（端点契约：detect POST 返回 JSON、install GET SSE 流、invoke POST JSON）
+- 2026-10-17 PM-Agent 单会话执行：B0~B9 已提交；M0/M1/M2/M3/M5 + M6 编辑器侧完成；B10 派发 T6.3+T6.5+T6.6（合并 Server）与 TA.1（tsconfig 已纳入 tests/、npm run roundtrip 脚本已加）
 - 单会话模式下协作协议微调：不逐卡建 git 分支，改为 PM 按批次在 `v2` 分支提交（每批次一次 commit，卡状态在本表跟踪）；Agent 产出统一由 PM 验收（typecheck + 单测 + 抽查）
 
 ## 6. 进度纪要（PM 维护，倒序追加）
+
+- **2026-10-17 · B9**：T6.2 插件管理——四态徽标/更新按钮置灰/SSE 日志流（fetch 流解析不用 EventSource）/并发 detect（池 3）/确认框/取消复位；42 测试。T6.4 动态注册——清单→NodeSpec（select/file[] 映射、紫头）、specs 懒加载按需并入（无插件节点零请求）、invoke 降级不崩、NodeRunContext 增补 callPlugin/projectName（ADR-005 附加级）；19 测试+端到端。T5.2 事件面板——两节列表/双击路由表（跳转/创建/快捷挂载蓝图）/entry 点标/.ts 粗扫；25 测试。T6.3 再遇 API 中断失败（B10 重派）。PM 胶水：事件/插件面板注册进 dock、插件 tab 接线、snippet-runtime callPlugin 桥接。PM 验收：typecheck 0 错、构建绿、批内 86 测试绿。
 
 - **2026-10-17 · B8**：**M3 与 M5 完成**。T3.3 转译链——POST /api/transpile（esbuild+LRU 缓存+行列错误）、binding 按扩展名分发（.ts→parseScriptToIR 同一 IR、.py 提示不崩），混合绑定双 runtime 等价测试；21 测试。T3.4+T3.8——sync 状态机（保存者胜/脏冲突四按钮/保存失败不丢草稿）、蓝图视图真渲染+诊断徽标接真、注解双向端到端（裸 @expose 与 type 兜底补缺）；40 测试。T3.7——ADR-007（引脚契约/推导/标记元数据往返重建）、片段运行时（new Function+全局注入+this 变量代理）、双击模态编辑；23 测试。T5.4——WS debug.v1（subscribe/attach/mute 路由）、150ms 批量+500 上限、节点高亮/exec 流动/端口值徽标、一键关闭双向；24 测试。PM 胶水：injectSnippetRuntime 注入 binding.ts（createRuntime 前按资产合成片段 spec）。PM 验收：typecheck 0 错、构建绿、批内 135 测试绿。**M4（Python）与 M6/T6.2~T6.6、M7 为剩余主要工作**。
 
