@@ -1,0 +1,77 @@
+/**
+ * 控制台面板样式（编辑器侧；与运行窗口控制台的视觉语言一致）
+ */
+.bps-console {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bps-bg-panel, #1e1f22);
+  color: var(--bps-text-primary, #d4d4d8);
+  font-size: 12px;
+}
+
+.bps-console-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--bps-border, #2d2e32);
+  flex: none;
+}
+
+.bps-console-title {
+  font-weight: 600;
+}
+
+.bps-console-hint {
+  flex: 1;
+  color: var(--bps-text-dim, #71717a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bps-console-clear {
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--bps-border, #2d2e32);
+  border-radius: 4px;
+  color: var(--bps-text-secondary, #a1a1aa);
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.bps-console-clear:hover {
+  background: var(--bps-bg-hover, #2a2b30);
+  color: var(--bps-text-primary, #d4d4d8);
+}
+
+.bps-console-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 10px;
+  font-family: var(--bps-font-mono, ui-monospace, monospace);
+  line-height: 1.55;
+}
+
+.bps-console-empty {
+  color: var(--bps-text-dim, #71717a);
+}
+
+.bps-console-line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.bps-console-time {
+  flex: none;
+  color: var(--bps-text-dim, #71717a);
+}
+
+.bps-console-text {
+  white-space: pre-wrap;
+  word-break: break-all;
+}

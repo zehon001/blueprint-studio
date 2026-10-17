@@ -17,11 +17,12 @@
   min-height: 0;
 }
 
-/* 左右结构栏（My Blueprint / Details 共用宽度与底色） */
+/* 左右结构栏（My Blueprint / Details 共用底色）：
+   窄视口下允许收缩（flex-shrink）给画布让位——画布 min-width 340px 保障
+   右键菜单 / 引脚拖出的最小可用空间（实机验收：1280 宽下画布曾仅 263px） */
 .bp-editor-side {
-  flex: none;
-  width: 248px;
-  min-width: 200px;
+  flex: 0 1 248px;
+  min-width: 180px;
   height: 100%;
   overflow: hidden;
   display: flex;
@@ -35,10 +36,10 @@
   border-left: 1px solid var(--border);
 }
 
-/* 中部：图签 + 画布 */
+/* 中部：图签 + 画布（min-width 画布保障 + overflow hidden 防溢出） */
 .bp-editor-main {
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 340px;
+  min-width: 340px;
   display: flex;
   flex-direction: column;
 }
@@ -47,6 +48,7 @@
   position: relative;
   flex: 1;
   min-height: 0;
+  min-width: 0;
 }
 
 /* ============ My Blueprint 面板 ============ */

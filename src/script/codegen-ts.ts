@@ -362,9 +362,9 @@ class Codegen {
     this.push(`  ${v.name}: ${typeText}${init};`);
   }
 
-  /** 方法体内含 await 源（delay / flow.call）的判定 */
+  /** 方法体内含 await 源（delay / flow.call / system.readFile 等异步执行节点）的判定 */
   private needsAsync(g: IRGraph): boolean {
-    return g.nodes.some((n) => n.type === 'flow.delay' || n.type === TYPE_FLOW_CALL);
+    return g.nodes.some((n) => n.type === 'flow.delay' || n.type === TYPE_FLOW_CALL || n.type === 'system.readFile');
   }
 
   /**
@@ -705,6 +705,8 @@ class Codegen {
         return this.emitVarSet(ctx, node);
       case 'system.print':
         return this.emitPrint(ctx, node);
+      case 'system.readFile':
+        return this.emitReadFile(ctx, node);
       case TYPE_FLOW_CALL:
         return this.emitFlowCall(ctx, node);
       case TYPE_FUNC_RETURN:
@@ -988,6 +990,17 @@ class Codegen {
     } else {
       this.push(`print(${value});`);
     }
+    return { out: { nodeId: node.id, pin: 'exec' } };
+  }
+
+/** system.readFile → const <别名> = await readFile(path)；text 出脚被引用时以别名承载 */
+  private emitReadFile(ctx: MethodCtx, node: IRNode): NodeEmit {
+    const path = this.expectSingle(ctx, node, 'path', 'system.readFile');
+    this.flushPending(ctx);
+    const alias = this.freshAlias(ctx);
+    ctx.pinRefs.set(pinKey(node.id, 'text'), alias);
+    ctx.aliasDepth.set(alias, ctx.depth);
+    this.push(`const ${alias} = await readFile(${path});`);
     return { out: { nodeId: node.id, pin: 'exec' } };
   }
 

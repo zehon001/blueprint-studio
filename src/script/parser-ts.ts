@@ -1321,6 +1321,13 @@ class GraphBuilder {
             this.wireExec(pending, node);
             return [{ node: node.id, pin: 'exec' }];
           }
+          case 'readFile': {
+            if (e.arguments.length !== 1) throw new FoldSignal('readFile 需要 1 个参数（路径）');
+            const node = this.addNode('system.readFile');
+            this.connect(node, 'path', this.expr(e.arguments[0]));
+            this.wireExec(pending, node);
+            return [{ node: node.id, pin: 'exec' }];
+          }
           case 'emit': {
             if (e.arguments.length > 2) throw new FoldSignal('emit 最多 2 个参数（事件名, 参数）');
             const node = this.addNode('event.send');
@@ -1537,6 +1544,22 @@ class GraphBuilder {
         return [{ node: setNode.id, pin: 'exec' }];
       }
       throw new FoldSignal('别名赋值形态需要 this.<变量> = <值>');
+    }
+
+    /* 别名 = await readFile(<path>) → system.readFile（text 出脚别名承载） */
+    if (
+      ts.isAwaitExpression(init) &&
+      ts.isCallExpression(init.expression) &&
+      ts.isIdentifier(init.expression.expression) &&
+      init.expression.expression.text === 'readFile'
+    ) {
+      const call = init.expression;
+      if (call.arguments.length !== 1) throw new FoldSignal('readFile 需要 1 个参数（路径）');
+      const node = this.addNode('system.readFile');
+      this.connect(node, 'path', this.expr(call.arguments[0]));
+      this.wireExec(pending, node);
+      this.bindScope(name, this.refOf(node, 'text'));
+      return [{ node: node.id, pin: 'exec' }];
     }
 
     /* 别名 = <expr>; print(<别名>) // __bps-print-passthrough 相邻模式 → print 值出口别名

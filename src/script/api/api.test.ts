@@ -155,12 +155,12 @@ test('ui 代理：未提供 opts.ui（ADR-005 降级）→ 读写无操作 + pri
   assert.equal(g.ui.find('title'), null); // find 静默返回 null
 });
 
-test('createScriptGlobals：返回值恰为 9 个内建全局', () => {
+test('createScriptGlobals：返回值恰为 10 个内建全局', () => {
   const { opts } = makeRecorder();
   const g = createScriptGlobals(opts);
   assert.deepEqual(
     Object.keys(g).sort(),
-    ['convert', 'delay', 'emit', 'format', 'onEvent', 'plugins', 'print', 'ui', 'vars'],
+    ['convert', 'delay', 'emit', 'format', 'onEvent', 'plugins', 'print', 'readFile', 'ui', 'vars'],
   );
 });
 

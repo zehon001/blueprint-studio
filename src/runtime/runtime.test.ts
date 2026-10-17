@@ -293,57 +293,57 @@ describe('launchRuntime（F5/F6 共用 handler）', () => {
     assert.equal(currentProjectParam(), null, '未打开项目返回 null')
   })
 
-  test('F5：拼 mode=main 且不带 ui 参数；命名窗口 bps-runtime-main + 980×720', () => {
+  test('F5：拼 mode=main 且不带 ui 参数；命名窗口 bps-runtime-main + 980×720', async () => {
     const opened: Array<{ url: string; target?: string; features?: string }> = []
     const open: OpenWindowFn = (url, target, features) => {
       opened.push({ url, target, features })
       return { closed: false }
     }
-    assert.equal(launchRuntimeMain({ open }), true)
+    assert.equal(await launchRuntimeMain({ open }), true)
     assert.equal(opened.length, 1)
     assert.equal(opened[0]!.url, '/runtime.html?project=Demo&mode=main')
     assert.equal(opened[0]!.target, 'bps-runtime-main')
     assert.equal(opened[0]!.features, 'width=980,height=720')
   })
 
-  test('F6：激活 tab 是 UI 资产 → 拼 ui 参数 mode=current；非 UI tab → toast「当前 tab 不是 UI」', () => {
+  test('F6：激活 tab 是 UI 资产 → 拼 ui 参数 mode=current；非 UI tab → toast「当前 tab 不是 UI」', async () => {
     const opened: Array<{ url: string; target?: string }> = []
     const open: OpenWindowFn = (url, target) => {
       opened.push({ url, target })
       return { closed: false }
     }
-    assert.equal(launchRuntimeCurrent({ open }), true)
+    assert.equal(await launchRuntimeCurrent({ open }), true)
     assert.equal(opened[0]!.url, `/runtime.html?project=Demo&ui=${encodeURIComponent('ui/main.ui.json')}&mode=current`)
     assert.equal(opened[0]!.target, 'bps-runtime-current')
 
     useWorkspaceStore.setState({ activeTabId: 'blueprint:logic/main.bp.json' })
     const toasts: string[] = []
-    assert.equal(launchRuntimeCurrent({ open, toast: (m) => toasts.push(m) }), false, '不打开窗口')
+    assert.equal(await launchRuntimeCurrent({ open, toast: (m) => toasts.push(m) }), false, '不打开窗口')
     assert.equal(opened.length, 1, '未新增窗口')
     assert.match(toasts[0] ?? '', /当前 tab 不是 UI/)
   })
 
-  test('弹窗被拦截 → 降级 _blank 新标签页；彻底失败 → toast 且返回 false', () => {
+  test('弹窗被拦截 → pong 探测失败 → 降级 _blank；彻底失败 → toast 且返回 false', async () => {
     const targets: Array<string | undefined> = []
     const blockedThenBlank: OpenWindowFn = (_url, target) => {
       targets.push(target)
       return target === '_blank' ? { closed: false } : null // 命名弹窗被拦截
     }
-    assert.equal(launchRuntimeMain({ open: blockedThenBlank }), true, '降级 _blank 成功')
+    assert.equal(await launchRuntimeMain({ open: blockedThenBlank }), true, '探测无 pong → 降级 _blank 成功')
     assert.deepEqual(targets, ['bps-runtime-main', '_blank'])
 
     targets.length = 0
     const alwaysBlocked: OpenWindowFn = () => null
     const toasts: string[] = []
-    assert.equal(launchRuntimeMain({ open: alwaysBlocked, toast: (m) => toasts.push(m) }), false)
+    assert.equal(await launchRuntimeMain({ open: alwaysBlocked, toast: (m) => toasts.push(m) }), false)
     assert.match(toasts[0] ?? '', /拦截|无法打开运行窗口/)
   })
 
-  test('未打开项目 → toast「未打开项目」且不打开窗口', () => {
+  test('未打开项目 → toast「未打开项目」且不打开窗口', async () => {
     useWorkspaceStore.setState({ currentProject: null })
     const opened: unknown[] = []
     const toasts: string[] = []
-    assert.equal(launchRuntimeMain({ open: () => { opened.push(1); return { closed: false } }, toast: (m) => toasts.push(m) }), false)
+    assert.equal(await launchRuntimeMain({ open: () => { opened.push(1); return { closed: false } }, toast: (m) => toasts.push(m) }), false)
     assert.match(toasts[0] ?? '', /未打开项目/)
     assert.equal(opened.length, 0)
   })

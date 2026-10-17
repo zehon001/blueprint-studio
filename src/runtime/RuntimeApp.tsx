@@ -28,7 +28,8 @@ import { BindingRunner } from './binding'
 import { DebugProbe } from './debug-probe'
 import type { UIAsset } from '../ir/types'
 import { parseUIAsset } from '../ui-editor/store'
-import { parseMainUI, runtimeWindowTitle, type RuntimeMode } from '../shell/runtime-launch'
+import { parseMainUI, runtimeWindowTitle, RUNTIME_PROBE_CHANNEL, type RuntimeMode } from '../shell/runtime-launch'
+import { CONSOLE_CHANNEL, type ConsoleMessage } from '../panels/console/ConsolePanel'
 
 /** 运行窗口 URL 参数（解析后形态；ui 为 null 表示未传，main 模式经 project.json 解析） */
 export interface RuntimeParams {
@@ -156,8 +157,20 @@ export default function RuntimeApp(props: RuntimeAppProps) {
   // 调试观察探针（T5.4）：就绪后创建，重载 / 卸载时 stop（一键关闭观察通道）
   const probeRef = useRef<DebugProbe | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
+  // 编辑器控制台镜像频道（T1.6 兑现：懒建一次；卸载时关闭）
+  const consoleChannelRef = useRef<BroadcastChannel | null>(null)
+  // 最新 params（appendConsole 广播读取项目名 / 模式；app state 的镜像）
+  const paramsRef = useRef<RuntimeParams | null>(null)
+  if (app.params) paramsRef.current = app.params
+  // 卸载时关闭镜像频道
+  useEffect(() => {
+    return () => {
+      consoleChannelRef.current?.close()
+      consoleChannelRef.current = null
+    }
+  }, [])
 
-  /** 控制台追加一行（FIFO 上限；错误行自动展开面板） */
+  /** 控制台追加一行（FIFO 上限；错误行自动展开面板）；同时经 BroadcastChannel 推送编辑器控制台（T1.6 兑现） */
   const appendConsole = useCallback((line: string): void => {
     setConsoleLines((prev) => {
       const next = prev.length >= CONSOLE_MAX_LINES ? prev.slice(prev.length - CONSOLE_MAX_LINES + 1) : prev.slice()
@@ -165,6 +178,20 @@ export default function RuntimeApp(props: RuntimeAppProps) {
       return next
     })
     if (line.startsWith('[错误]')) setConsoleOpen(true)
+    // 编辑器控制台镜像（T1.6 承诺「运行输出接入编辑器控制台」）：同源广播，编辑器面板实时显示
+    try {
+      const ch = consoleChannelRef.current ?? (consoleChannelRef.current = new BroadcastChannel(CONSOLE_CHANNEL))
+      const msg: ConsoleMessage = {
+        type: 'console.line',
+        line,
+        project: paramsRef.current?.project ?? '',
+        mode: paramsRef.current?.mode ?? 'main',
+        ts: Date.now(),
+      }
+      ch.postMessage(msg)
+    } catch {
+      /* 广播不可用（无 BroadcastChannel 等）静默——运行窗口本地控制台不受影响 */
+    }
   }, [])
 
   // 展开态跟随滚动到底部（最新输出可见）
@@ -172,6 +199,34 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     const body = consoleBodyRef.current
     if (consoleOpen && body) body.scrollTop = body.scrollHeight
   }, [consoleLines, consoleOpen])
+
+  // 运行窗口 pong 回报（防双开探测协议）：mount 时主动广播一次自身 url，
+  // 之后每次收到 ping 也回 pong——编辑器「open 返回 null 但窗口已开」时据此取消降级
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined' || typeof location === 'undefined') return
+    let ch: BroadcastChannel | null = null
+    try {
+      ch = new BroadcastChannel(RUNTIME_PROBE_CHANNEL)
+    } catch {
+      return
+    }
+    const selfUrl = `${location.pathname}${location.search}`
+    const pong = (): void => {
+      try {
+        ch!.postMessage({ type: 'runtime.pong', url: selfUrl })
+      } catch {
+        /* 频道已关闭 */
+      }
+    }
+    ch.onmessage = (ev: MessageEvent) => {
+      const m = ev.data as { type?: string } | null
+      if (m && m.type === 'runtime.ping') pong()
+    }
+    pong()
+    return () => {
+      ch!.close()
+    }
+  }, [])
 
   /** 加载一次：解析 ui 路径 → fetch → parse → 置 ready（渲染与绑定在下方 effect 完成） */
   const load = useCallback(async (p: RuntimeParams): Promise<void> => {

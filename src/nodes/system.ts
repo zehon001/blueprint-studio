@@ -97,4 +97,37 @@ export const now = defineNode({
   run: () => ({ outputs: { epoch: Date.now() } }),
 });
 
-export const systemNodes: NodeSpec[] = [print, notify, clipboardWrite, openUrl, now];
+/* ----------------------------------------------------------- system.readFile */
+/**
+ * 读项目内文件（ADR-005 附加扩展：ctx.readProjectFile 由 BindingRunner 注入，
+ * 经 GET /api/file）。path 为项目内相对路径（如 'assets/sample.log'）。
+ * 钩子缺失 / 读取失败经 ctx.print 降级提示（text 输出空串），不抛错。
+ */
+export const readFile = defineNode({
+  id: 'system.readFile', title: '读取文件', category: '系统',
+  keywords: ['read', 'file', '读文件', '读取文件', '打开文件', '文本'],
+  doc: '读项目内文件文本（path 相对项目根，如 assets/sample.log）；内容经「文本」出脚。运行上下文未提供文件钩子时降级提示。',
+  inputs: [execIn(), dataIn('path', 'string', '路径', '')],
+  outputs: [execOut(), dataOut('text', 'string', '文本')],
+  run: async (ctx, inputs) => {
+    const path = strOf(inputs.path);
+    if (!path) {
+      ctx.print('[读取文件] 路径为空，未读取');
+      return { next: 'exec', outputs: { text: '' } };
+    }
+    const hook = (ctx as { readProjectFile?: (p: string) => Promise<string> }).readProjectFile;
+    if (!hook) {
+      ctx.print('[读取文件] 运行上下文未提供文件钩子，已忽略');
+      return { next: 'exec', outputs: { text: '' } };
+    }
+    try {
+      const text = await hook(path);
+      return { next: 'exec', outputs: { text } };
+    } catch (err) {
+      ctx.print(`[读取文件] 读取失败（${path}）：${err instanceof Error ? err.message : String(err)}`);
+      return { next: 'exec', outputs: { text: '' } };
+    }
+  },
+});
+
+export const systemNodes: NodeSpec[] = [print, notify, clipboardWrite, openUrl, readFile, now];

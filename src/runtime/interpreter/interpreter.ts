@@ -265,6 +265,8 @@ class BlueprintRuntime implements RuntimeHandle {
   /** 串行事件队列（FIFO 数组 + drain 泵；处理中再 emit 只是追加，不递归） */
   private readonly pending: QueuedEvent[] = [];
   private draining = false;
+  /** ADR-008：正在产出多次出脚的节点实例 id（generator 运行期间再触发 = 忽略，旧回连边安全降级为 no-op） */
+  private readonly activeGenerators = new Set<string>();
 
   constructor(asset: IRAsset, specs: Map<string, NodeSpec>, opts: RuntimeOptions) {
     this.asset = asset;
@@ -298,6 +300,7 @@ class BlueprintRuntime implements RuntimeHandle {
   start(): void {
     if (this.running) throw new Error('运行已启动：请先 stop() 再重新 start()');
     this.running = true;
+    this.activeGenerators.clear(); // 新纪元：无活跃 generator（保险，正常 stop 已清）
     this.controller = new AbortController();
     // 触发 start 事件（BeginPlay 同义）：走串行事件队列，与后续事件保持同样语义
     this.pending.push({ name: START_EVENT, args: {} });
@@ -309,6 +312,7 @@ class BlueprintRuntime implements RuntimeHandle {
     this.running = false;
     this.pending.length = 0; // 清队：未处理的事件全部丢弃
     this.controller.abort(); // 挂起的 ctx.delay 以 AbortError reject，节点容错
+    this.activeGenerators.clear(); // ADR-008：清活跃 generator（运行中的 run* 由 chainSignal 检查中止）
     // ADR-005：复位循环 / sequence / timer 状态机（状态槽按节点实例 id 全局隔离）
     clearAllStateSlots();
   }
@@ -569,8 +573,15 @@ class BlueprintRuntime implements RuntimeHandle {
           const inputs = await this.resolveInputs(frame, node, spec!.inputs, assembly);
           const ctx = this.ctxFor(frame, node, spec!);
           const result = await this.invokeRun(spec!, ctx, inputs);
-          outputs = result.outputs ?? {};
-          nextPin = pickNext(spec!, node, result);
+          if (isAsyncGenerator(result)) {
+            // ADR-008 多次出脚：逐 yield 更新缓存并驱动出脚子链；generator 全权决定所有出脚
+            await this.driveGenerator(frame, node, spec!, result, chainSignal, depth);
+            outputs = {};
+            nextPin = undefined;
+          } else {
+            outputs = result.outputs ?? {};
+            nextPin = pickNext(spec!, node, result);
+          }
         }
       } catch (err) {
         throw withCtx(err, frame.graphName, node.id);
@@ -593,6 +604,58 @@ class BlueprintRuntime implements RuntimeHandle {
     const edges = frame.graph.edgesBySource.get(`${node.id}:${pin}`) ?? [];
     const execEdge = edges.find((e) => e.kind === 'exec');
     return execEdge ? execEdge.to.node : undefined;
+  }
+
+  /**
+   * ADR-008：驱动多次出脚节点（async generator）——逐 yield 更新输出缓存并执行出脚子链，
+   * 每条子链完整执行后才请求下一个 yield（与 UE5「循环体执行完才下一迭代」一致）。
+   * 重入（activeGenerators 已含该节点）直接返回：旧「链尾回连」边安全降级为 no-op。
+   * yield 产出超过 maxSteps 视为疑似死循环并抛错；中止/异常时 return() 关闭 generator。
+   */
+  private async driveGenerator(
+    frame: Frame,
+    node: IRNode,
+    spec: NodeSpec,
+    gen: AsyncGenerator<NodeRunResult, void, unknown>,
+    chainSignal: AbortSignal,
+    depth: number,
+  ): Promise<void> {
+    if (this.activeGenerators.has(node.id)) return;
+    this.activeGenerators.add(node.id);
+    let fires = 0;
+    try {
+      for (;;) {
+        if (chainSignal.aborted) return;
+        const step = await gen.next();
+        if (step.done) return;
+        // 产出上限：未声明 unlimitedFires 的节点超 maxSteps 视为疑似死循环
+        // （timer/whileLoop 等合法无限产出声明 unlimitedFires 跳过，ADR-008）
+        if (!spec.unlimitedFires && ++fires > this.maxSteps) {
+          throw withCtx(
+            new Error(
+              `节点 ${spec.id}(${node.id}) 多次出脚超过 ${this.maxSteps} 次已中止：疑似 exec 死循环（ADR-008）`,
+            ),
+            frame.graphName,
+            node.id,
+          );
+        }
+        const outs = step.value.outputs ?? {};
+        frame.cache.set(node.id, { ...outs });
+        for (const [pinId, value] of Object.entries(outs)) {
+          this.debug({ kind: 'pinValue', graph: frame.graphName, nodeId: node.id, pinId, value });
+        }
+        const nextPin = pickNext(spec, node, step.value);
+        const downstream = nextPin === undefined ? undefined : this.followExec(frame, node, nextPin);
+        if (downstream) await this.runChain(frame, downstream, undefined, depth);
+      }
+    } finally {
+      this.activeGenerators.delete(node.id);
+      try {
+        await gen.return(undefined as never);
+      } catch {
+        /* generator 已自行结束 / 关闭失败忽略 */
+      }
+    }
   }
 
   /* ---------------- 数据流（按需求值） ---------------- */
@@ -674,6 +737,10 @@ class BlueprintRuntime implements RuntimeHandle {
       const inputs = await this.resolveInputs(frame, node, spec.inputs, assembly);
       const ctx = this.ctxFor(frame, node, spec);
       const result = await this.invokeRun(spec, ctx, inputs);
+      if (isAsyncGenerator(result)) {
+        // 纯节点无 exec 出口，契约禁止 generator（ADR-008）；按空输出处理不中断求值
+        throw new Error(`纯节点不允许返回多次出脚 generator: ${spec.id}（节点 ${node.id}，ADR-008）`);
+      }
       const outputs = result.outputs ?? {};
       assembly.memo.set(node.id, outputs);
       for (const [pinId, value] of Object.entries(outputs)) {
@@ -717,8 +784,14 @@ class BlueprintRuntime implements RuntimeHandle {
       },
       // 异步延时：内部 Promise 定时器，不占事件队列；stop 时以 AbortError reject
       delay: (ms) => self.delay(ms),
+      // ADR-008：重新求值当前节点输入（独立 Assembly → 纯链重执行、变量读最新值）
+      reinputs: async () => {
+        const fresh: Assembly = { memo: new Map(), inProgress: new Set() };
+        return await self.resolveInputs(frame, node, spec.inputs, fresh);
+      },
       signal: self.signal,
       ui: self.opts.ui,
+      readProjectFile: self.opts.readProjectFile,
       notify: self.opts.notify,
       clipboardWrite: self.opts.clipboardWrite,
       openUrl: self.opts.openUrl,
@@ -757,20 +830,28 @@ class BlueprintRuntime implements RuntimeHandle {
     this.opts.onDebug?.({ ...ev, ts: Date.now() });
   }
 
-  /** 执行节点 run（未定义 run = 结构节点直通；run 未返回按空结果处理） */
+  /** 执行节点 run（未定义 run = 结构节点直通；run 未返回按空结果处理；generator 由 runChain 分支驱动） */
   private async invokeRun(
     spec: NodeSpec,
     ctx: NodeRunContext,
     inputs: Record<string, unknown>,
-  ): Promise<NodeRunResult> {
+  ): Promise<NodeRunResult | AsyncGenerator<NodeRunResult, void, unknown>> {
     if (!spec.run) return { outputs: {} };
     return (await spec.run(ctx, inputs)) ?? { outputs: {} };
   }
 }
 
+/** ADR-008：识别多次出脚节点（async generator 返回值；同步/Promise 结果原样执行） */
+function isAsyncGenerator(v: unknown): v is AsyncGenerator<NodeRunResult, void, unknown> {
+  return (
+    !!v &&
+    typeof v === 'object' &&
+    typeof (v as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
+  );
+}
+
 /** exec 出口选择（模块级：runChain 与 pickNextFor 共用） */
-function pickNext(spec: NodeSpec, node: IRNode, result: NodeRunResult): string | undefined {
-  const execOuts = spec.outputs.filter((p) => p.type === 'exec');
+function pickNext(spec: NodeSpec, node: IRNode, result: NodeRunResult): string | undefined {  const execOuts = spec.outputs.filter((p) => p.type === 'exec');
   const chosen = result.next ?? (execOuts.length === 1 ? execOuts[0].id : undefined);
   if (chosen === undefined) {
     if (execOuts.length === 0) return undefined; // 无 exec 出口：链自然结束

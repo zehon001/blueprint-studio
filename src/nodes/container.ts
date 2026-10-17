@@ -22,17 +22,9 @@ import {
   strOf,
   intOf,
   boolOf,
-  getStateSlot,
   opts,
   selectParam,
 } from './spec';
-
-/** 循环状态机内部状态（forEach） */
-interface ForEachSlot {
-  active: boolean;
-  index: number;
-  items: unknown[];
-}
 
 /** 安全读取元素字段：field 为空时读元素本身 */
 function readField(el: unknown, field: string): unknown {
@@ -131,10 +123,15 @@ export const arrayPush = defineNode({
 });
 
 /* ---------------------------------------------------------- array.forEach */
+/**
+ * 遍历数组（ADR-008 多次出脚）：一次触发遍历完（触发时快照数组），每元素等循环体
+ * 子链完整执行后继续（UE5 ForEach 语义，无需回连）；break 每迭代重估（循环体内
+ * 写变量可提前终止），遍历完走「完成」。
+ */
 export const arrayForEach = defineNode({
   id: 'array.forEach', title: '遍历数组', category: '容器',
   keywords: ['array', 'foreach', 'each', '遍历', '迭代', '循环'],
-  doc: '循环状态机：每次触发走一次迭代（首次触发时快照数组），经「循环体」给出元素与下标；链尾连回 exec 入继续，break 为真或遍历完走「完成」。',
+  doc: '一次触发遍历完（触发时快照数组）：每元素执行循环体子链后继续（UE5 ForEach 语义，无需回连）；break 每迭代重估，遍历完走「完成」。',
   inputs: [
     execIn(),
     dataIn('array', 'any[]', '数组', null),
@@ -146,27 +143,25 @@ export const arrayForEach = defineNode({
     dataOut('index', 'int', '下标'),
     execOut('done', '完成'),
   ],
-  run: (_ctx, inputs) => {
-    const slot = getStateSlot<ForEachSlot>(_ctx.nodeId, () => ({ active: false, index: 0, items: [] }));
-    if (!slot.active) {
-      slot.items = arrOf(inputs.array);
-      if (slot.items.length === 0) {
-        slot.active = false;
-        return { next: 'done', outputs: { index: 0 } };
+  run: async function* (ctx, inputs) {
+    const items = arrOf(inputs.array);
+    if (items.length === 0) {
+      yield { next: 'done', outputs: { index: 0 } };
+      return;
+    }
+    let brk = boolOf(inputs.break);
+    for (let i = 0; i < items.length && !brk; i += 1) {
+      if (ctx.signal.aborted) return;
+      yield { next: 'body', outputs: { element: items[i] ?? null, index: i } };
+      if (ctx.reinputs) {
+        try {
+          brk = boolOf((await ctx.reinputs()).break);
+        } catch {
+          /* 重估失败沿用上次值 */
+        }
       }
-      slot.active = true;
-      slot.index = 0;
-      return { next: 'body', outputs: { element: slot.items[0] ?? null, index: 0 } };
     }
-    if (boolOf(inputs.break) || slot.index + 1 >= slot.items.length) {
-      slot.active = false;
-      return { next: 'done', outputs: { index: slot.index } };
-    }
-    slot.index += 1;
-    return {
-      next: 'body',
-      outputs: { element: slot.items[slot.index] ?? null, index: slot.index },
-    };
+    yield { next: 'done', outputs: { index: Math.max(0, items.length - 1) } };
   },
 });
 

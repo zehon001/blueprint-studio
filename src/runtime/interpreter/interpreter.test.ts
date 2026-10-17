@@ -811,3 +811,136 @@ test('stop 后 clearAllStateSlots 复位：forLoop 重跑从头迭代', async ()
   assert.equal(rec.errors.length, 0, `stop 引发的 AbortError 不应上报：${JSON.stringify(rec.errors)}`);
   rt.stop();
 });
+
+/* ============================================================
+ * ADR-008：多次出脚（async generator）集成
+ * ============================================================ */
+
+test('ADR-008 集成：forLoop 一次触发跑完迭代（无回连边，UE5 语义）', async () => {
+  const rec: Recordings = { prints: [], errors: [], debug: [] };
+  const rt = createRuntime(
+    asset({
+      main: g(
+        [
+          n('n1', 'event.start'),
+          n('n2', 'flow.forLoop', {}, { from: 0, to: 4, step: 1 }),
+          n('n3', 'system.print'),
+        ],
+        [
+          e('e1', 'n1', 'exec', 'n2', 'exec'),
+          e('e2', 'n2', 'body', 'n3', 'exec'), // 循环体 → 打印（链尾不回连）
+          e('d1', 'n2', 'index', 'n3', 'value', 'data'),
+        ],
+      ),
+    }),
+    builtinSpecMap,
+    {
+      onPrint: (...parts) => rec.prints.push({ at: Date.now(), parts }),
+      onError: (err, graph, nodeId) => rec.errors.push({ at: Date.now(), err, graph, nodeId }),
+      onDebug: (ev) => rec.debug.push(ev),
+    },
+  );
+  rt.start();
+  await tick(200);
+  rt.stop();
+  const outs = rec.prints.map((p) => String(p.parts[0]));
+  assert.deepEqual(outs, ['0', '1', '2', '3', '4'], `一次触发应跑完全部迭代（实际 ${JSON.stringify(outs)}）`);
+  assert.equal(rec.errors.length, 0, `不应有错误：${JSON.stringify(rec.errors)}`);
+});
+
+test('ADR-008 集成：timer loop 自动持续 tick（无需回连）', async () => {
+  const rec: Recordings = { prints: [], errors: [], debug: [] };
+  const rt = createRuntime(
+    asset({
+      main: g(
+        [
+          n('n1', 'event.start'),
+          n('n2', 'event.timer', {}, { interval: 0.05, loop: true }),
+          n('n3', 'system.print'),
+        ],
+        [
+          e('e1', 'n1', 'exec', 'n2', 'exec'),
+          e('e2', 'n2', 'tick', 'n3', 'exec'), // tick → 打印（链尾不回连）
+          e('d1', 'n2', 'ticks', 'n3', 'value', 'data'),
+        ],
+      ),
+    }),
+    builtinSpecMap,
+    {
+      onPrint: (...parts) => rec.prints.push({ at: Date.now(), parts }),
+      onError: (err, graph, nodeId) => rec.errors.push({ at: Date.now(), err, graph, nodeId }),
+      onDebug: (ev) => rec.debug.push(ev),
+    },
+  );
+  rt.start();
+  await tick(280); // interval 50ms → 应收到 ≥3 次 tick
+  rt.stop();
+  await tick(20);
+  const outs = rec.prints.map((p) => Number(p.parts[0]));
+  assert.ok(outs.length >= 3, `应持续 tick ≥3 次（实际 ${JSON.stringify(outs)}）`);
+  assert.ok(outs.every((v, i) => v === i + 1), `ticks 应从 1 递增（实际 ${JSON.stringify(outs)}）`);
+  assert.equal(rec.errors.length, 0);
+});
+
+test('ADR-008 集成：forLoop 循环体内再触发自身被忽略（旧回连边 = no-op，不死循环）', async () => {
+  const rec: Recordings = { prints: [], errors: [], debug: [] };
+  const rt = createRuntime(
+    asset({
+      main: g(
+        [
+          n('n1', 'event.start'),
+          n('n2', 'flow.forLoop', {}, { from: 0, to: 2, step: 1 }),
+          n('n3', 'system.print'),
+        ],
+        [
+          e('e1', 'n1', 'exec', 'n2', 'exec'),
+          e('e2', 'n2', 'body', 'n3', 'exec'),
+          e('e3', 'n3', 'exec', 'n2', 'exec'), // 旧语义回连边：新语义下应为 no-op
+          e('d1', 'n2', 'index', 'n3', 'value', 'data'),
+        ],
+      ),
+    }),
+    builtinSpecMap,
+    {
+      onPrint: (...parts) => rec.prints.push({ at: Date.now(), parts }),
+      onError: (err, graph, nodeId) => rec.errors.push({ at: Date.now(), err, graph, nodeId }),
+      onDebug: (ev) => rec.debug.push(ev),
+    },
+  );
+  rt.start();
+  await tick(200);
+  rt.stop();
+  const outs = rec.prints.map((p) => String(p.parts[0]));
+  assert.deepEqual(outs, ['0', '1', '2'], `回连边应被忽略、迭代不受干扰（实际 ${JSON.stringify(outs)}）`);
+  assert.equal(rec.errors.length, 0);
+});
+
+test('ADR-008 集成：有限 generator 超 maxSteps 视为死循环（unlimitedFires 豁免 timer）', async () => {
+  // 本地最小 spec：有限 generator 连续 yield 50 次（maxStepsPerChain=10 → 应在第 11 次抛死循环）
+  const finite: NodeSpec = {
+    id: 'test.finite', title: '有限', category: '流程',
+    inputs: [{ id: 'exec', type: 'exec' }],
+    outputs: [{ id: 'out', type: 'exec' }],
+    run: async function* () {
+      for (let i = 0; i < 50; i++) yield { next: 'out', outputs: {} };
+    },
+  };
+  const rec: Recordings = { prints: [], errors: [], debug: [] };
+  const rt = createRuntime(
+    asset({
+      main: g([n('n1', 'event.start'), n('n2', 'test.finite')], [e('e1', 'n1', 'exec', 'n2', 'exec')]),
+    }),
+    mapOf([evStart, finite]),
+    {
+      maxStepsPerChain: 10,
+      onPrint: () => {},
+      onError: (err, graph, nodeId) => rec.errors.push({ at: Date.now(), err, graph, nodeId }),
+      onDebug: (ev) => rec.debug.push(ev),
+    },
+  );
+  rt.start();
+  await tick(80);
+  rt.stop();
+  assert.equal(rec.errors.length, 1, '有限 generator 超限应上报死循环错误');
+  assert.ok(rec.errors[0]!.err.message.includes('死循环'), `错误应含死循环提示：${rec.errors[0]!.err.message}`);
+});

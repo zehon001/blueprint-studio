@@ -17,7 +17,6 @@ import {
   boolOf,
   numOf,
   opts,
-  getStateSlot,
 } from './spec';
 
 /** 把任意 args 值规范化为 emit 的参数对象（按事件参数名的匹配留给解释器 / 用户约定） */
@@ -110,23 +109,23 @@ export const listen = defineNode({
 
 /* ------------------------------------------------------------ event.timer */
 /**
- * 定时器（契约内实现）：单次 run 只能激活一个出口，故「每 tick 触发」采用
- * 与循环节点相同的链尾回连机制——loop 为真时把 tick 链尾 exec 连回本节点
- * exec 入即持续计时；loop 为假则一次延时后走「结束」。cancel 引脚置真、
- * 或 ctx.signal 中止时走「结束」并清零计数。
+ * 定时器（ADR-008 多次出脚）：一次触发自动持续计时——每 interval 秒激活一次 tick
+ * 出脚（loop 为真；等出脚子链完整执行后才开始下次计时），cancel 重估为真或运行
+ * 中止（stop）时走「结束」。interval/loop/cancel 每 tick 经 ctx.reinputs 重估
+ * （接 var.get 可动态调速/停止）。每次到期（非取消）经 ctx.emit 发布系统事件
+ * 'timer'（参数 { ticks }，target 默认 ui——其它实例可 event.listen('timer') 接收）。
  *
- * 系统事件（T5.1）：每次计时到期（非取消）都经 ctx.emit 向总线发布系统事件
- * 'timer'（参数 { ticks }，target 默认 ui——其它实例可 event.listen('timer') 接收，
- * 本实例的 tick 出口链仍照常驱动）。注意 loop 自回连模式会长期占用本实例的
- * 串行事件队列（ADR-005 语义），其 'timer' 系统事件会滞留至 stop 清队——
- * 需要总线投递的场景建议一次性触发（loop=false）或由外部事件驱动。
+ * 已知限制（ADR-008）：无条件循环长期占用本实例串行事件队列（ADR-005 语义），
+ * 其 'timer' 系统事件滞留至 stop 清队——需要总线投递的场景建议一次性触发
+ * （loop=false）或由外部事件驱动。
  */
 export const timer = defineNode({
   id: 'event.timer',
   title: '定时器',
   category: '事件',
   keywords: ['timer', '定时', 'interval', '间隔', '循环计时'],
-  doc: '每隔 interval 秒触发一次 tick 出口（loop 为真时把 tick 链尾连回 exec 入持续计时）；cancel 为真或运行中止时走「结束」。',
+  doc: '一次触发自动持续计时：每 interval 秒触发一次「每次触发」出脚（loop 为真，无需回连）；cancel 或运行中止走「结束」。interval/loop/cancel 每 tick 重估（接变量可动态调速/停止）。',
+  unlimitedFires: true,
   inputs: [
     execIn(),
     dataIn('interval', 'float', '间隔秒', 1.0),
@@ -134,27 +133,36 @@ export const timer = defineNode({
     dataIn('cancel', 'bool', '取消', false),
   ],
   outputs: [execOut('tick', '每次触发'), dataOut('ticks', 'int', '已触发次数'), execOut('stopped', '结束')],
-  run: async (ctx, inputs) => {
-    const slot = getStateSlot<{ ticks: number }>(ctx.nodeId, () => ({ ticks: 0 }));
-    if (boolOf(inputs.cancel)) {
-      slot.ticks = 0;
-      return { next: 'stopped', outputs: { ticks: 0 } };
+  run: async function* (ctx, inputs) {
+    let ticks = 0;
+    let cur = inputs;
+    for (;;) {
+      if (ctx.signal.aborted) return; // stop：静默收链（delay 已被 abort reject / 即将 reject）
+      if (ctx.reinputs) {
+        try {
+          cur = await ctx.reinputs();
+        } catch {
+          /* 重估失败沿用上次值 */
+        }
+      }
+      if (boolOf(cur.cancel)) {
+        ticks = 0;
+        yield { next: 'stopped', outputs: { ticks: 0 } };
+        return;
+      }
+      const ms = Math.max(0, Math.round(numOf(cur.interval, 1) * 1000));
+      await ctx.delay(ms);
+      if (ctx.signal.aborted) return;
+      ticks += 1;
+      const fired = ticks;
+      // 计时到期即向总线发布系统事件 'timer'（T5.1：走本实例串行队列 → 总线 target 默认 ui）
+      ctx.emit('timer', { ticks: fired });
+      if (!boolOf(cur.loop, true)) {
+        yield { next: 'stopped', outputs: { ticks: fired } };
+        return;
+      }
+      yield { next: 'tick', outputs: { ticks: fired } };
     }
-    const ms = Math.max(0, Math.round(numOf(inputs.interval, 1) * 1000));
-    await ctx.delay(ms);
-    if (ctx.signal.aborted) {
-      slot.ticks = 0;
-      return { next: 'stopped', outputs: { ticks: 0 } };
-    }
-    slot.ticks += 1;
-    const fired = slot.ticks;
-    // 计时到期即向总线发布系统事件 'timer'（T5.1：走本实例串行队列 → 总线 target 默认 ui）
-    ctx.emit('timer', { ticks: fired });
-    if (!boolOf(inputs.loop, true)) {
-      slot.ticks = 0;
-      return { next: 'stopped', outputs: { ticks: fired } };
-    }
-    return { next: 'tick', outputs: { ticks: fired } };
   },
 });
 

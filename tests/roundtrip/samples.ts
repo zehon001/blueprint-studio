@@ -77,6 +77,20 @@ export const KNOWN_UNMAPPED_NODE_IDS: ReadonlySet<string> = new Set([
  * 执行节点样本（每个可映射执行节点一个最小图；T3.5 已覆盖 52 纯节点，此处补齐执行侧）
  * ============================================================ */
 
+/** system.readFile：读项目文件文本（路径字面量 → text 出脚被引用） */
+function execSystemReadFile(): IRAsset {
+  return asset({
+    main: graph(
+      [
+        node('st', 'event.start'),
+        node('rd', 'system.readFile', { pinDefaults: { path: 'assets/sample.log' } }),
+        node('pr', 'system.print'),
+      ],
+      [execEdge('x1', 'st', 'rd'), execEdge('x2', 'rd', 'pr'), dataEdge('d1', 'rd', 'text', 'pr', 'value')],
+    ),
+  });
+}
+
 /** event.start：start 事件入口 → 打印 */
 function execEventStart(): IRAsset {
   return asset({
@@ -391,6 +405,7 @@ const execNodeSampleDefs: ExecNodeSampleDef[] = [
   { id: 'ui.setVisible', build: execUiSetVisible, note: '显隐（显式 false 引脚值）' },
   { id: 'ui.listSetItems', build: execUiListSetItems, note: '列表项 ← 数组变量' },
   { id: 'system.print', build: execSystemPrint, note: 'print(字面量)' },
+  { id: 'system.readFile', build: execSystemReadFile, note: '读项目文件 → 打印行数（路径字面量）' },
 ];
 
 /** 有显式样本的执行节点 id 集合（auditCoverage 的「已入库」判定依据之一） */
@@ -455,7 +470,7 @@ function realAssetWithSnippetSample(): IRAsset {
       ...bind.nodes,
       node('n_snip', 'script.snippet', { params: { snippet: 'snipInit' }, position: { x: 400, y: 200 } }),
     ],
-    edges: [...bind.edges, execEdge('e_snip', 'n_start', 'n_snip')],
+    edges: [...bind.edges, execEdge('e_snip', 'n_print', 'n_snip')], // 挂链尾（exec 出脚单线，UE5 语义）
   };
   return evolved;
 }

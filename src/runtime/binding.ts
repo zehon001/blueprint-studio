@@ -812,6 +812,8 @@ export class BindingRunner {
         });
         const rt = createRuntime(irWithSnippets, assetSpecs, {
           ui,
+          // system.readFile 钩子（ADR-005 附加扩展）：GET /api/file 读项目内文件文本
+          readProjectFile: (path) => this.fetchFileText(`${this.opts.project}/${path.replace(/^[\/]+/, '')}`),
           onPrint: (...parts) => this.print(`[${kindLabel}:${ir.name}] ${parts.map((p) => strOf(p)).join(' ')}`),
           onError: (err, graphName, nodeId) => {
             const where = nodeId ? `（图 ${graphName} · 节点 ${nodeId}）` : `（图 ${graphName}）`;

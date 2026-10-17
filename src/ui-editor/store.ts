@@ -93,9 +93,9 @@ export const useUIEditorStore = create<UIEditorState>()((set, get) => ({
         return
       }
       const asset = parseUIAsset(String(json.content ?? ''))
-      runCommand<SceneTreeDomainState>('scene-tree', `打开 UI：${assetPath}`, (d) => {
-        d.asset = asset
-      })
+      // 装载非编辑：经 registerDomainState 替换域状态（不入 undo 栈 → 不置脏标记），
+      // 并剔除该域旧历史（旧资产的补丁对新资产不再适用）
+      registerDomainState<SceneTreeDomainState>('scene-tree', { asset })
       set({ status: 'ready', message: '' })
     } catch (err) {
       set({ status: 'error', message: `解析失败：${err instanceof Error ? err.message : String(err)}` })
@@ -131,9 +131,8 @@ export const useUIEditorStore = create<UIEditorState>()((set, get) => ({
 
   close: () => {
     ensureDomain()
-    runCommand<SceneTreeDomainState>('scene-tree', '关闭 UI', (d) => {
-      d.asset = null
-    })
+    // 卸载同理非编辑（见 openUIAsset 注释）：替换域状态不置脏
+    registerDomainState<SceneTreeDomainState>('scene-tree', { asset: null })
     set({ projectPath: null, assetPath: null, status: 'idle', message: '', selection: [] })
   },
 }))

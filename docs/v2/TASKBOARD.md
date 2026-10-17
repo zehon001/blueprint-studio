@@ -50,7 +50,7 @@
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
 | T1.1 | UI 节点库 schema（PLAN §7.1 全部节点 + 属性声明） | `src/ui-editor/schema/` | T0.1 | UIEditor | 4 类节点齐全；每个属性有类型/默认值/分组；检视器可纯 schema 驱动 | 完成 · 2026-10-17（产出说明见 §6） |
-| T1.2 | DOM 渲染器（编辑态/运行态共用，编辑冻结交互） | `src/runtime/render/` | T1.1 | UIEditor+Runtime | 同一 UI 树两态渲染一致；容器布局正确嵌套 | 待办 |
+| T1.2 | DOM 渲染器（编辑态/运行态共用，编辑冻结交互） | `src/runtime/render/` | T1.1 | UIEditor+Runtime | 同一 UI 树两态渲染一致；容器布局正确嵌套 | 完成 · 2026-10-17（B5 交付 13 测试；表格状态补记） |
 | T1.3 | 2D 视口（选择/框选/移动/对齐吸附/缩放/键盘微调） | `src/ui-editor/viewport/` | T1.2 | UIEditor | PLAN §7.2 操作全可用；操作均入命令栈可撤销 | 完成 · 2026-10-17（24 测试；浏览器手感抽查留 PM/QA） |
 | T1.4 | UI 树面板（树形/拖拽重排父子/右键菜单） | `src/panels/scene-tree/` | T1.1, T0.5 | UIEditor | 拖拽改变父子即时反映到视口；右键含「添加节点/复制/删除/附加逻辑资产(占位)」 | 完成 · 2026-10-17（重派成功；30 测试；已注册进 dock） |
 | T1.5 | 检视器（分组/搜索/类型编辑器/多选混合态） | `src/panels/inspector/` | T1.1, T0.5 | UIEditor | schema 驱动生成；搜索过滤属性；多选显示共同属性；改动可撤销 | 完成 · 2026-10-17（20 测试；listColumns 为 JSON 源编辑，可视化编辑 T7.x） |
@@ -161,10 +161,12 @@ T6.1 ─ T6.2/T6.3/T6.4 ─ T6.5/T6.6 ─ M7
 ## 5. 当前状态
 
 - 看板初始化：2026-10-17 · 全部 `待办` · 无在途卡
-- 2026-10-17 PM-Agent 单会话执行：B0~B10 已提交；**M0/M1/M2/M3/M5/M6 全部完成 + TA.1（TS 部分）**；剩余：M4（Python/Pyodide）、M7 打磨、TA.1 的 Py 部分；合并点流程进行中（浏览器 E2E → 合回 main）
+- 2026-10-17 PM-Agent 单会话执行：B0~B10 已提交；**M0/M1/M2/M3/M5/M6 全部完成 + TA.1（TS 部分）**；B11/B12 实机评估修复批次已提交；剩余：M4（Python/Pyodide，用户裁定暂缓）、M7 打磨、TA.2/TA.3
 - 单会话模式下协作协议微调：不逐卡建 git 分支，改为 PM 按批次在 `v2` 分支提交（每批次一次 commit，卡状态在本表跟踪）；Agent 产出统一由 PM 验收（typecheck + 单测 + 抽查）
 
 ## 6. 进度纪要（PM 维护，倒序追加）
+
+- **2026-10-17 · B11+B12（实机评估修复批次）**：PM 浏览器实机走查（纯 GUI 黑盒 + DOM 快照）确证 5 个 bug + 用户实测反馈 2 个运行时缺陷，本批次全修复。**ADR-008**（推翻 ADR-005 §2 won't fix）：NodeRunFn 扩展 async generator 多次出脚——forLoop/whileLoop/sequence/timer/array.forEach 恢复 UE5 语义（一次触发跑完迭代/定时器自动持续/序列按序全出，**无需链尾回连**）；解释器 driveGenerator 逐 yield 驱动+重入忽略（旧回连边 no-op 兼容）+yield 计数死循环保护（unlimitedFires 豁免）；ctx 新增 reinputs()（while/timer 条件每迭代重估）与 readProjectFile()。**节点库**：新增 system.readFile（全链路：节点/脚本全局 readFile/codegen await 映射/parser 识别/roundtrip 样例）。**print 无输出修复**：编辑器控制台从占位变真实现（src/panels/console/，BroadcastChannel 'bps-console' 订阅运行窗口日志，T1.6 兑现）。**F5 双开修复**：window.open 返回 null 不再立即降级——BroadcastChannel pong 探测（250ms）确认未打开才降级 _blank（launchRuntimeMain/Current 转 async）。**脏标记修复**：openUIAsset/close 改 registerDomainState 装载（不入栈不置脏）。**画布挤压修复**：蓝图侧栏允许收缩+画布 min-width 340px（1280 视口下 263px→340px）。**模板补全（T7.2 前置）**：日志分析器蓝图空骨架 → 开箱可跑（readFile→androidLogParse→listSetItems→print，实机 10 行日志渲染）。**实机回归全过**：forLoop 输出 0..4、timer 持续 tick 1..9、打开项目 0 脏 tab、保存后清脏、F5 单窗口无拦截提示、编辑器控制台实时镜像。PM 验收：**830 测试绿、typecheck 0 错、构建绿、roundtrip 门禁 23 全绿（新增 readFile 样例门禁通过）**。已知遗留：多出脚纯节点 codegen 共享别名缺口（rows+count 双引用会双展开，模板已规避；记入 TA.2 复测项）。
 
 - **2026-10-17 · 合并点 E2E 冒烟**（浏览器实机，In-app Browser）：①项目管理器渲染 + 日志分析器模板建项目 → editor.html；②编辑器全面板布局/文件树/UI 树/检视器/事件面板/控制台 ✅；③蓝图编辑器（My Blueprint 变量暴露勾选/图签/画布事件节点）✅；④F5 → 独立运行窗口（标题「运行 · 主UI <项目>」、UI 渲染、控制台输出「[绑定] 已加载 logic/main.bp.json（蓝图「日志查看器」；绑定节点：list）」）✅。**发现并修复 2 个真实布局 bug**：`.dock-pane` 无样式（默认 block）致嵌套 flex 链断裂（左右列压扁）；`.bps-vp` 宽度塌陷（内容全绝对定位、basis:auto）。修复后全量 745 测试仍绿 + vite build 绿。**v2 合回 main，PLAN §17 合并点执行**。
 

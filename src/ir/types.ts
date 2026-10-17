@@ -451,6 +451,19 @@ export interface NodeRunContext {
   delay(ms: number): Promise<void>;
   /** 运行中止信号（运行窗口关闭 / 手动停止时置位；长任务节点应响应） */
   signal: AbortSignal;
+  /**
+   * 重新求值当前节点的输入引脚（ADR-008）：多次出脚节点在迭代中读取动态输入——
+   * whileLoop 的 cond、timer 的 interval/loop/cancel 等接 var.get/表达式时，
+   * 每次迭代拿到变量最新值。返回键 = 输入 PinSpec.id；每次调用独立求值
+   * （纯链重新执行、执行节点读帧缓存）。解释器恒注入；缺失时节点降级用触发时值。
+   */
+  reinputs?(): Promise<Record<string, unknown>>;
+  /**
+   * 读项目内文件文本（ADR-005 附加说明级扩展 · system.readFile 用）：
+   * path 为项目内相对路径（如 'assets/sample.log'）；实现方（BindingRunner）经
+   * GET /api/file 读取。缺失时节点经 ctx.print 降级提示，不抛错。
+   */
+  readProjectFile?(path: string): Promise<string>;
   /** UI 访问器（ADR-005：绑定 UI 节点运行时由解释器注入；未绑定为 undefined，ui.* 节点降级） */
   ui?: UiHandle;
   /** 通用系统钩子（system.notify / clipboardWrite / openUrl 用；缺失时节点降级） */
@@ -491,12 +504,15 @@ export interface NodeRunResult {
  *   但只读取 spec 结构做渲染与校验，不执行 run。
  * - inputs 由解释器组装：已连线输入取连线传值；未连线输入取 IRNode.pinDefaults，缺省回落
  *   PinSpec.defaultValue；multi 引脚聚合为数组。
- * - 同步节点直接返回 NodeRunResult；异步节点返回 Promise（解释器 await，但不阻塞其他事件队列）。
+ * - 同步节点直接返回 NodeRunResult；异步节点返回 Promise（解释器 await，但不阻塞其他事件队列）；
+ *   多次出脚节点返回 AsyncGenerator（ADR-008：逐个 yield 激活出脚，每条出脚子链完整执行后
+ *   才请求下一个 yield——循环/定时器/序列由此在一次触发内完成全部出脚，无需链尾回连。
+ *   仅限有 exec 出口的节点；generator 运行期间该节点 exec 入的再触发被解释器忽略）。
  */
 export type NodeRunFn = (
   ctx: NodeRunContext,
   inputs: Record<string, unknown>,
-) => NodeRunResult | Promise<NodeRunResult>;
+) => NodeRunResult | Promise<NodeRunResult> | AsyncGenerator<NodeRunResult, void, unknown>;
 
 /**
  * 节点定义（声明式，src/nodes/ 定义节点的唯一写法；插件节点同构复用，见 PluginNodeSpec）。
@@ -519,6 +535,12 @@ export interface NodeSpec {
   params?: ParamSpec[];
   /** 是否纯节点：无副作用、无 exec 引脚、可被 codegen 内联为表达式（exec 链不得穿过纯节点） */
   pure?: boolean;
+  /**
+   * 多次出脚不设产出上限（ADR-008）：定时器/while 等合法无限产出的节点声明为 true，
+   * 解释器跳过 yield 计数死循环保护；未声明节点（forLoop/sequence 等有限节点）
+   * 超过 maxSteps 视为疑似 exec 死循环并中止。
+   */
+  unlimitedFires?: boolean;
   /** 节点运行函数（解释器执行该节点时调用；纯节点求值同样走 run，next 被忽略） */
   run?: NodeRunFn;
   /** 节点说明文档（蓝图检视器 / 帮助浮层显示） */

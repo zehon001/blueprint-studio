@@ -100,6 +100,51 @@ export interface RuntimeLaunchOptions {
   toast?: (message: string) => void
 }
 
+/** 探测频道（运行窗口打开后回报 pong，供「open 返回 null 但窗口已开」环境避免双开） */
+export const RUNTIME_PROBE_CHANNEL = 'bps-runtime-probe'
+
+/** pong 探测等待时长（ms） */
+export const RUNTIME_PROBE_TIMEOUT_MS = 250
+
+/**
+ * 探测运行窗口是否真的打开了：广播 ping，等待运行窗口回 pong（按 url 匹配）。
+ * 动机（实机缺陷修复）：部分宿主（内嵌浏览器等）window.open 成功打开窗口却返回 null，
+ * 旧逻辑误判「被拦截」降级 _blank → 运行窗口双开。探测确认失败才降级。
+ */
+function probeRuntimeWindow(url: string, timeoutMs = RUNTIME_PROBE_TIMEOUT_MS): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (typeof BroadcastChannel === 'undefined') {
+      resolve(false)
+      return
+    }
+    let ch: BroadcastChannel | null = null
+    try {
+      ch = new BroadcastChannel(RUNTIME_PROBE_CHANNEL)
+    } catch {
+      resolve(false)
+      return
+    }
+    let done = false
+    const finish = (ok: boolean): void => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      try {
+        ch!.close()
+      } catch {
+        /* 已关闭 */
+      }
+      resolve(ok)
+    }
+    ch.onmessage = (ev: MessageEvent) => {
+      const m = ev.data as { type?: string; url?: string } | null
+      if (m && m.type === 'runtime.pong' && m.url === url) finish(true)
+    }
+    ch.postMessage({ type: 'runtime.ping', url })
+    const timer = setTimeout(() => finish(false), timeoutMs)
+  })
+}
+
 /** 当前项目的 URL 参数值（?project= 原值 = 项目文件夹名；未打开项目返回 null） */
 export function currentProjectParam(): string | null {
   const p = useWorkspaceStore.getState().currentProject
@@ -108,33 +153,37 @@ export function currentProjectParam(): string | null {
 }
 
 /**
- * 打开运行窗口（降级链：命名弹窗 → _blank 新标签页 → toast + false）。
- * 命名窗口被浏览器拦截（返回 null 或瞬时 closed）时降级新标签页。
+ * 打开运行窗口（降级链：命名弹窗 → pong 探测确认 → _blank 新标签页 → toast + false）。
+ * 命名弹窗返回 null / 瞬时 closed 时先探测 250ms（窗口实际打开会回报 pong），
+ * 确认未打开才降级新标签页——避免「宿主不回引用但窗口已开」环境双开。
  */
-function openRuntimeWindow(
+async function openRuntimeWindow(
   url: string,
   mode: RuntimeMode,
   opts: RuntimeLaunchOptions,
-): boolean {
+): Promise<boolean> {
   const open: OpenWindowFn =
     opts.open ?? ((u, t, f) => (typeof window === 'undefined' ? null : window.open(u, t, f)))
   let win = open(url, runtimeWindowName(mode), RUNTIME_WINDOW_FEATURES)
   if (!win || win.closed) {
-    // 降级：弹出窗口被浏览器拦截 → 新标签页打开
-    win = open(url, '_blank')
-  }
-  if (!win || win.closed) {
-    ;(opts.toast ?? showToast)('浏览器拦截了弹出窗口，无法打开运行窗口')
-    return false
+    const actuallyOpened = await probeRuntimeWindow(url)
+    if (!actuallyOpened) {
+      // 确认被拦截：降级 _blank 新标签页
+      win = open(url, '_blank')
+      if (!win || win.closed) {
+        ;(opts.toast ?? showToast)('浏览器拦截了弹出窗口，无法打开运行窗口')
+        return false
+      }
+    }
   }
   return true
 }
 
 /**
  * F5：运行主 UI。ui 参数缺省——由运行窗口读 project.json.mainUI（PLAN §12）。
- * 返回是否成功打开（含降级新标签页）。
+ * 返回是否成功打开（含降级新标签页）；异步（拦截探测需要等待 pong）。
  */
-export function launchRuntimeMain(opts: RuntimeLaunchOptions = {}): boolean {
+export async function launchRuntimeMain(opts: RuntimeLaunchOptions = {}): Promise<boolean> {
   const project = currentProjectParam()
   if (!project) {
     ;(opts.toast ?? showToast)('未打开项目，无法运行')
@@ -146,8 +195,9 @@ export function launchRuntimeMain(opts: RuntimeLaunchOptions = {}): boolean {
 /**
  * F6：运行当前 UI。激活 tab 必须是 UI 资产（kind==='ui'），否则 toast
  * 「当前 tab 不是 UI」且不打开；ui 参数 = 该 tab 的项目内相对路径。
+ * 异步（拦截探测需要等待 pong）。
  */
-export function launchRuntimeCurrent(opts: RuntimeLaunchOptions = {}): boolean {
+export async function launchRuntimeCurrent(opts: RuntimeLaunchOptions = {}): Promise<boolean> {
   const toast = opts.toast ?? showToast
   const project = currentProjectParam()
   if (!project) {

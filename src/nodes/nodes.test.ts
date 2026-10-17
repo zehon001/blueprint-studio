@@ -99,6 +99,7 @@ function makeCtx(opts: {
   return ctx;
 }
 
+/** 同步/单出口节点运行助手（断言结果不是 generator；generator 节点用 runGen） */
 async function run(
   id: string,
   ctx: NodeRunContext,
@@ -107,7 +108,38 @@ async function run(
   const s = builtinSpecMap.get(id);
   assert.ok(s, `节点 ${id} 未注册`);
   assert.ok(s.run, `节点 ${id} 缺少 run 实现`);
-  return s.run(ctx, inputs);
+  const out: unknown = await s.run(ctx, inputs);
+  assert.ok(
+    !(out && typeof out === 'object' && Symbol.asyncIterator in (out as object)),
+    `节点 ${id} 返回了 async generator——请用 runGen（ADR-008）`,
+  );
+  return out as NodeRunResult;
+}
+
+/** ADR-008 多次出脚节点运行助手（断言返回 generator） */
+async function runGen(
+  id: string,
+  ctx: NodeRunContext,
+  inputs: Record<string, unknown> = {},
+): Promise<AsyncGenerator<NodeRunResult, void, unknown>> {
+  const s = builtinSpecMap.get(id);
+  assert.ok(s, `节点 ${id} 未注册`);
+  assert.ok(s.run, `节点 ${id} 缺少 run 实现`);
+  const out: unknown = await s.run(ctx, inputs);
+  assert.ok(
+    !!out && typeof out === 'object' && Symbol.asyncIterator in (out as object),
+    `节点 ${id} 未返回 async generator（ADR-008）`,
+  );
+  return out as AsyncGenerator<NodeRunResult, void, unknown>;
+}
+
+/** ADR-008：收干多次出脚节点（async generator）的全部产出（单测辅助，仅限有限产出节点） */
+async function drain(
+  gen: AsyncGenerator<NodeRunResult, void, unknown>,
+): Promise<{ next?: string; outputs: Record<string, unknown> }[]> {
+  const fires: { next?: string; outputs: Record<string, unknown> }[] = [];
+  for await (const r of gen) fires.push({ next: r.next, outputs: r.outputs ?? {} });
+  return fires;
 }
 
 /* ============================================================
@@ -167,38 +199,43 @@ test('flow.branch：真假两分支与缺省', async () => {
   assert.equal((await run('flow.branch', ctx, {})).next, 'false');
 });
 
-test('flow.forLoop：计数、break 与负步长（循环状态机）', async () => {
-  clearAllStateSlots();
+test('flow.forLoop：一次触发跑完全部迭代（ADR-008，无需回连）', async () => {
   const ctx = makeCtx();
-  // 0..4（含）共 5 次迭代：首触发即第 1 次
-  const indexes: number[] = [];
-  let r = await run('flow.forLoop', ctx, { from: 0, to: 4 });
-  while (r.next === 'body') {
-    indexes.push(r.outputs.index as number);
-    r = await run('flow.forLoop', ctx, { from: 0, to: 4 });
-  }
-  assert.equal(r.next, 'done');
-  assert.deepEqual(indexes, [0, 1, 2, 3, 4]);
-
-  // break：第一次迭代后置 break，提前走 done
-  clearAllStateSlots();
-  const ctx2 = makeCtx();
-  const r1 = await run('flow.forLoop', ctx2, { from: 0, to: 9 });
-  assert.equal(r1.next, 'body');
-  const r2 = await run('flow.forLoop', ctx2, { from: 0, to: 9, break: true });
-  assert.equal(r2.next, 'done');
+  const fires = await drain(await runGen('flow.forLoop', ctx, { from: 0, to: 4 }));
+  assert.equal(fires.length, 6, '5 次 body + 1 次 done');
+  assert.deepEqual(
+    fires.slice(0, 5).map((f) => f.outputs.index),
+    [0, 1, 2, 3, 4],
+  );
+  assert.equal(fires[5]!.next, 'done');
 
   // 负步长：5..3 递减
-  clearAllStateSlots();
   const ctx3 = makeCtx();
-  const down: number[] = [];
-  let rd = await run('flow.forLoop', ctx3, { from: 5, to: 3, step: -1 });
-  while (rd.next === 'body') {
-    down.push(rd.outputs.index as number);
-    rd = await run('flow.forLoop', ctx3, { from: 5, to: 3, step: -1 });
-  }
-  assert.equal(rd.next, 'done');
-  assert.deepEqual(down, [5, 4, 3]);
+  const down = await drain(await runGen('flow.forLoop', ctx3, { from: 5, to: 3, step: -1 }));
+  assert.equal(down.length, 4);
+  assert.deepEqual(down.slice(0, 3).map((f) => f.outputs.index), [5, 4, 3]);
+  assert.equal(down[3]!.next, 'done');
+
+  // 起点越界：直接 done
+  const ctx4 = makeCtx();
+  const empty = await drain(await runGen('flow.forLoop', ctx4, { from: 5, to: 3 }));
+  assert.equal(empty.length, 1);
+  assert.equal(empty[0]!.next, 'done');
+
+  // break 每迭代重估：首迭代后 reinputs 返回 break=true → 提前 done（ADR-008 动态 break）
+  let calls = 0;
+  const ctx5 = makeCtx({
+    hooks: {
+      reinputs: async () => {
+        calls += 1;
+        return { break: calls >= 1 };
+      },
+    },
+  });
+  const early = await drain(await runGen('flow.forLoop', ctx5, { from: 0, to: 9 }));
+  assert.equal(early[0]!.next, 'body');
+  assert.equal(early[0]!.outputs.index, 0);
+  assert.equal(early[1]!.next, 'done', '首迭代后 break 重估为真 → 提前结束');
 });
 
 test('flow.delay：异步等待后走完成口', async () => {
@@ -244,24 +281,28 @@ test('flow.doOnce / flipFlop / multiGate / gate / whileLoop / sequence', async (
   assert.equal((await run('flow.gate', c4, { open: true })).next, 'out');
   assert.equal((await run('flow.gate', c4, { open: false })).next, 'closed');
 
-  // whileLoop：条件 + break
+  // whileLoop（ADR-008）：条件假直接 done；条件真每迭代重估，动态变假后退出
   const c5 = makeCtx();
-  assert.equal((await run('flow.whileLoop', c5, { cond: true })).next, 'body');
-  assert.equal((await run('flow.whileLoop', c5, { cond: false })).next, 'done');
-  assert.equal((await run('flow.whileLoop', c5, { cond: true, break: true })).next, 'done');
+  const doneFire = await drain(await runGen('flow.whileLoop', c5, { cond: false }));
+  assert.equal(doneFire.length, 1);
+  assert.equal(doneFire[0]!.next, 'done');
 
-  // sequence：首次 out0，续接 out1..out3，走完吞掉
+  let round = 0;
+  const c5c = makeCtx({
+    hooks: {
+      reinputs: async () => {
+        round += 1;
+        return { cond: round < 3, break: false };
+      },
+    },
+  });
+  const looped = await drain(await runGen('flow.whileLoop', c5c, { cond: true, break: false }));
+  assert.deepEqual(looped.map((f) => f.next), ['body', 'body', 'body', 'done'], '条件每迭代重估：真3次（启动+2次重估）后退出');
+
+  // sequence（ADR-008）：一次触发按序 out0→out3，无需回连
   const c6 = makeCtx();
-  const s1 = await run('flow.sequence', c6);
-  const s2 = await run('flow.sequence', c6);
-  const s3 = await run('flow.sequence', c6);
-  const s4 = await run('flow.sequence', c6);
-  const s5 = await run('flow.sequence', c6);
-  assert.equal(s1.next, 'out0');
-  assert.equal(s2.next, 'out1');
-  assert.equal(s3.next, 'out2');
-  assert.equal(s4.next, 'out3');
-  assert.equal(s5.next, undefined);
+  const seqFires = await drain(await runGen('flow.sequence', c6));
+  assert.deepEqual(seqFires.map((f) => f.next), ['out0', 'out1', 'out2', 'out3']);
 });
 
 /* ============================================================
@@ -376,25 +417,39 @@ test('array.get/set/push：越界默认值与纯语义（不改原数组）', as
   assert.equal((await run('array.length', ctx, { array: src })).outputs.value, 3);
 });
 
-test('array.forEach：逐元素迭代 + break（循环状态机）', async () => {
-  clearAllStateSlots();
+test('array.forEach：一次触发遍历完 + break 动态重估（ADR-008）', async () => {
   const ctx = makeCtx();
-  const seen: unknown[] = [];
-  let r = await run('array.forEach', ctx, { array: ['x', 'y', 'z'] });
-  while (r.next === 'body') {
-    seen.push(r.outputs.element);
-    r = await run('array.forEach', ctx, { array: ['x', 'y', 'z'] });
-  }
-  assert.equal(r.next, 'done');
-  assert.deepEqual(seen, ['x', 'y', 'z']);
+  const fires = await drain(await runGen('array.forEach', ctx, { array: ['x', 'y', 'z'] }));
+  const bodies = fires.filter((f) => f.next === 'body');
+  assert.deepEqual(bodies.map((f) => f.outputs.element), ['x', 'y', 'z']);
+  assert.deepEqual(bodies.map((f) => f.outputs.index), [0, 1, 2]);
+  assert.equal(fires[fires.length - 1].next, 'done');
 
-  clearAllStateSlots();
+  // 空数组：直接 done
   const ctx2 = makeCtx();
-  const r1 = await run('array.forEach', ctx2, { array: [1, 2, 3] });
-  assert.equal(r1.next, 'body');
-  assert.equal(r1.outputs.index, 0);
-  const r2 = await run('array.forEach', ctx2, { array: [1, 2, 3], break: true });
-  assert.equal(r2.next, 'done');
+  const empty = await drain(await runGen('array.forEach', ctx2, { array: [] }));
+  assert.equal(empty.length, 1);
+  assert.equal(empty[0].next, 'done');
+
+  // break 启动时为真：直接 done（无 body）
+  const ctx3 = makeCtx();
+  const early = await drain(await runGen('array.forEach', ctx3, { array: [1, 2, 3], break: true }));
+  assert.equal(early.length, 1);
+  assert.equal(early[0].next, 'done');
+
+  // break 每迭代重估：首迭代后 break 变真 → 提前 done
+  let round = 0;
+  const ctx4 = makeCtx({
+    hooks: {
+      reinputs: async () => {
+        round += 1;
+        return { break: round >= 1 };
+      },
+    },
+  });
+  const dynamic = await drain(await runGen('array.forEach', ctx4, { array: [1, 2, 3] }));
+  assert.equal(dynamic.filter((f) => f.next === 'body').length, 1, '首迭代后 break 重估为真 → 仅 1 次 body');
+  assert.equal(dynamic[dynamic.length - 1].next, 'done');
 });
 
 test('array.filter / pluck：字段条件过滤与字段提取', async () => {
@@ -581,24 +636,51 @@ test('event.send：mock ctx.emit（对象展开 / 数组打包 / 单值打包 / 
   assert.ok(ctx4.logs.length > 0, '空事件名应经 ctx.print 提示');
 });
 
-test('event.timer：单次计时走结束口，循环模式走 tick 口，cancel 清零', async () => {
+test('event.timer（ADR-008）：一次触发自动持续 tick；单次模式走结束；cancel 走结束', async () => {
+  // loop=false：一次延时后直接 stopped（ticks=1）
   const ctx = makeCtx();
-  const r = await run('event.timer', ctx, { interval: 0.005, loop: false });
-  assert.equal(r.next, 'stopped');
-  assert.equal(r.outputs.ticks, 1);
+  const single = await drain(await runGen('event.timer', ctx, { interval: 0.005, loop: false }));
+  assert.equal(single.length, 1);
+  assert.equal(single[0]!.next, 'stopped');
+  assert.equal(single[0]!.outputs.ticks, 1);
 
+  // loop=true（默认）：持续 tick——手动取 3 次后 return()（无限产出不可 drain）
   const ctx2 = makeCtx();
-  const t1 = await run('event.timer', ctx2, { interval: 0.005, loop: true });
-  assert.equal(t1.next, 'tick');
-  assert.equal(t1.outputs.ticks, 1);
-  const t2 = await run('event.timer', ctx2, { interval: 0.005, loop: true });
-  assert.equal(t2.next, 'tick');
-  assert.equal(t2.outputs.ticks, 2);
+  const gen = await runGen('event.timer', ctx2, { interval: 0.005, loop: true });
+  const f1 = await gen.next();
+  const f2 = await gen.next();
+  const f3 = await gen.next();
+  assert.equal(f1.value!.next, 'tick');
+  assert.equal(f1.value!.outputs.ticks, 1);
+  assert.equal(f2.value!.next, 'tick');
+  assert.equal(f2.value!.outputs.ticks, 2, 'ticks 跨 tick 累积');
+  assert.equal(f3.value!.next, 'tick');
+  await gen.return(undefined as never);
 
+  // cancel=true（启动时求值）：直接 stopped ticks=0
   const ctx3 = makeCtx();
-  const c = await run('event.timer', ctx3, { interval: 0.005, cancel: true });
-  assert.equal(c.next, 'stopped');
-  assert.equal(c.outputs.ticks, 0);
+  const c = await drain(await runGen('event.timer', ctx3, { interval: 0.005, cancel: true }));
+  assert.equal(c.length, 1);
+  assert.equal(c[0]!.next, 'stopped');
+  assert.equal(c[0]!.outputs.ticks, 0);
+
+  // interval/cancel 每 tick 重估（reinputs，含首轮）：首轮 cancel=false 正常 tick，
+  // tick 子链完成后第二轮重估 cancel=true → 走 stopped
+  let reRound = 0;
+  const ctx4 = makeCtx({
+    hooks: {
+      reinputs: async () => {
+        reRound += 1;
+        return { interval: 0.005, loop: true, cancel: reRound >= 2 };
+      },
+    },
+  });
+  const gen2 = await runGen('event.timer', ctx4, { interval: 0.005, loop: true });
+  const first = await gen2.next();
+  assert.equal(first.value!.next, 'tick', '首轮重估 cancel=false → 正常 tick');
+  const second = await gen2.next();
+  assert.equal(second.value!.next, 'stopped', '第二轮重估 cancel=true → 结束');
+  await gen2.return(undefined as never);
 });
 
 /* ============================================================
@@ -607,7 +689,7 @@ test('event.timer：单次计时走结束口，循环模式走 tick 口，cancel
 
 test('system.print：ctx.print 旁路 + 值透传', async () => {
   const ctx = makeCtx();
-  const r = await run('system.print', ctx, { value: 'hi' });
+  const r = (await run('system.print', ctx, { value: 'hi' })) as NodeRunResult;
   assert.equal(r.next, 'exec');
   assert.deepEqual(ctx.logs, ['hi']);
   assert.equal(r.outputs.value, 'hi');
@@ -652,10 +734,27 @@ test('system.clipboardWrite：clipboardWrite 钩子 / clipboard.write 对象 / �
   assert.ok(ctx3.logs[0].includes('剪贴板'));
 });
 
+test('system.readFile：readProjectFile 钩子读取 / 缺失与失败降级', async () => {
+  const ctx = makeCtx({ hooks: { readProjectFile: async (p: string) => `内容:${p}` } });
+  const r = (await run('system.readFile', ctx, { path: 'assets/sample.log' })) as NodeRunResult;
+  assert.equal(r.next, 'exec');
+  assert.equal(r.outputs.text, '内容:assets/sample.log');
+
+  const ctx2 = makeCtx();
+  const r2 = (await run('system.readFile', ctx2, { path: 'a.txt' })) as NodeRunResult;
+  assert.equal(r2.outputs.text, '');
+  assert.ok(ctx2.logs[0].includes('文件钩子'));
+
+  const ctx3 = makeCtx({ hooks: { readProjectFile: async () => { throw new Error('HTTP 404'); } } });
+  const r3 = (await run('system.readFile', ctx3, { path: 'nope.txt' })) as NodeRunResult;
+  assert.equal(r3.outputs.text, '');
+  assert.ok(ctx3.logs[0].includes('HTTP 404'));
+});
+
 test('system.now：当前 epoch 毫秒（纯节点）', async () => {
   const ctx = makeCtx();
   const before = Date.now();
-  const r = await run('system.now', ctx);
+  const r = (await run('system.now', ctx)) as NodeRunResult;
   assert.ok((r.outputs.epoch as number) >= before);
   const s = builtinSpecMap.get('system.now');
   assert.equal(s?.pure, true);

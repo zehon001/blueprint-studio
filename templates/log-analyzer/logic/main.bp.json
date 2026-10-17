@@ -10,11 +10,124 @@
           "type": "event.start",
           "params": {},
           "pinDefaults": {},
-          "position": { "x": 120, "y": 200 },
+          "position": {
+            "x": 80,
+            "y": 200
+          },
           "comment": "start 事件（BeginPlay 同义）：运行窗口加载 UI 后触发"
+        },
+        {
+          "id": "n_read",
+          "type": "system.readFile",
+          "params": {},
+          "pinDefaults": {
+            "path": "assets/sample.log"
+          },
+          "position": {
+            "x": 360,
+            "y": 200
+          },
+          "comment": "读取示例日志（项目内相对路径）"
+        },
+        {
+          "id": "n_parse",
+          "type": "convert.androidLogParse",
+          "params": {},
+          "pinDefaults": {},
+          "position": {
+            "x": 660,
+            "y": 220
+          },
+          "comment": "解析 Android 日志（logcat -v time / epoch 双格式）"
+        },
+        {
+          "id": "n_set",
+          "type": "ui.listSetItems",
+          "params": {},
+          "pinDefaults": {
+            "name": "list"
+          },
+          "position": {
+            "x": 960,
+            "y": 200
+          }
+        },
+        {
+          "id": "n_print",
+          "type": "system.print",
+          "params": {},
+          "pinDefaults": {
+            "value": "日志列表已更新"
+          },
+          "position": {
+            "x": 960,
+            "y": 340
+          },
+          "comment": "控制台输出解析行数"
         }
       ],
-      "edges": []
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "node": "n_start",
+            "pin": "exec"
+          },
+          "to": {
+            "node": "n_read",
+            "pin": "exec"
+          },
+          "kind": "exec"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "node": "n_read",
+            "pin": "exec"
+          },
+          "to": {
+            "node": "n_set",
+            "pin": "exec"
+          },
+          "kind": "exec"
+        },
+        {
+          "id": "e3",
+          "from": {
+            "node": "n_set",
+            "pin": "exec"
+          },
+          "to": {
+            "node": "n_print",
+            "pin": "exec"
+          },
+          "kind": "exec"
+        },
+        {
+          "id": "d1",
+          "from": {
+            "node": "n_read",
+            "pin": "text"
+          },
+          "to": {
+            "node": "n_parse",
+            "pin": "lines"
+          },
+          "kind": "data"
+        },
+        {
+          "id": "d2",
+          "from": {
+            "node": "n_parse",
+            "pin": "rows"
+          },
+          "to": {
+            "node": "n_set",
+            "pin": "items"
+          },
+          "kind": "data"
+        }
+      ]
     }
   },
   "variables": [
@@ -29,6 +142,12 @@
   "events": [],
   "snippets": [],
   "layout": {
-    "bind": { "zoom": 1, "pan": [0, 0] }
+    "bind": {
+      "zoom": 1,
+      "pan": [
+        0,
+        0
+      ]
+    }
   }
 }

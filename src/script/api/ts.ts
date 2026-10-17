@@ -62,6 +62,8 @@ export interface ScriptGlobalsOptions {
   delay(ms: number): Promise<void>;
   /** 插件桥（T6.4 接 CLI 桥；未提供时 plugins.<id>.<method>() 抛「插件桥未接入」） */
   callPlugin?(pluginId: string, method: string, args: unknown[]): Promise<unknown>;
+  /** 读项目内文件文本（system.readFile 同语义；缺省时 readFile 降级 print 提示返回空串） */
+  readProjectFile?(path: string): Promise<string>;
   /** 事件监听注册（缺省时 onEvent print 提示并忽略） */
   onEventRegister?(name: string, handler: (args: unknown) => void): void;
   /** 变量名清单（Object.keys(vars) 列出「声明 ∪ 写过」用；未提供时只列写过的名字） */
@@ -370,5 +372,18 @@ export function createScriptGlobals(opts: ScriptGlobalsOptions): ScriptGlobals {
       // string.format 节点同语义：{0} {1}… 占位符，缺参替换为空串（多引脚聚合 = args 数组）→ value
       runPureValue(formatNode, { template, args }) as string,
     delay: (ms: number) => safeOpts.delay(ms),
+    // system.readFile 同语义：读项目内文件文本；钩子缺失降级提示（返回空串不抛错）
+    readFile: async (path: string): Promise<string> => {
+      if (!safeOpts.readProjectFile) {
+        safeOpts.print('[readFile] 运行上下文未提供文件钩子，已忽略');
+        return '';
+      }
+      try {
+        return await safeOpts.readProjectFile(path);
+      } catch (err) {
+        safeOpts.print(`[readFile] 读取失败（${path}）：${err instanceof Error ? err.message : String(err)}`);
+        return '';
+      }
+    },
   };
 }

@@ -198,7 +198,12 @@ describe('模板与项目', () => {
       assert.equal(ir.version, 2)
       assert.equal(ir.entry, 'bind')
       assert.equal(ir.graphs.bind.nodes[0].type, 'event.start')
-      assert.equal(ir.graphs.bind.edges.length, 0)
+      // T7.2 前置补全：开箱可跑（读文件 → 解析 → 填列表 → 打印），5 节点 5 边
+      const nodeTypes = ir.graphs.bind.nodes.map((n) => n.type)
+      assert.ok(nodeTypes.includes('system.readFile'), '模板应含读文件节点')
+      assert.ok(nodeTypes.includes('convert.androidLogParse'), '模板应含日志解析节点')
+      assert.ok(nodeTypes.includes('ui.listSetItems'), '模板应含列表填充节点')
+      assert.equal(ir.graphs.bind.edges.length, 5)
       assert.ok(Array.isArray(ir.variables))
 
       const lines = fs.readFileSync(path.join(p, 'assets', 'sample.log'), 'utf8').trim().split(/\r?\n/)

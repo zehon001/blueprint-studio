@@ -53,6 +53,8 @@ export interface RuntimeOptions {
   clipboardWrite?: (text: string) => void;
   /** 打开链接钩子（system.openUrl 用，透传进 ctx） */
   openUrl?: (url: string) => void;
+  /** 读项目内文件文本钩子（system.readFile 用，BindingRunner 注入；缺失时节点降级） */
+  readProjectFile?: (path: string) => Promise<string>;
   /** 变量初值覆盖（键 = IRVariable.name；未声明变量名也会写入存储，显式提供即视为已知） */
   vars?: Record<string, unknown>;
   /** 单条事件链的最大执行步数（死循环保护；默认 100000，v1.1 为 5000——循环状态机链尾回连会合法地多次经过节点，故放宽） */

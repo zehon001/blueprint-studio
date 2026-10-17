@@ -16,7 +16,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { IRAsset, NodeRunContext, NodeSpec, PinSpec, PluginManifest } from '../ir/types';
+import type { IRAsset, NodeRunContext, NodeRunResult, NodeSpec, PinSpec, PluginManifest } from "../ir/types";
 import {
   clearPluginSpecsCache,
   configurePluginInvoke,
@@ -333,7 +333,7 @@ describe('invokePluginNode：ok 映射 / ok:false 降级 / abort / ctx.callPlugi
     configurePluginInvoke({ fetchImpl: impl });
     const { ctx, logs } = makeCtx();
 
-    const result = await spec.run!(ctx, {});
+    const result = (await spec.run!(ctx, {})) as NodeRunResult;
     assert.deepEqual(result.outputs, { rows: [], count: 0 }, '缺失出脚按类型默认值');
     assert.equal((result as { next?: string }).next, 'exec', '失败也给出 exec 出口，链继续');
     assert.equal(logs.length, 1);
@@ -429,7 +429,7 @@ describe('invokePluginNode：ok 映射 / ok:false 降级 / abort / ctx.callPlugi
     });
     assert.notEqual(wrapped, spec, '返回新 spec 对象，不改入参');
     const { ctx } = makeCtx();
-    const result = await wrapped.run!(ctx, {});
+    const result = (await wrapped.run!(ctx, {})) as NodeRunResult;
     assert.deepEqual(bridgeCalls, ['called'], 'ctx.callPlugin 已注入并被优先使用');
     assert.deepEqual(result.outputs, { rows: [], count: 5 });
 
@@ -475,7 +475,7 @@ describe('event 型节点：无 exec 入 / 有 exec 出 / run 一次性拉取降
     const { impl } = mockFetch(() => ({ ok: false, message: '插件 phone-log 尚未实现执行器' }));
     configurePluginInvoke({ fetchImpl: impl });
     const { ctx, logs } = makeCtx();
-    const result = await spec.run!(ctx, {});
+    const result = (await spec.run!(ctx, {})) as NodeRunResult;
     assert.deepEqual(result.outputs, { line: '' });
     assert.equal((result as { next?: string }).next, 'exec');
     assert.ok(logs.join('\n').includes('持续流模式需 T6.5 执行器'), `logs=${logs.join(' | ')}`);

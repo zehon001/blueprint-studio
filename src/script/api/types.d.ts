@@ -204,6 +204,8 @@ export interface ScriptGlobals {
   plugins: PluginsAccessor;
   /** 打印到运行窗口控制台 */
   print(...parts: unknown[]): void;
+  /** 读项目内文件文本（path 相对项目根，如 'assets/sample.log'）；钩子缺失降级返回空串 */
+  readFile(path: string): Promise<string>;
   /** 类型转换 API（与转换节点同语义） */
   convert: ConvertApi;
   /** 格式化文本：{0} {1}… 占位符，缺参替换为空串（string.format 节点同语义） */
@@ -252,6 +254,8 @@ declare global {
    * 以 function 声明与 lib.dom 的 print(): void 重载合并；运行窗口中为本脚本控制台输出。
    */
   function print(...parts: unknown[]): void;
+  /** 读项目内文件文本（system.readFile 节点同语义；失败安全降级返回空串） */
+  function readFile(path: string): Promise<string>;
   /**
    * 类型转换 API（与 src/nodes/convert.ts 转换节点同语义，解析失败安全降级不抛错）：
    * - convert.toNumber(v) / toBool(v) / parseInt(v) / toString(v)：类型转换（失败 → 0 / false / 空串）；

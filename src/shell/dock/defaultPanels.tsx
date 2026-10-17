@@ -18,10 +18,8 @@ import { registerSceneTreePanel } from '@/panels/scene-tree'
 import { registerInspectorPanel } from '@/panels/inspector'
 import { registerEventsPanel } from '@/panels/events'
 import { registerPluginManagerPanel } from '@/panels/plugin-manager'
-import {
-  ConsolePanelPlaceholder,
-  WorkspacePanel,
-} from './placeholderPanels'
+import { registerConsolePanel } from '@/panels/console'
+import { WorkspacePanel } from './placeholderPanels'
 
 /* 内置面板 id（跨卡契约：替换实现时保持 id 不变） */
 export const PANEL_ID_FILE_SYSTEM = 'file-system'
@@ -38,7 +36,7 @@ registerInspectorPanel() // T1.5 检视器（id: 'inspector'）
 registerEventsPanel() // T5.2 事件面板（id: 'events'）
 registerPluginManagerPanel() // T6.2 插件管理（id: 'plugin-manager'）
 registerPanel({ id: PANEL_ID_WORKSPACE, title: '工作区', component: WorkspacePanel, defaultArea: 'center', singleton: true })
-registerPanel({ id: PANEL_ID_CONSOLE, title: '控制台', component: ConsolePanelPlaceholder, defaultArea: 'bottom' })
+registerConsolePanel() // T1.6 兑现：控制台真实现（BroadcastChannel 订阅运行窗口日志；id 不变）
 
 /** 单面板 tabs 组 */
 function oneTabs(panelId: string): DockNode {
