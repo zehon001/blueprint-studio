@@ -38,7 +38,7 @@
 |---|---|---|---|---|---|---|
 | T0.1 | 契约定义：IR / 项目文件 / NodeSpec / 插件清单的 TS 类型与文档 | `src/ir/types.ts`、`docs/v2/adr/001-ir.md` 等 | — | Arch | PLAN §4/§5/§13/§14 所列结构全部有类型定义与字段注释；typecheck 通过 | 完成 · 2026-10-17（产出说明见 §6） |
 | T0.2 | 服务端项目 FS API（安全根内 CRUD / 读目录树 / 文件监视）+ 模板脚手架 | `server/fs.ts`、`templates/` | T0.1 | Server | 新建项目→目录结构符合 PLAN §4.1；越权路径被拒；增删改经 REST 可用 | 完成 · 2026-10-17（产出说明见 §6） |
-| T0.3 | Dock 外壳与面板注册框架（拖拽吸附 / 布局持久化） | `src/shell/dock/` | T0.1 | Shell | 任意面板可拖到四边/中心成 tab；布局刷新后还原；新面板注册 ≤10 行代码 | 完成 · 2026-10-17（产出说明见 §6） |
+| T0.3 | Dock 外壳与面板注册框架（拖拽吸附 / 布局持久化） | `src/shell/dock/` | T0.1 | Shell | 任意面板可拖到四边/中心成 tab；布局刷新后还原；新面板注册 ≤10 行代码 | 完成 · 2026-10-17（产出说明见 §6；E2E 浏览器实测通过，顺带修复 dock-pane flex 断链） |
 | T0.4 | 多窗口拆合（BroadcastChannel 按序重放） | `src/shell/windows/` | T0.3 | Shell | 拆出的面板与主窗状态实时一致（双向改 store 均同步）；关闭弹窗内容回主窗；弹窗被拦截时降级新标签页 | 完成 · 2026-10-17（首派中断，续作修复；34 测试；浏览器端多窗实测待 B5 后 PM 抽查） |
 | T0.5 | 统一命令栈（immer patches）+ 快捷键框架 | `src/shell/commands/` | — | Shell | 蓝图/UI/属性三域各接一个示例命令；Ctrl+Z/Shift+Z 正确跨域撤销；快捷键注册含冲突检测 | 完成 · 2026-10-17（产出说明见 §6） |
 | T0.6 | 项目管理器页（最近 / 新建模板 / 导入文件夹 / 打开） | `src/shell/project-manager/` | T0.2 | Shell | 新建→进入主编辑器；最近列表持久化；导入任意文件夹成功打开 | 完成 · 2026-10-17（产出说明见 §6） |
@@ -54,14 +54,14 @@
 | T1.3 | 2D 视口（选择/框选/移动/对齐吸附/缩放/键盘微调） | `src/ui-editor/viewport/` | T1.2 | UIEditor | PLAN §7.2 操作全可用；操作均入命令栈可撤销 | 完成 · 2026-10-17（24 测试；浏览器手感抽查留 PM/QA） |
 | T1.4 | UI 树面板（树形/拖拽重排父子/右键菜单） | `src/panels/scene-tree/` | T1.1, T0.5 | UIEditor | 拖拽改变父子即时反映到视口；右键含「添加节点/复制/删除/附加逻辑资产(占位)」 | 完成 · 2026-10-17（重派成功；30 测试；已注册进 dock） |
 | T1.5 | 检视器（分组/搜索/类型编辑器/多选混合态） | `src/panels/inspector/` | T1.1, T0.5 | UIEditor | schema 驱动生成；搜索过滤属性；多选显示共同属性；改动可撤销 | 完成 · 2026-10-17（20 测试；listColumns 为 JSON 源编辑，可视化编辑 T7.x） |
-| T1.6 | 运行窗口 v1（runtime.html 加载 UI 静态渲染） | `src/runtime/`、`server/static.ts` | T1.2, T0.2 | Runtime | F5/F6 打开独立窗口正确渲染主 UI / 当前 UI；窗口标题含运行模式 | 完成 · 2026-10-17（16 测试；F5/F6 全接线；浏览器实测抽查留 PM） |
+| T1.6 | 运行窗口 v1（runtime.html 加载 UI 静态渲染） | `src/runtime/`、`server/static.ts` | T1.2, T0.2 | Runtime | F5/F6 打开独立窗口正确渲染主 UI / 当前 UI；窗口标题含运行模式 | 完成 · 2026-10-17（16 测试；F5/F6 浏览器实测通过：标题/渲染/绑定加载全对） |
 | T1.7 | Transform 与容器布局（position/rotation/size + VBox/HBox/Grid 排列） | 渲染器扩展 | T1.2 | UIEditor | 旋转/尺寸视觉正确；容器子节点按布局排列；锚点简化版生效 | 完成 · 2026-10-17（10 测试+回归 13 绿；mergeDuplicates 真 rowspan 顺手完成；锚点为简化语义见 §6） |
 
 ### M2 蓝图闭环
 
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
-| T2.1 | 蓝图视觉系统（节点头配色/引_PIN 色标/连线样式/网格画布） | `src/blueprint/view/` | T0.1, T0.8 | Blueprint | 与 UE5 截图并排对比：分类配色、引脚色、exec 白线/数据彩虚线全部符合 §8.1 | 待评审 · 2026-10-17（映射与样式已 token 化并单测；截图对比待 B5 集成后 PM 浏览器验收） |
+| T2.1 | 蓝图视觉系统（节点头配色/引_PIN 色标/连线样式/网格画布） | `src/blueprint/view/` | T0.1, T0.8 | Blueprint | 与 UE5 截图并排对比：分类配色、引脚色、exec 白线/数据彩虚线全部符合 §8.1 | 完成 · 2026-10-17（E2E 冒烟浏览器截图确认节点头/画布渲染；UE5 精确并排对比留 TA.3） |
 | T2.2 | 画布交互（右键搜索/引脚拖出弹兼容菜单/自动转换节点/断开/框选/复制粘贴/Ctrl拖拽复制/平移缩放） | `src/blueprint/interaction/` | T2.1 | Blueprint | §8.2 清单逐项可用；不兼容类型拖线自动插转换节点；复制粘贴跨图可用 | 完成 · 2026-10-17（首派中断后核查补全；§8.2 九项全过 + 修复右键被吞 bug；39 测试） |
 | T2.3 | 结构面板 My Blueprint（变量/函数/事件 + 暴露→Get·Set 自动生成） | `src/blueprint/my-blueprint/` | T2.1 | Blueprint | 变量勾「暴露」后拖入图生成 Get/Set；函数子图含入口/出口节点，主图调用节点自动出现 | 完成 · 2026-10-17（25 测试；「拖入」以右键插入落地、拖入留 TODO；graph-op 补充 spec 见 ADR 说明） |
 | T2.4 | 蓝图检视器（节点参数/引脚默认值/文档） | `src/blueprint/details/` | T2.1 | Blueprint | 选中节点显示参数与未连线引脚默认值，可编辑入命令栈 | 完成 · 2026-10-17（13 测试；多选混合态批量实现） |
@@ -165,6 +165,8 @@ T6.1 ─ T6.2/T6.3/T6.4 ─ T6.5/T6.6 ─ M7
 - 单会话模式下协作协议微调：不逐卡建 git 分支，改为 PM 按批次在 `v2` 分支提交（每批次一次 commit，卡状态在本表跟踪）；Agent 产出统一由 PM 验收（typecheck + 单测 + 抽查）
 
 ## 6. 进度纪要（PM 维护，倒序追加）
+
+- **2026-10-17 · 合并点 E2E 冒烟**（浏览器实机，In-app Browser）：①项目管理器渲染 + 日志分析器模板建项目 → editor.html；②编辑器全面板布局/文件树/UI 树/检视器/事件面板/控制台 ✅；③蓝图编辑器（My Blueprint 变量暴露勾选/图签/画布事件节点）✅；④F5 → 独立运行窗口（标题「运行 · 主UI <项目>」、UI 渲染、控制台输出「[绑定] 已加载 logic/main.bp.json（蓝图「日志查看器」；绑定节点：list）」）✅。**发现并修复 2 个真实布局 bug**：`.dock-pane` 无样式（默认 block）致嵌套 flex 链断裂（左右列压扁）；`.bps-vp` 宽度塌陷（内容全绝对定位、basis:auto）。修复后全量 745 测试仍绿 + vite build 绿。**v2 合回 main，PLAN §17 合并点执行**。
 
 - **2026-10-17 · B10**：**M6 完成**。T6.3 执行器（重派核对补全）：detect（versionRegex+semver 逐段+cmdOverride）/install SSE（四策略+并发锁+自动重 detect）/invoke 通用通道+持续流管理器。T6.5 手机日志：文件模式 3 份乱序样本全序稳定（时间→文件序→行序 tie-break）、设备模式 dump+启发式过滤、onLine WS plugin.push 持续流（idle 5s 停流抗瞬断）、解析单源复用节点库；真实 server 冒烟 PASS。T6.6 飞书：invoke.cmdTemplate 透传（ADR-004 追认）。TA.1：tests/roundtrip/ 门禁（76 样本+计数恒等式+守卫自检），顺带修复 sequence 标记正则与 ui.setTitle 反查两个 roundtrip 缺陷并移出无映射清单（无映射余 8 项=暂无脚本映射类）。PM 验收：**全量 745 测试绿、typecheck 0 错、构建绿**；ADR-004 追认三事项（合并优先级/camelCase 前缀/invoke 字段）。
 
