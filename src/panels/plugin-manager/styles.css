@@ -1,0 +1,579 @@
+/*
+ * 插件管理面板样式（T6.2）—— 颜色 / 间距 / 圆角 / 字号全部引用 theme.css 的 token，
+ * 禁止硬编码色值；结构性尺寸用 calc() 基于 token 推导。类名前缀 pm-。
+ */
+
+/* ===== 面板骨架 ===== */
+
+.pm-panel {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  user-select: none;
+}
+
+.pm-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--panel-header-h);
+  padding: 0 var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+}
+
+.pm-header-title {
+  flex: none;
+  color: var(--text);
+  font-size: var(--font-sm);
+}
+
+.pm-header-project {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+.pm-header-btn {
+  flex: none;
+  height: calc(var(--panel-header-h) - var(--space-2));
+  padding: 0 var(--space-2);
+  font-size: var(--font-xs);
+  font-family: var(--font-ui);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.pm-header-btn:hover {
+  background: var(--bg-input);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* ===== 警告条（清单损坏等） ===== */
+
+.pm-warnings {
+  flex: none;
+  max-height: calc(var(--space-7) * 2);
+  overflow: auto;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--warning);
+  color: var(--warning);
+  font-size: var(--font-xs);
+  line-height: 1.6;
+}
+
+.pm-warning-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  word-break: break-all;
+}
+
+.pm-warn-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--space-3);
+  height: var(--space-3);
+  box-sizing: border-box;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  transform: translateY(1px);
+}
+
+/* ===== 插件列表 ===== */
+
+.pm-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-1) 0 var(--space-6);
+}
+
+.pm-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-6);
+  color: var(--text-disabled);
+  text-align: center;
+  line-height: 1.8;
+}
+
+.pm-footer-hint {
+  flex: none;
+  padding: var(--space-1) var(--space-2);
+  border-top: 1px solid var(--border);
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+}
+
+/* ---- 插件行 ---- */
+
+.pm-item {
+  border-bottom: 1px solid var(--border);
+}
+
+.pm-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  cursor: default;
+  white-space: nowrap;
+}
+
+.pm-row:hover,
+.pm-row.open {
+  background: var(--bg-input);
+}
+
+.pm-chevron {
+  flex: none;
+  width: var(--space-3);
+  text-align: center;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+/* kind 字符图标：cli=终端提示符（accent 蓝）/ custom=自定义插件（插件紫） */
+.pm-icon {
+  flex: none;
+  min-width: calc(var(--space-5));
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.pm-icon.kind-cli {
+  color: var(--accent);
+}
+
+.pm-icon.kind-custom {
+  color: var(--node-head-plugin);
+}
+
+.pm-name {
+  flex: none;
+  max-width: calc(var(--space-8) * 3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.pm-version {
+  flex: none;
+  min-width: calc(var(--space-6));
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.pm-desc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+}
+
+.pm-nodecount {
+  flex: none;
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+}
+
+/* ---- 状态徽标四态（PLAN §14.2）+ 检测中过渡态 ---- */
+
+.pm-badge {
+  flex: none;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  line-height: calc(var(--space-4) + 2px);
+}
+
+.pm-badge.checking {
+  color: var(--text-disabled);
+  border-color: transparent;
+}
+
+/* 未安装：灰 */
+.pm-badge.state-not-installed {
+  color: var(--text-dim);
+  background: var(--bg-input);
+  border-color: var(--border-strong);
+}
+
+/* 已安装·最新：绿 */
+.pm-badge.state-up-to-date {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+/* 可更新：黄 */
+.pm-badge.state-updatable {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
+/* 自定义：蓝 */
+.pm-badge.state-custom {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ---- 来源徽标（三源三色） ---- */
+
+.pm-badge-source {
+  flex: none;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  line-height: calc(var(--space-4) + 2px);
+}
+
+/* 内置：蓝 */
+.pm-badge-source.source-builtin {
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+/* 项目：绿 */
+.pm-badge-source.source-project {
+  color: var(--success);
+  border: 1px solid var(--success);
+}
+
+/* 静态目录：黄 */
+.pm-badge-source.source-static {
+  color: var(--warning);
+  border: 1px solid var(--warning);
+}
+
+.pm-badge-source.source-unknown {
+  color: var(--text-disabled);
+  border: 1px dashed var(--border-strong);
+}
+
+/* ---- 行内操作按钮 ---- */
+
+.pm-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.pm-detecting {
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+}
+
+.pm-no-install {
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+}
+
+.pm-btn {
+  height: calc(var(--space-5));
+  padding: 0 var(--space-2);
+  font-size: var(--font-xs);
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.pm-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.pm-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.pm-btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+/* 已安装·最新：更新按钮置灰不可点（DoD 硬性） */
+.pm-btn:disabled {
+  color: var(--text-disabled);
+  background: var(--bg-input);
+  border-color: var(--border);
+  cursor: not-allowed;
+}
+
+.pm-btn.small {
+  height: calc(var(--space-4) + 2px);
+  padding: 0 var(--space-1);
+}
+
+.pm-btn.danger {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.pm-btn.danger:hover:not(:disabled) {
+  background: var(--bg-input);
+  border-color: var(--error);
+}
+
+/* ===== 内嵌安装日志区 ===== */
+
+.pm-job {
+  display: flex;
+  flex-direction: column;
+  margin: 0 var(--space-2) var(--space-2) calc(var(--space-5) + var(--space-3));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-app);
+}
+
+.pm-job-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.pm-job-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.pm-job-title.running {
+  color: var(--text);
+}
+
+.pm-scroll-toggle {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+
+.pm-log {
+  height: calc(var(--space-7) * 3);
+  overflow: auto;
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  line-height: 1.6;
+  user-select: text;
+}
+
+.pm-log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text);
+}
+
+/* error 行红色 */
+.pm-log-line.error {
+  color: var(--error);
+}
+
+.pm-log-line.dim {
+  color: var(--text-disabled);
+}
+
+/* ===== 节点详情（行展开） ===== */
+
+.pm-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2) var(--space-2) calc(var(--space-5) + var(--space-3));
+}
+
+.pm-details-empty {
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+}
+
+.pm-node {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.pm-node-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pm-node-title {
+  flex: none;
+  font-weight: 600;
+}
+
+/* 持续流事件节点标记（插件紫） */
+.pm-node-kind {
+  flex: none;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--node-head-plugin);
+  border-radius: var(--radius-sm);
+  color: var(--node-head-plugin);
+  font-size: var(--font-xs);
+  line-height: calc(var(--space-4) + 2px);
+}
+
+.pm-node-id {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-disabled);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+}
+
+.pm-node-pins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+}
+
+.pm-pin-group {
+  min-width: 0;
+}
+
+/* ===== 确认对话框 ===== */
+
+.pm-confirm-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 遮罩：bg-app + opacity 组合（token 无半透明黑） */
+.pm-confirm-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--bg-app);
+  opacity: 0.55;
+}
+
+.pm-confirm {
+  position: relative;
+  min-width: 280px;
+  max-width: calc(100% - var(--space-8));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+
+.pm-confirm-title {
+  color: var(--text);
+  font-size: var(--font-md);
+}
+
+.pm-confirm-label {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+.pm-confirm-cmd {
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  word-break: break-all;
+  user-select: text;
+}
+
+.pm-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* ===== toast（面板内浮动提示） ===== */
+
+.pm-toast {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  z-index: 950;
+  max-width: calc(100% - var(--space-8));
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+  background: var(--bg-panel-header);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  white-space: pre-line;
+}
+
+.pm-toast.success {
+  border-color: var(--success);
+}
+
+.pm-toast.error {
+  border-color: var(--error);
+}
+
+.pm-toast.info {
+  border-color: var(--accent);
+}

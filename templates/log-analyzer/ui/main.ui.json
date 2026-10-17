@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "name": "main",
+  "root": {
+    "id": "ui_root",
+    "name": "root",
+    "type": "vbox",
+    "transform": { "position": { "x": 0, "y": 0 }, "size": { "w": 960, "h": 640 }, "rotation": 0 },
+    "theme": { "padding": 8 },
+    "props": { "spacing": 4 },
+    "children": [
+      {
+        "id": "ui_title",
+        "name": "title",
+        "type": "label",
+        "transform": { "position": { "x": 0, "y": 0 }, "size": { "w": 960, "h": 32 }, "rotation": 0 },
+        "theme": { "fontSize": 18 },
+        "props": { "text": "日志分析" },
+        "children": []
+      },
+      {
+        "id": "ui_list",
+        "name": "list",
+        "type": "list",
+        "transform": { "position": { "x": 0, "y": 40 }, "size": { "w": 960, "h": 560 }, "rotation": 0 },
+        "theme": {},
+        "props": {},
+        "logicAsset": "logic/main.bp.json",
+        "events": ["itemSelected"],
+        "children": []
+      }
+    ]
+  }
+}

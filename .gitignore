@@ -4,3 +4,5 @@ assets/uploads/
 .DS_Store
 *.log
 .env
+_projects/
+_plugins-static/

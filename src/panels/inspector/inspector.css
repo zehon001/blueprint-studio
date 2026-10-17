@@ -1,0 +1,450 @@
+/*
+ * 检视器面板样式（T1.5）—— 颜色 / 间距 / 圆角 / 字号全部引用 src/shell/theme/theme.css
+ * 的 token（var(--xxx)），禁止硬编码色值；类名前缀 insp-。控件观感对齐蓝图检视器
+ * （src/blueprint/details/details.css，T2.4）但独立实现。
+ * 由 index.ts import（叶组件不引样式，保证 node:test 可挂载冒烟）。
+ */
+
+/* ===== 面板骨架 ===== */
+
+.insp-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  user-select: none;
+}
+
+/* ===== 选中头（单选：图标/名称/类型/编号；多选：数量/类型摘要） ===== */
+
+.insp-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--panel-header-h);
+  padding: 0 var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+}
+
+.insp-icon {
+  flex: none;
+  font-size: var(--font-md);
+}
+
+.insp-title {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.insp-badge {
+  flex: none;
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--accent-hover);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.insp-id {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+  color: var(--text-disabled);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== 搜索工具条 ===== */
+
+.insp-toolbar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.insp-search {
+  width: 100%;
+  min-width: 0;
+  padding: 2px var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-xs);
+}
+
+.insp-search:focus {
+  outline: 1px solid var(--focus-ring);
+}
+
+.insp-hint {
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+}
+
+/* ===== 分组（组序 PROP_GROUP_ORDER；组头折叠） ===== */
+
+.insp-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-2) var(--space-6);
+}
+
+.insp-group {
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.insp-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  height: 24px;
+  padding: 0 var(--space-2);
+  background: var(--bg-panel-header);
+  border: 0;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.insp-group-head:hover {
+  background: var(--bg-input);
+}
+
+.insp-caret {
+  flex: none;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+.insp-group-title {
+  flex: 1;
+  text-align: left;
+  font-weight: 600;
+}
+
+.insp-count {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.insp-group-body {
+  padding: var(--space-1) var(--space-2) var(--space-2);
+}
+
+/* ===== 属性行（标签 + 类型徽标 + 控件；置灰行） ===== */
+
+.insp-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-height: 24px;
+  padding: 1px 0;
+}
+
+.insp-row--disabled .insp-label,
+.insp-row--disabled .insp-type {
+  color: var(--text-disabled);
+}
+
+.insp-label {
+  flex: none;
+  width: 76px;
+  padding-top: 3px;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
+}
+
+.insp-type {
+  flex: none;
+  padding: 1px 3px;
+  margin-top: 2px;
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+  color: var(--text-disabled);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.insp-control {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 1px 0;
+}
+
+/* ===== 控件（紧凑暗色，对齐 T2.4 观感） ===== */
+
+.insp-input,
+.insp-select {
+  width: 100%;
+  min-width: 0;
+  padding: 1px 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-xs);
+}
+
+.insp-input:focus,
+.insp-select:focus,
+.insp-textarea:focus {
+  outline: 1px solid var(--focus-ring);
+}
+
+.insp-textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  padding: 2px 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+}
+
+.insp-input:disabled,
+.insp-select:disabled,
+.insp-textarea:disabled,
+.insp-check:disabled {
+  color: var(--text-disabled);
+  background: var(--bg-panel);
+  border-color: var(--border);
+  cursor: not-allowed;
+}
+
+.insp-check {
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.insp-color {
+  flex: none;
+  width: 32px;
+  height: 20px;
+  padding: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+/* 向量 / 尺寸（x/y、宽/高 双输入） */
+
+.insp-vec {
+  display: flex;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+}
+
+.insp-axis {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.insp-axis-label {
+  flex: none;
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+/* 引用（assetRef / logicRef）：路径文本 + 占位按钮 */
+
+.insp-ref {
+  display: flex;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+}
+
+/* 纵向堆叠（options / listColumns：文本域 + 按钮 / 提示） */
+
+.insp-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+}
+
+.insp-error {
+  font-size: var(--font-xs);
+  color: var(--error);
+  line-height: 1.4;
+}
+
+.insp-note {
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+  line-height: 1.4;
+}
+
+/* 混合态标记（颜色等无法空值显示的控件） */
+
+.insp-mixed-mark {
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+}
+
+/* ===== 按钮 ===== */
+
+.insp-btn {
+  flex: none;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 var(--space-1);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-xs);
+  font-family: var(--font-ui);
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.insp-btn:hover:not(:disabled) {
+  background: var(--bg-panel-header);
+}
+
+.insp-btn:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+/* ===== 内建事件区（PLAN §7.3：选中 UI 节点时显示） ===== */
+
+.insp-events {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.insp-events-title {
+  margin-bottom: var(--space-1);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.insp-event-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+}
+
+.insp-event-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--font-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.insp-event-id {
+  flex: none;
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+  color: var(--text-disabled);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+}
+
+/* ===== 空态 / 占位提示 ===== */
+
+.insp-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-6);
+  color: var(--text-disabled);
+  text-align: center;
+  line-height: 1.8;
+}
+
+.insp-empty-title {
+  font-size: var(--font-md);
+  color: var(--text-dim);
+}
+
+.insp-empty-hint {
+  font-size: var(--font-xs);
+}
+
+.insp-empty-inline {
+  padding: var(--space-3) var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+}
+
+/* ===== toast（占位提示） ===== */
+
+.insp-toast {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-3);
+  transform: translateX(-50%);
+  max-width: calc(100% - var(--space-4));
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg-panel-header);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+  pointer-events: none;
+}

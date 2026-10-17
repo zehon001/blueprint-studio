@@ -1,0 +1,327 @@
+/**
+ * 检视器面板（T1.5 · PLAN §7.3 右侧面板 / 术语映射 Inspector → 检视器）
+ *
+ * 功能（DoD 逐条）：
+ *  - 选中 0 节点：空态提示 + 当前资产信息（名 / 节点数）；未打开资产时提示打开方式。
+ *  - 选中 1 节点：schema 驱动——按 PropDef.group 分组折叠（组序 PROP_GROUP_ORDER：
+ *    节点/布局/内容/外观/行为/数据；折叠状态记在本组件 state，选中切换后保持）。
+ *  - 搜索框：按属性显示名 / id 过滤（大小写不敏感）；命中组自动展开；无结果显示「无匹配属性」。
+ *  - 修改即入命令栈：每个控件改动 → runUICommand('检视器：<属性名>'，draft 内改 UINode
+ *    的对应存储位置——storeLocation 映射 name/transform/props，见 inspector-model.ts）。
+ *  - 多选：显示共同属性（id + 控件类型 + 分组交集）；值全同 → 显示值，不同 → 混合态「—」；
+ *    修改 → 单命令应用到全部节点（「检视器：批量修改 <属性> N 个」，一次撤销全部还原）。
+ *  - 类型编辑器：UIPropType → 控件分发见 PropEditors.tsx（14 个编辑分支全覆盖）；
+ *    PropDef.disabled 置灰（position 按实际父级解锁：根 / 自由容器内可编辑）；doc 悬浮提示。
+ *  - 内建事件区：选中单节点时面板底部列出 schema.events + logicAsset 的自定义事件
+ *    （自定义事件为空 / 加载失败则不显示该子节）；「跳转」按钮为占位 toast（T5.2 接入）。
+ *
+ * 接线：由 index.ts 的 registerInspectorPanel() 注册（PM 在 defaultPanels.tsx 替换占位，
+ * id 保持 'inspector' 不变），本文件不改 dock 代码。本文件不 import 样式（node:test 可
+ * 挂载冒烟）；inspector.css 由 index.ts 引入。
+ */
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { UIAsset, UINode } from '@/ir/types'
+import {
+  collectUINodeIds,
+  findUINode,
+  getSceneTreeDomain,
+  runUICommand,
+  useSceneTreeDomain,
+  useUIEditorStore,
+} from '@/ui-editor/store'
+import { getUISchema, type PropDef } from '@/ui-editor/schema'
+import { PropEditor } from './PropEditors'
+import {
+  PROPTYPE_LABELS,
+  anyRowDisabled,
+  filterPropDefs,
+  groupPropRows,
+  intersectPropDefs,
+  propCommandLabel,
+  propRowStates,
+  writePropsOnNodes,
+  type PropRowState,
+} from './inspector-model'
+
+/** toast 自动消失时长 */
+const TOAST_MS = 4000
+
+/** 属性行（标签 + 类型徽标 + 控件） */
+function PropRow(props: {
+  row: PropRowState
+  nodes: readonly UINode[]
+  root: UINode
+  onCommit: (def: PropDef, value: unknown) => void
+  onPlaceholder: (message: string) => void
+}) {
+  const { row } = props
+  const disabled = anyRowDisabled(row.def, props.nodes, props.root)
+  const typeLabel = PROPTYPE_LABELS[row.def.type] ?? row.def.type
+  return (
+    <div className={`insp-row${disabled ? ' insp-row--disabled' : ''}`}>
+      <span className="insp-label" title={row.def.doc ?? row.def.label}>
+        {row.def.label}
+      </span>
+      <span className="insp-type">{typeLabel}</span>
+      <span className="insp-control">
+        <PropEditor
+          def={row.def}
+          value={row.value}
+          mixed={row.mixed}
+          disabled={disabled}
+          onCommit={(value) => props.onCommit(row.def, value)}
+          onPlaceholder={props.onPlaceholder}
+        />
+      </span>
+    </div>
+  )
+}
+
+/** 事件行（内建 / 自定义共用）：显示名 + 事件名 + 跳转按钮（占位 toast） */
+function EventRow(props: { label: string; name: string; onJump: () => void }) {
+  return (
+    <div className="insp-event-row">
+      <span className="insp-event-name" title={props.label}>
+        {props.label}
+      </span>
+      <span className="insp-event-id" title={`事件名：${props.name}`}>
+        {props.name}
+      </span>
+      <button type="button" className="insp-btn" onClick={props.onJump}>
+        跳转
+      </button>
+    </div>
+  )
+}
+
+export function InspectorPanel() {
+  const { asset } = useSceneTreeDomain()
+  const selection = useUIEditorStore((s) => s.selection)
+  const projectPath = useUIEditorStore((s) => s.projectPath)
+
+  const [search, setSearch] = useState('')
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [toast, setToast] = useState<string | null>(null)
+  const [customEvents, setCustomEvents] = useState<string[]>([])
+  const toastTimer = useRef<number | null>(null)
+
+  /* —— 选中节点解析（失效 id 静默剔除） —— */
+  const nodes = useMemo<UINode[]>(() => {
+    if (!asset) return []
+    const out: UINode[] = []
+    for (const id of selection) {
+      const n = findUINode(asset.root, id)
+      if (n) out.push(n)
+    }
+    return out
+  }, [asset, selection])
+
+  useEffect(
+    () => () => {
+      if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
+    },
+    [],
+  )
+
+  function showToast(message: string): void {
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current)
+    setToast(message)
+    toastTimer.current = window.setTimeout(() => setToast(null), TOAST_MS)
+  }
+
+  /* —— logicAsset 自定义事件（T2.6 前逻辑资产多为空；为空 / 加载失败不显示子节） —— */
+  const logicAsset = nodes.length === 1 ? nodes[0]!.logicAsset : undefined
+  useEffect(() => {
+    if (!logicAsset || !projectPath) {
+      setCustomEvents([])
+      return
+    }
+    let cancelled = false
+    fetch(`/api/file?path=${encodeURIComponent(`${projectPath}/${logicAsset}`)}`)
+      .then((r) => r.json() as Promise<{ ok?: boolean; content?: string }>)
+      .then((j) => {
+        if (cancelled) return
+        if (!j.ok || !j.content) {
+          setCustomEvents([])
+          return
+        }
+        try {
+          const ir = JSON.parse(j.content) as { events?: Array<{ name?: unknown }> }
+          setCustomEvents(
+            (ir.events ?? [])
+              .map((e) => String(e?.name ?? ''))
+              .filter((n) => n.length > 0),
+          )
+        } catch {
+          setCustomEvents([])
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCustomEvents([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [logicAsset, projectPath])
+
+  /* —— schema 驱动：单选取全量属性，多选取共同属性交集 —— */
+  const firstSchema = nodes.length > 0 ? getUISchema(nodes[0]!.type) : undefined
+  const hasUnknownType = nodes.some((n) => getUISchema(n.type) === undefined)
+  const defs = useMemo(() => {
+    if (nodes.length === 0) return []
+    if (nodes.length === 1) return firstSchema?.props ?? []
+    return intersectPropDefs(nodes.map((n) => getUISchema(n.type)?.props ?? []))
+  }, [nodes, firstSchema])
+
+  /* —— 搜索过滤（命中组自动展开 = 搜索态忽略折叠记忆） —— */
+  const keyword = search.trim()
+  const searching = keyword.length > 0
+  const rows = propRowStates(nodes, searching ? filterPropDefs(defs, keyword) : defs)
+  const groups = groupPropRows(rows)
+
+  /* —— 提交：单命令应用到全部选中节点（可撤销） —— */
+  function commitProp(def: PropDef, value: unknown): void {
+    const assetNow = getSceneTreeDomain().asset
+    if (!assetNow) return
+    const ids = useUIEditorStore.getState().selection.filter((id) => findUINode(assetNow.root, id) !== null)
+    if (ids.length === 0) return
+    const label = propCommandLabel(def, ids.length)
+    // vec2 / size：编辑器提交增量补丁（如 {x}），按节点与各自当前值合并
+    const partialMerge = def.type === 'vec2' || def.type === 'size'
+    runUICommand(label, (draft) => {
+      const root = (draft as UIAsset).root
+      writePropsOnNodes(root, ids, def, value, partialMerge)
+    })
+  }
+
+  /* ============ 空态（未打开资产 / 未选中） ============ */
+  if (nodes.length === 0) {
+    return (
+      <div className="insp-panel">
+        <div className="insp-empty">
+          {asset ? (
+            <>
+              <div className="insp-empty-title">未选中节点</div>
+              <div>资产：{asset.name}</div>
+              <div>节点数：{collectUINodeIds(asset.root).length}</div>
+              <div className="insp-empty-hint">在 2D 视口或 UI 树面板中选择节点以编辑属性</div>
+            </>
+          ) : (
+            <>
+              <div className="insp-empty-title">未打开 UI 资产</div>
+              <div className="insp-empty-hint">在文件系统面板双击 *.ui.json 打开</div>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  /* ============ 选中（单选 / 多选） ============ */
+  const single = nodes.length === 1 ? nodes[0]! : null
+  const builtInEvents = single ? (firstSchema?.events ?? []) : []
+  const showEvents = single !== null && (builtInEvents.length > 0 || customEvents.length > 0)
+  const typeSummary = [...new Set(nodes.map((n) => getUISchema(n.type)?.title ?? n.type))].join('、')
+
+  const header =
+    single !== null ? (
+      <div className="insp-header">
+        <span className="insp-icon" aria-hidden>
+          {firstSchema?.icon ?? '?'}
+        </span>
+        <span className="insp-title" title={single.name}>
+          {single.name}
+        </span>
+        <span className="insp-badge">{firstSchema?.title ?? single.type}</span>
+        <span className="insp-id" title={`节点 id：${single.id}`}>
+          {single.id}
+        </span>
+      </div>
+    ) : (
+      <div className="insp-header">
+        <span className="insp-title">已选中 {nodes.length} 个节点</span>
+        <span className="insp-badge">{typeSummary}</span>
+      </div>
+    )
+
+  return (
+    <div className="insp-panel">
+      {header}
+      <div className="insp-toolbar">
+        <input
+          className="insp-search"
+          type="text"
+          placeholder="搜索属性…"
+          value={search}
+          spellCheck={false}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {nodes.length > 1 ? (
+          <div className="insp-hint">显示共同属性 · 值不同以 — 显示 · 修改将批量应用到全部选中节点</div>
+        ) : null}
+      </div>
+      <div className="insp-body">
+        {hasUnknownType ? (
+          <div className="insp-note">存在未知类型节点，仅显示可识别的共同属性</div>
+        ) : null}
+        {groups.length === 0 ? (
+          <div className="insp-empty-inline">{searching ? '无匹配属性' : '（无可编辑属性）'}</div>
+        ) : (
+          groups.map(({ group, rows: groupRows }) => {
+            const isCollapsed = searching ? false : collapsed[group] === true
+            return (
+              <div key={group} className="insp-group">
+                <button
+                  type="button"
+                  className="insp-group-head"
+                  title={isCollapsed ? '展开' : '折叠'}
+                  onClick={() => setCollapsed((c) => ({ ...c, [group]: !isCollapsed }))}
+                >
+                  <span className="insp-caret">{isCollapsed ? '▸' : '▾'}</span>
+                  <span className="insp-group-title">{group}</span>
+                  <span className="insp-count">{groupRows.length}</span>
+                </button>
+                {isCollapsed ? null : (
+                  <div className="insp-group-body">
+                    {groupRows.map((row) => (
+                      <PropRow
+                        key={row.def.id}
+                        row={row}
+                        nodes={nodes}
+                        root={asset?.root ?? nodes[0]!}
+                        onCommit={commitProp}
+                        onPlaceholder={showToast}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })
+        )}
+        {showEvents ? (
+          <div className="insp-events">
+            {builtInEvents.length > 0 ? <div className="insp-events-title">内建事件</div> : null}
+            {builtInEvents.map((ev) => (
+              <EventRow key={ev.name} label={ev.label} name={ev.name} onJump={() => showToast('T5.2 事件面板接入')} />
+            ))}
+            {customEvents.length > 0 && logicAsset ? (
+              <>
+                <div className="insp-events-title">自定义事件（{logicAsset}）</div>
+                {customEvents.map((name) => (
+                  <EventRow
+                    key={name}
+                    label={name}
+                    name={name}
+                    onJump={() => showToast('T5.2 事件面板接入')}
+                  />
+                ))}
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      {toast ? <div className="insp-toast">{toast}</div> : null}
+    </div>
+  )
+}

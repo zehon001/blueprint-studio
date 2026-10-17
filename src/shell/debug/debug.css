@@ -1,0 +1,128 @@
+/**
+ * Blueprint Studio v2 —— 运行时蓝图观察叠加层样式（T5.4）
+ *
+ * 全部取值走 theme token（--error / --accent / --node-bg / …）。
+ * 类挂载点：
+ *  - .bp-node--debug-active / .bp-node--debug-error：BPNode 根元素（data.debugHighlight）；
+ *  - .bp-edge--flow：连线流动动画（T2.1 已预置于 styles.css，此处不重复定义）；
+ *  - .bp-debug-pin*：端口实时值徽标（ViewportPortal 层）；
+ *  - .bp-observe-toggle：画布右上「观察运行」开关。
+ */
+
+/* ============ 节点高亮：描边脉冲（2s 衰减，nodeEnter/nodeExit） ============ */
+
+.bp-node.bp-node--debug-active {
+  animation: bp-node-pulse 2s ease-out forwards;
+}
+
+.bp-node.bp-node--debug-error {
+  /* 错误：红色描边（错误 5s 衰减 + 持续呼吸，与脉冲动画互斥——错误优先，见 applyNodeOverlay） */
+  animation: bp-node-error-glow 1.2s ease-in-out infinite;
+}
+
+@keyframes bp-node-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--accent-hover);
+  }
+  55% {
+    box-shadow: 0 0 0 4px var(--selection);
+  }
+  100% {
+    box-shadow: 0 0 0 1px transparent;
+  }
+}
+
+@keyframes bp-node-error-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px var(--error);
+  }
+  50% {
+    box-shadow: 0 0 0 4px var(--error);
+  }
+}
+
+/* ============ 端口实时值徽标（选中节点下方，ViewportPortal 层） ============ */
+
+.bp-debug-pin-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* 压在节点之上但不吃事件（观察是只读的） */
+  pointer-events: none;
+  z-index: 60;
+}
+
+.bp-debug-pin {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.bp-debug-pin-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 320px;
+  overflow: hidden;
+}
+
+.bp-debug-pin-label {
+  color: var(--text-dim);
+}
+
+.bp-debug-pin-value {
+  color: var(--success);
+}
+
+/* ============ 画布右上「观察运行」开关 ============ */
+
+.bp-observe-toggle {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 45;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.bp-observe-toggle:hover {
+  color: var(--text);
+  border-color: var(--focus-ring);
+}
+
+/* 开 / 关状态点：绿=连接中观察，灰=未启用/未连接 */
+.bp-observe-toggle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-disabled);
+}
+
+.bp-observe-toggle--on .bp-observe-toggle-dot {
+  background: var(--success);
+}
+
+.bp-observe-toggle--on {
+  color: var(--text);
+  border-color: var(--accent);
+}

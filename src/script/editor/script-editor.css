@@ -1,0 +1,318 @@
+/*
+ * 脚本编辑器样式（T3.1 · 全 token 色，禁硬编码；token 定义见 src/shell/theme/theme.css）
+ *
+ * 覆盖：
+ *   - .script-tab*            工作区脚本 tab 布局与顶栏（切换条 / 资产信息 / 诊断 / 保存）
+ *   - .script-tab-syncbar*    双视图同步协议提示条（T3.8 保存者胜 / 脏冲突横幅）
+ *   - .script-tab-diag*       行列诊断徽标与列表（T3.6 接真）
+ *   - .script-tab-bp*         蓝图视图（真渲染面板 + 诊断警告条 + 降级提示，T3.8）
+ *   - .script-tab-toast       保存结果轻提示
+ *   - .script-view-switch*    [蓝图|脚本] 切换条
+ *   - .script-editor*         CodeMirror 宿主（CM 内部样式在 editor-theme.ts）
+ */
+
+/* ---------------- 工作区 tab 布局 ---------------- */
+
+.script-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-panel);
+  position: relative;
+}
+
+.script-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.script-tab-title {
+  font-size: var(--font-sm);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.script-tab-lang {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  padding: 1px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  flex: none;
+}
+
+.script-tab-dirty {
+  font-size: var(--font-xs);
+  color: var(--warning);
+  flex: none;
+}
+
+.script-tab-bar-fill {
+  flex: 1;
+}
+
+.script-tab-save {
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  flex: none;
+}
+
+.script-tab-save:hover {
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+
+.script-tab-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.script-tab-body > .script-tab-editor {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------------- [蓝图|脚本] 切换条 ---------------- */
+
+.script-view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+
+.script-view-switch-group {
+  display: inline-flex;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.script-view-switch-btn {
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  font-size: var(--font-sm);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+
+.script-view-switch-btn + .script-view-switch-btn {
+  border-left: 1px solid var(--border);
+}
+
+.script-view-switch-btn:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.script-view-switch-btn.is-active {
+  background: var(--selection);
+  color: var(--text);
+}
+
+.script-view-switch-btn:disabled {
+  cursor: default;
+  color: var(--text-disabled);
+}
+
+.script-view-switch-dirty {
+  font-size: var(--font-xs);
+  color: var(--warning);
+}
+
+/* ---------------- 双视图同步协议（T3.8 保存者胜 / 脏冲突横幅） ---------------- */
+
+.script-tab-syncbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--warning);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.script-tab-syncbtn {
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  padding: 1px var(--space-2);
+  cursor: pointer;
+}
+
+.script-tab-syncbtn:hover {
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+
+/* ---------------- 行列诊断（T3.6 接真：顶栏徽标 + 列表） ---------------- */
+
+.script-tab-diag-badge {
+  background: var(--bg-input);
+  color: var(--warning);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  padding: 1px var(--space-2);
+  cursor: pointer;
+  flex: none;
+}
+
+.script-tab-diag-badge.has-error {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.script-tab-diag-badge:hover {
+  border-color: var(--accent);
+}
+
+.script-tab-diag-list {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  list-style: none;
+  max-height: 40%;
+  overflow: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex: none;
+}
+
+.script-tab-diag-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--warning);
+  font-size: var(--font-xs);
+  font-family: var(--font-ui);
+  padding: 2px var(--space-1);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.script-tab-diag-item.has-error {
+  color: var(--error);
+}
+
+.script-tab-diag-item:hover {
+  background: var(--selection);
+  color: var(--text);
+}
+
+.script-tab-diag-more {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  padding: 2px var(--space-1);
+}
+
+/* ---------------- 蓝图视图（真渲染 + 诊断警告条 + 降级提示，T3.8） ---------------- */
+
+.script-tab-bp {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.script-tab-bp > .script-tab-bp-panel {
+  flex: 1;
+  min-height: 0;
+}
+
+.script-tab-bp-diags {
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel-header);
+  flex: none;
+  max-height: 30%;
+  overflow: auto;
+}
+
+.script-tab-bp-diag {
+  font-size: var(--font-xs);
+  color: var(--warning);
+  overflow-wrap: anywhere;
+}
+
+.script-tab-bp-diag.has-error {
+  color: var(--error);
+}
+
+.script-tab-bp-degraded {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-5);
+  color: var(--text-dim);
+  font-size: var(--font-sm);
+  background: var(--bg-canvas);
+  line-height: 1.8;
+}
+
+.script-tab-bp-hint {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  padding: var(--space-1) var(--space-3);
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel-header);
+  flex: none;
+}
+
+/* ---------------- 保存结果轻提示 ---------------- */
+
+.script-tab-toast {
+  position: absolute;
+  bottom: var(--space-4);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  background: var(--bg-panel-header);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-sm);
+  padding: var(--space-1) var(--space-3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  max-width: 80%;
+}
+
+/* ---------------- CodeMirror 宿主（内部样式在 editor-theme.ts） ---------------- */
+
+.script-editor {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.script-editor-host {
+  height: 100%;
+}

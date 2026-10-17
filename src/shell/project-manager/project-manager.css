@@ -1,0 +1,368 @@
+/*
+ * Blueprint Studio v2 —— 项目管理器页样式（T0.6）
+ *
+ * 颜色 / 间距 / 圆角 / 字号 / 字体全部引用 src/shell/theme/theme.css 的 token（var(--*)），
+ * 不硬编码任何色值；个别结构性尺寸（列最小宽 / 标题倍率）用 calc() 基于 token 推导。
+ */
+
+/* ============ 页面骨架 ============ */
+
+body {
+  margin: 0;
+}
+
+.pm-page {
+  box-sizing: border-box;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-7) var(--space-6);
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-md);
+  line-height: 1.5;
+}
+
+.pm-header {
+  width: 100%;
+  max-width: calc(var(--space-8) * 32); /* 1280px */
+  margin-bottom: var(--space-6);
+}
+
+.pm-header-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.pm-header h1 {
+  margin: 0;
+  font-size: calc(var(--font-lg) * 1.6); /* 24px，token 倍率 */
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.pm-subtitle {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+}
+
+/* ============ 三栏卡片 ============ */
+
+.pm-columns {
+  width: 100%;
+  max-width: calc(var(--space-8) * 32); /* 1280px */
+  display: grid;
+  grid-template-columns: repeat(3, minmax(280px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.pm-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  box-sizing: border-box;
+}
+
+.pm-card-title {
+  margin: 0 0 var(--space-4);
+  padding-bottom: var(--space-3);
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+}
+
+.pm-root {
+  margin: calc(var(--space-3) * -1) 0 var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--text-dim);
+  font-size: var(--font-sm);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+/* ============ 服务状态徽标 ============ */
+
+.pm-badge {
+  font-size: var(--font-xs);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+}
+
+.pm-badge.ok {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.pm-badge.off {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+/* ============ 最近项目列表 ============ */
+
+.pm-recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pm-recent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.pm-recent-info {
+  min-width: 0;
+}
+
+.pm-recent-name {
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-recent-path {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-recent-meta {
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+}
+
+.pm-recent-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.pm-tag {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  font-weight: 400;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+}
+
+.pm-tag.warn {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+/* ============ 表单 ============ */
+
+.pm-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
+}
+
+.pm-field-label {
+  font-size: var(--font-sm);
+  color: var(--text-dim);
+}
+
+.pm-input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-md);
+  outline: none;
+}
+
+.pm-input.mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+}
+
+.pm-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--focus-ring);
+}
+
+.pm-input::placeholder {
+  color: var(--text-disabled);
+}
+
+.pm-field-error {
+  font-size: var(--font-xs);
+  color: var(--error);
+}
+
+.pm-hint {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+}
+
+/* ============ 模板选择卡 ============ */
+
+.pm-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.pm-template {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  text-align: left;
+  padding: var(--space-3);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+
+.pm-template:hover {
+  border-color: var(--accent);
+}
+
+.pm-template.selected {
+  border-color: var(--accent);
+  background: var(--selection);
+}
+
+.pm-template-name {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pm-template-desc {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+/* ============ 按钮 ============ */
+
+.pm-btn {
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-input);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-md);
+  cursor: pointer;
+}
+
+.pm-btn:hover {
+  border-color: var(--accent);
+}
+
+.pm-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-app);
+}
+
+.pm-btn.primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.pm-btn.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.pm-btn.ghost {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.pm-btn.ghost:hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.pm-btn.block {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.pm-btn:focus-visible {
+  outline: 1px solid var(--focus-ring);
+}
+
+/* ============ toast ============ */
+
+.pm-toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-6);
+  transform: translateX(-50%);
+  max-width: calc(var(--space-8) * 12); /* 480px */
+  padding: var(--space-3) var(--space-5);
+  background: var(--bg-panel-header);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--font-sm);
+  box-shadow: none;
+  z-index: 100;
+}
+
+.pm-toast.success {
+  border-color: var(--success);
+}
+
+.pm-toast.error {
+  border-color: var(--error);
+}
+
+.pm-toast.info {
+  border-color: var(--accent);
+}

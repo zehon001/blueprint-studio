@@ -1,0 +1,34 @@
+{
+  "version": 2,
+  "name": "日志查看器",
+  "entry": "bind",
+  "graphs": {
+    "bind": {
+      "nodes": [
+        {
+          "id": "n_start",
+          "type": "event.start",
+          "params": {},
+          "pinDefaults": {},
+          "position": { "x": 120, "y": 200 },
+          "comment": "start 事件（BeginPlay 同义）：运行窗口加载 UI 后触发"
+        }
+      ],
+      "edges": []
+    }
+  },
+  "variables": [
+    {
+      "name": "packageName",
+      "type": "string",
+      "default": "com.demo.app",
+      "exposed": true,
+      "category": "配置"
+    }
+  ],
+  "events": [],
+  "snippets": [],
+  "layout": {
+    "bind": { "zoom": 1, "pan": [0, 0] }
+  }
+}

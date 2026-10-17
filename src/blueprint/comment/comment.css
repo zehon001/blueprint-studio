@@ -1,0 +1,166 @@
+/*
+ * Blueprint Studio v2 —— 注释框样式（T2.7 / ADR-006，PLAN §8.1「注释框 Comment」）
+ *
+ * 约定：颜色 / 间距 / 圆角 / 字号一律引用 theme.css token，禁止硬编码。
+ * 自定义颜色经 --comment-color（IRComment.color 的 CSS 变量注入）+ color-mix 派生
+ * 底色 / 描边；无 color 时回落 --bp-comment-bg / --bp-comment-border 主题默认灰。
+ *
+ * 层级口径：.bp-comment-layer 在画布视口内 z-index: -1 —— 注释压在连线（z 0/1000）
+ * 与节点（z 0/1000）之下，节点点击 / 框选完全不受注释影响（UE5 同款）。
+ * 本体 pointer-events: none：半透明矩形体不拦截任何指针事件（点击穿透到下方节点 /
+ * 画布）；仅标题栏与四角手柄 pointer-events: auto（选中 / 拖拽 / resize / 右键菜单）。
+ * 本文件由 BlueprintEditorPanel import（叶子组件不 import 样式，node:test 可加载）。
+ */
+
+/* ============ 图层（视口内最底层） ============ */
+
+.bp-comment-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1; /* 视口 transform 形成层叠上下文：负 z 压到边线 / 节点之下 */
+}
+
+/* ============ 注释框本体 ============ */
+
+.bp-comment {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--bp-comment-border);
+  border-radius: var(--radius-md);
+  background: var(--bp-comment-bg);
+  pointer-events: none; /* 矩形体完全穿透：不挡节点点击 / 框选 / 画布平移 */
+}
+
+/* 自定义颜色：--comment-color 由组件内联注入（IRComment.color） */
+.bp-comment--tinted {
+  background: color-mix(in srgb, var(--comment-color) 18%, transparent);
+  border-color: color-mix(in srgb, var(--comment-color) 62%, transparent);
+}
+
+/* 选中：琥珀描边（与节点选中同 token，UE 同款高亮） */
+.bp-comment--selected {
+  border-color: var(--node-selected);
+  box-shadow: 0 0 0 1px var(--node-selected);
+}
+
+/* ============ 标题栏（可交互区） ============ */
+
+.bp-comment-title {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  border-bottom: 1px solid transparent;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  cursor: grab;
+  user-select: none;
+  pointer-events: auto; /* 标题栏是注释的命中区（选中 / 拖拽 / 双击 / 右键） */
+}
+
+.bp-comment--tinted .bp-comment-title {
+  color: color-mix(in srgb, var(--comment-color) 85%, var(--text));
+}
+
+.bp-comment--selected .bp-comment-title {
+  border-bottom-color: var(--node-selected);
+}
+
+.bp-comment-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 行内编辑框（双击标题） */
+.bp-comment-input {
+  width: 100%;
+  min-width: 60px;
+  padding: 1px var(--space-1);
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--focus-ring);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+}
+
+.bp-comment-input:focus {
+  outline: none;
+}
+
+/* ============ 四角 resize 手柄 ============ */
+
+.bp-comment-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--bp-comment-border);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  pointer-events: auto;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.bp-comment:hover .bp-comment-handle,
+.bp-comment--selected .bp-comment-handle {
+  opacity: 1;
+}
+
+.bp-comment-handle--nw { left: -4px; top: -4px; cursor: nwse-resize; }
+.bp-comment-handle--ne { right: -4px; top: -4px; cursor: nesw-resize; }
+.bp-comment-handle--sw { left: -4px; bottom: -4px; cursor: nesw-resize; }
+.bp-comment-handle--se { right: -4px; bottom: -4px; cursor: nwse-resize; }
+
+/* ============ 右键菜单（颜色行；菜单骨架复用 interaction.css 的 .bp-menu） ============ */
+
+.bp-comment-menu {
+  min-width: 200px;
+}
+
+.bp-comment-menu-colors {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2) var(--space-2);
+}
+
+.bp-comment-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.bp-comment-swatch--active {
+  outline: 2px solid var(--node-selected);
+  outline-offset: 1px;
+}
+
+.bp-comment-swatch--custom {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: conic-gradient(#e05c5c, #e2b34a, #67c06b, #4f8cc9, #8b3fbf, #e05c5c);
+}
+
+.bp-comment-swatch--custom input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.bp-comment-menu-sep {
+  height: 1px;
+  margin: var(--space-1) var(--space-2);
+  background: var(--border);
+}

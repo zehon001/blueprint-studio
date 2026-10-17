@@ -1,0 +1,52 @@
+{
+  "id": "phone-log",
+  "name": "手机日志",
+  "kind": "cli",
+  "description": "adb 读取手机日志 / 解析 Android 日志文件。读取节点双模式：手机读取（adb logcat dump + 包名过滤）/ 文件读取（多选日志文件，多文件时间归并排序）；持续流走事件节点 phoneLog.onLine（logcat 不加 -d，行推送走 WS）。",
+  "detect": { "cmd": "adb version", "versionRegex": "Android Debug Bridge version ([\\d.]+)" },
+  "install": { "strategy": "winget", "args": ["Google.PlatformTools"] },
+  "update": { "latestVersion": "35.0", "source": "registry" },
+  "nodes": [
+    {
+      "id": "phoneLog.read",
+      "title": "读取手机日志",
+      "category": "插件",
+      "keywords": ["手机", "日志", "adb", "logcat", "log", "android"],
+      "kind": "action",
+      "doc": "双模式：device=adb logcat -d -v time dump 手机日志（packageFilter 按包名过滤）；file=解析多选日志文件（兼容 time/epoch 两种格式，多文件按时间戳稳定归并排序）。执行器（adb 调用实现）属 T6.5。",
+      "inputs": [
+        { "id": "exec", "type": "exec" },
+        {
+          "id": "mode",
+          "type": "string",
+          "label": "读取模式",
+          "defaultValue": "device",
+          "options": [
+            { "value": "device", "label": "手机读取" },
+            { "value": "file", "label": "文件读取" }
+          ]
+        },
+        { "id": "packageFilter", "type": "string", "label": "包名过滤", "optional": true },
+        { "id": "files", "type": "file[]", "label": "日志文件", "optional": true, "multi": true }
+      ],
+      "outputs": [
+        { "id": "exec", "type": "exec" },
+        { "id": "rows", "type": "LogRow[]", "label": "日志行" },
+        { "id": "count", "type": "int", "label": "行数" }
+      ]
+    },
+    {
+      "id": "phoneLog.onLine",
+      "title": "手机日志·新行",
+      "category": "插件",
+      "keywords": ["手机", "日志", "持续", "新行", "流", "logcat"],
+      "kind": "event",
+      "doc": "持续流事件节点：logcat 不加 -d 持续监听，每产生一行日志触发一次（行推送走 WS）。执行器（adb 调用实现）属 T6.5。",
+      "inputs": [],
+      "outputs": [
+        { "id": "exec", "type": "exec" },
+        { "id": "line", "type": "string", "label": "日志行" }
+      ]
+    }
+  ]
+}
