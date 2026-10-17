@@ -16,9 +16,10 @@ import { makeTabs, type DockNode } from './tree'
 import { registerFileSystemPanel } from '@/panels/file-system'
 import { registerSceneTreePanel } from '@/panels/scene-tree'
 import { registerInspectorPanel } from '@/panels/inspector'
+import { registerEventsPanel } from '@/panels/events'
+import { registerPluginManagerPanel } from '@/panels/plugin-manager'
 import {
   ConsolePanelPlaceholder,
-  EventsPanelPlaceholder,
   WorkspacePanel,
 } from './placeholderPanels'
 
@@ -34,8 +35,9 @@ export const PANEL_ID_CONSOLE = 'console'
 registerFileSystemPanel() // T0.7 文件系统（id: 'file-system'，与占位一致）
 registerSceneTreePanel() // T1.4 UI 树（id: 'scene-tree'）
 registerInspectorPanel() // T1.5 检视器（id: 'inspector'）
+registerEventsPanel() // T5.2 事件面板（id: 'events'）
+registerPluginManagerPanel() // T6.2 插件管理（id: 'plugin-manager'）
 registerPanel({ id: PANEL_ID_WORKSPACE, title: '工作区', component: WorkspacePanel, defaultArea: 'center', singleton: true })
-registerPanel({ id: PANEL_ID_EVENTS, title: '事件面板', component: EventsPanelPlaceholder, defaultArea: 'right' })
 registerPanel({ id: PANEL_ID_CONSOLE, title: '控制台', component: ConsolePanelPlaceholder, defaultArea: 'bottom' })
 
 /** 单面板 tabs 组 */

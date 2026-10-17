@@ -221,6 +221,10 @@ export function makeSnippetRun(snipById: ReadonlyMap<string, IRSnippet>): NodeRu
       emit: ctx.emit,
       print: ctx.print,
       delay: ctx.delay,
+      // CLI 桥（T6.4）：脚本 plugins.* 与插件节点共用的调用通道（失败以 ok:false resolve）
+      callPlugin: ctx.callPlugin
+        ? (pluginId, method, args) => ctx.callPlugin!(pluginId, method, args as unknown[])
+        : undefined,
     });
     const outBox: Record<string, unknown> = {};
     const args: unknown[] = [

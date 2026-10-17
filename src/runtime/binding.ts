@@ -26,12 +26,26 @@
  * （D3 单一 IR 路径：执行用源码解析，不用转译产物）→ 与蓝图共用 createRuntime；
  * .py 路径本期只提示（Python 运行时 T4.1 Pyodide 接入），不报错不崩溃。
  *
+ * T6.4 插件节点动态注册：loadAndStart 装配 specs 链 = editorSpecMap ∪ 插件 specs
+ * （loadPluginSpecs 经 GET /api/plugins，失败降级为告警行）∪ 按资产片段 spec；并把
+ * project / fetchImpl 记入 nodes/dynamic.ts 的运行装配，ctx 注入 projectName / callPlugin
+ * （ADR-005 附加扩展，withPluginRunContext 在 spec 层完成——解释器 ctxFor 未触及）。
+ *
  * 注意：本文件不 import CSS；render 目录只读（import，不改）。
  */
-import type { IRAsset, UINode, UIAsset, UiHandle } from '@/ir/types';
+import type { IRAsset, NodeSpec, UINode, UIAsset, UiHandle } from '@/ir/types';
 import { deserializeIR } from '@/ir/validate';
 import { editorSpecMap } from '@/blueprint/my-blueprint/graph-op-specs';
 import { injectSnippetRuntime } from '@/script/snippet-runtime';
+import { SNIPPET_NODE_TYPE, SNIPPET_PURE_TYPE } from '@/script/snippet';
+import {
+  configurePluginInvoke,
+  invokePluginMethod,
+  loadPluginSpecs,
+  mergePluginSpecs,
+  needsPluginSpecs,
+  withPluginRunContext,
+} from '@/nodes/dynamic';
 import type { UIRenderEvent, UIRenderHandle } from './render/render';
 import { updateUI } from './render/render';
 import { createRuntime, type DebugEvent, type RuntimeHandle } from './interpreter';
@@ -550,6 +564,9 @@ const KIND_LABEL: Record<AssetKind, string> = {
   'script-py': '脚本',
 };
 
+/** 非插件但不在 editorSpecMap 中的运行时节点类型（T6.4 needsPluginSpecs 豁免；片段 spec 按资产注入） */
+const NON_PLUGIN_RUNTIME_TYPES: ReadonlySet<string> = new Set([SNIPPET_NODE_TYPE, SNIPPET_PURE_TYPE]);
+
 /**
  * 绑定运行器：发现绑定 → 按扩展名加载（.bp.json → deserializeIR；.ts → 服务端转译 +
  * parseScriptToIR，T3.3；.py → T4.1 提示）→ 逐资产建 runtime（UiHandle / hub / print /
@@ -646,7 +663,36 @@ export class BindingRunner {
     // 事件总线（T5.1）：可注入共享实例（跨 UI 实例广播）；环保护警告 → 控制台 print
     const bus = this.opts.bus ?? (this.bus = createEventBus({ onWarn: (m) => this.print(m) }));
     const bindings = collectBoundNodes(this.opts.asset);
-    const specs = editorSpecMap();
+    // T6.4 插件节点动态注册：运行装配——project / fetchImpl 记入动态运行时配置
+    //（插件节点 run 的 HTTP 调用与 ctx 兜底共用）；插件 specs 按需拉取：仅当绑定资产
+    // 中存在基线之外的节点类型（= 插件节点，含字面前缀写法）才请求 /api/plugins，
+    // 无插件节点的项目零额外请求；注册表加载失败降级为控制台告警行。
+    // 链：editorSpecMap ∪ 插件 specs（按需）∪ 按资产片段 spec（injectSnippetRuntime）。
+    configurePluginInvoke({ projectName: this.opts.project, fetchImpl: this.opts.fetchImpl });
+    const base = editorSpecMap();
+    let pluginSpecs: Promise<Map<string, NodeSpec>> | null = null;
+    const ensurePluginSpecs = (): Promise<Map<string, NodeSpec>> => {
+      pluginSpecs ??= loadPluginSpecs(this.opts.project, this.opts.fetchImpl).then((loaded) => {
+        for (const w of loaded.warnings) this.print(`[插件] ${w}`);
+        // ctx 注入（ADR-005 附加扩展）：插件节点 run 收到的 ctx 携带 projectName +
+        // callPlugin（解释器现有 ctxFor 未注入这两个字段，故在 spec 装配层包一层，
+        // 见 nodes/dynamic.ts withPluginRunContext；解释器未来原生注入时以 ctx 自带值为准）
+        const callPlugin = (
+          pluginId: string,
+          method: string,
+          args: Record<string, unknown> | unknown[],
+        ) =>
+          invokePluginMethod(pluginId, method, args, {
+            projectName: this.opts.project,
+            fetchImpl: this.opts.fetchImpl,
+          });
+        return mergePluginSpecs(
+          base,
+          withPluginRunContext(loaded.specs, { projectName: this.opts.project, callPlugin }),
+        );
+      });
+      return pluginSpecs;
+    };
     for (const binding of bindings) {
       if (this.stopped) return;
       const kind = assetKindOf(binding.path);
@@ -661,8 +707,13 @@ export class BindingRunner {
         const ir =
           kind === 'script-ts' ? await this.loadScriptIR(binding.path, text) : deserializeIR(text);
         if (this.stopped) return;
+        // T6.4：按需并入插件节点 specs（资产含未知节点类型才拉取注册表），再注入片段 spec
+        const assetBase = needsPluginSpecs(ir, base, NON_PLUGIN_RUNTIME_TYPES)
+          ? await ensurePluginSpecs()
+          : base;
+        if (this.stopped) return;
         // 片段运行时（T3.7 / ADR-007）：按资产注入 script.snippet spec 并重写纯片段节点类型
-        const { asset: irWithSnippets, specs: assetSpecs } = injectSnippetRuntime(ir, specs);
+        const { asset: irWithSnippets, specs: assetSpecs } = injectSnippetRuntime(ir, assetBase);
         const kindLabel = KIND_LABEL[kind];
         const nameSet = collectNames(binding.nodes);
         const ui = makeUiHandle({

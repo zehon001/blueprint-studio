@@ -1,0 +1,266 @@
+/*
+ * 事件面板样式（T5.2）—— 颜色 / 间距 / 圆角 / 字号全部引用 src/shell/theme/theme.css
+ * 的 token（var(--xxx)），禁止硬编码色值；类名前缀 ev-。观感对齐检视器
+ * （src/panels/inspector/inspector.css）与 Godot Signals 面板的行式列表。
+ * 由 index.ts import（叶组件不引样式，保证 node:test 可挂载冒烟）。
+ */
+
+/* ===== 面板骨架 ===== */
+
+.ev-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  user-select: none;
+}
+
+/* ===== 头部（选中节点 / 绑定徽标） ===== */
+
+.ev-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--panel-header-h);
+  padding: 0 var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+}
+
+.ev-title {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.ev-badge {
+  flex: none;
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--accent-hover);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  white-space: nowrap;
+}
+
+.ev-binding {
+  flex: none;
+  margin-left: auto;
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.ev-binding--on {
+  color: var(--success);
+  border-color: var(--border-strong);
+}
+
+/* ===== 主体列表 ===== */
+
+.ev-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+}
+
+.ev-section {
+  margin-bottom: var(--space-2);
+}
+
+.ev-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: none;
+}
+
+.ev-count {
+  padding: 0 var(--space-1);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.ev-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.ev-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  min-height: var(--space-6);
+  cursor: default;
+  border-left: 2px solid transparent;
+}
+
+.ev-row:hover {
+  background: var(--bg-input);
+  border-left-color: var(--accent);
+}
+
+.ev-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+}
+
+.ev-dot--on {
+  background: var(--node-head-event);
+  border-color: var(--node-head-event);
+}
+
+.ev-dot--none {
+  visibility: hidden;
+}
+
+.ev-row-label {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ev-row-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.ev-row-sig {
+  flex: none;
+  max-width: 35%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  color: var(--text-disabled);
+}
+
+/* ===== 空态 / 提示 ===== */
+
+.ev-empty {
+  padding: var(--space-4) var(--space-3);
+  color: var(--text-dim);
+}
+
+.ev-empty-title {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: var(--space-1);
+}
+
+.ev-empty-inline {
+  padding: var(--space-2);
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+}
+
+.ev-hint {
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+}
+
+.ev-note {
+  margin: var(--space-1) var(--space-2) 0;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--text-dim);
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+}
+
+.ev-note--warn {
+  color: var(--warning);
+}
+
+/* ===== 底部提示条（双击结果 / 快捷动作） ===== */
+
+.ev-notice {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 var(--space-2) var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.ev-notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ev-btn {
+  flex: none;
+  padding: 0 var(--space-2);
+  min-height: var(--space-5);
+  font-size: var(--font-xs);
+  color: var(--text);
+  background: var(--accent);
+  border: 1px solid var(--accent-hover);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.ev-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.ev-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ev-notice-close {
+  flex: none;
+  width: var(--space-4);
+  height: var(--space-4);
+  padding: 0;
+  line-height: 1;
+  font-size: var(--font-md);
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.ev-notice-close:hover {
+  color: var(--text);
+}

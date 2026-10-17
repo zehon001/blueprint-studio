@@ -42,6 +42,8 @@ import type {
 } from '../../ir/types';
 import { editorSpecMap } from '../my-blueprint/graph-op-specs';
 import { nameKey, nextCopyName } from '../my-blueprint/model';
+import { loadPluginSpecs } from '../../nodes/dynamic';
+import { useWorkspaceStore } from '../../shell/workspace-store';
 import {
   clampCommentBounds,
   commentIdFromSelectionId,
@@ -304,6 +306,28 @@ function writeRecentStorage(list: readonly string[]): void {
   }
 }
 
+/**
+ * T6.4 插件节点并入 store.specs（蓝图编辑器打开资产时后台装配）：
+ * 异步 loadPluginSpecs(当前项目) → 并入现有 specs（现有键优先——内置库 / 编辑器补充 /
+ * 片段 spec 保持权威，插件节点不混入 builtinSpecMap）；右键搜索 / 检视器 / 校验随即可用。
+ * 任何失败静默 + console.warn（右键搜索退化为无插件节点，编辑体验不受影响）。
+ * 结果按 project 记忆化于 loadPluginSpecs（重复 openAsset 不重复 fetch）。
+ */
+async function refreshPluginSpecsInBackground(): Promise<void> {
+  try {
+    const project = useWorkspaceStore.getState().currentProject?.path;
+    const { specs } = await loadPluginSpecs(project);
+    if (specs.length === 0) return;
+    const merged = new Map(useBlueprintStore.getState().specs);
+    for (const spec of specs) {
+      if (!merged.has(spec.id)) merged.set(spec.id, spec);
+    }
+    useBlueprintStore.getState().setSpecs(merged);
+  } catch (err) {
+    console.warn('[蓝图] 插件节点加载失败（右键搜索将不含插件节点）:', err);
+  }
+}
+
 /* ============================================================
  * store 定义
  * ============================================================ */
@@ -483,6 +507,8 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
         validation: null,
         focusComment: null,
       });
+      // T6.4：后台并入插件节点 specs（异步、失败静默；右键搜索 / 检视器随即可用）
+      void refreshPluginSpecsInBackground();
     },
 
     switchGraph(graphName) {

@@ -10,6 +10,9 @@
  * 追加记录：ADR-006（T2.7）为 IRGraph 增补可选 comments 字段（注释框，纯视觉容器，
  * 不参与解释执行；version 不升——新字段可选，旧资产读取即无注释）。
  *
+ * 追加记录：ADR-005 附加说明（T6.4）为 NodeRunContext 增补可选 projectName / callPlugin
+ * （插件节点动态注册的运行上下文扩展；均为可选字段，旧运行路径不受影响，详见字段注释）。
+ *
  * 契约级变更（字段增删、语义修改）必须先在 docs/v2/adr/ 落 ADR 并由 PM-Agent 知会，
  * 再修改本文件；禁止绕过 ADR 直接改类型。
  */
@@ -454,6 +457,24 @@ export interface NodeRunContext {
   notify?(message: string): void;
   clipboardWrite?(text: string): void;
   openUrl?(url: string): void;
+  /**
+   * 项目名（T6.4 · ADR-005 附加说明级扩展）：插件节点 run 调用服务端 CLI 桥
+   * （/api/plugins/invoke）时随请求携带的 project 参数（项目文件夹名，安全根首段）。
+   * 由运行装配方（BindingRunner / 解释器后续接线）注入；缺失时节点实现经
+   * src/nodes/dynamic.ts 的 configurePluginInvoke 装配兜底。
+   */
+  projectName?: string;
+  /**
+   * 插件调用桥（T6.4 · ADR-005 附加说明级扩展）：脚本 plugins.<id>.<method>()（T3.2）
+   * 与插件节点 run 共用的 CLI 桥通道。约定：resolve 为插件调用响应
+   * { ok, outputs?, stdout?, stderr?, message? }（含失败——ok:false resolve，不 reject，
+   * 便于调用方统一走降级路径）；响应形状见 src/nodes/dynamic.ts PluginInvokeResponse。
+   */
+  callPlugin?(
+    pluginId: string,
+    method: string,
+    args: Record<string, unknown> | unknown[],
+  ): Promise<unknown>;
 }
 
 /** 节点单次执行结果 */
