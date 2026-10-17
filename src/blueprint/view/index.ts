@@ -40,3 +40,5 @@ export {
   bpNodeTypes,
   type BPGraphCanvasProps,
 } from './BPGraphCanvas';
+// T3.7 片段编辑模态（双击片段节点展开；命令栈接线 saveSnippetEdit 一并导出）
+export { SnippetEditModal, saveSnippetEdit, type SnippetEditModalProps } from './SnippetEditModal';

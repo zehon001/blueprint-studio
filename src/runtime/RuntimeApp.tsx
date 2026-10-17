@@ -25,6 +25,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { renderUI, type UIRenderEvent, type UIRenderHandle } from './render/render'
 import { BindingRunner } from './binding'
+import { DebugProbe } from './debug-probe'
 import type { UIAsset } from '../ir/types'
 import { parseUIAsset } from '../ui-editor/store'
 import { parseMainUI, runtimeWindowTitle, type RuntimeMode } from '../shell/runtime-launch'
@@ -152,6 +153,8 @@ export default function RuntimeApp(props: RuntimeAppProps) {
   const handleRef = useRef<UIRenderHandle | null>(null)
   // 绑定运行器（T2.6）：就绪后创建，重载 / 卸载时 stop
   const runnerRef = useRef<BindingRunner | null>(null)
+  // 调试观察探针（T5.4）：就绪后创建，重载 / 卸载时 stop（一键关闭观察通道）
+  const probeRef = useRef<DebugProbe | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
 
   /** 控制台追加一行（FIFO 上限；错误行自动展开面板） */
@@ -245,6 +248,11 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     handleRef.current = handle
     const project = app.params?.project
     if (project) {
+      // 运行时蓝图观察（T5.4）：一个运行窗口一个探针——各绑定实例的 debug 事件经
+      // 150ms 批量经 WS 反向通道送编辑器叠加层（server/ws.ts 路由；无订阅者时服务端
+      // 回 debug.mute 自动停发）。probe 随本 effect 创建/销毁（重载 / 卸载 stop）。
+      const probe = new DebugProbe({ project })
+      probeRef.current = probe
       const runner = new BindingRunner({
         project,
         asset: app.asset,
@@ -254,6 +262,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
         // 详细错误行已由 onPrint 通道输出（[错误] 前缀行会自动展开）；
         // 这里只负责展开控制台（覆盖不携带 [错误] 前缀的错误路径，如蓝图加载失败）
         onError: () => setConsoleOpen(true),
+        debugProbe: probe,
       })
       runnerRef.current = runner
       void runner.loadAndStart()
@@ -263,6 +272,8 @@ export default function RuntimeApp(props: RuntimeAppProps) {
       runnerRef.current = null
       handle.destroy()
       handleRef.current = null
+      probeRef.current?.stop()
+      probeRef.current = null
     }
   }, [app.phase, app.asset, appendConsole])
 

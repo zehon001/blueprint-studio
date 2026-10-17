@@ -4,23 +4,26 @@
  * 职责：
  *  - REST：/api/projects（列表/新建）· /api/tree · /api/file（GET/PUT/DELETE）·
  *          /api/move · /api/import · /api/watch（SSE）· /api/health
+ *  - TS 转译（T3.3）：/api/transpile（esbuild type-strip + (path, 内容哈希) LRU 缓存）
  *  - 插件注册表（T6.1）：/api/plugins（三源合并清单）· /api/plugins/:id（单清单详情）
  *  - 静态托管 dist/（多入口：/ · /editor.html · /runtime.html；SPA fallback 仅对已知入口）
  *  - CORS：放行 5173 开发跨域（localhost / 127.0.0.1）
- *  - WS Hub 最小占位（/ws）：只握手 + hello，协议扩展属 T0.4（多窗口）与 T5.4（调试观察）
+ *  - WS Hub（T5.4）：/ws 调试观察正式协议（debug.v1，路由转发见 ./ws.ts）
  *
- * 明确不做（后续卡，留扩展点）：esbuild 转译（T3.3）、插件执行与 CLI 桥（T6.3）、
- * WS 调试协议（T5.4）、.history 快照（T7.4）。
+ * 明确不做（后续卡，留扩展点）：插件执行与 CLI 桥（T6.3）、.history 快照（T7.4）。
+ *  - esbuild 转译（T3.3）已由本文件 /api/transpile + ./transpile.ts 承接。
  *
  * 错误格式统一：成功 { ok: true, ... }；失败 { ok: false, message }。
  */
 import http from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
-import { WebSocketServer, type WebSocket } from 'ws'
+import { WebSocketServer } from 'ws'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import * as fsApi from './fs'
 import * as pluginsApi from './plugins/registry'
+import * as transpileApi from './transpile'
+import { WsDebugHub } from './ws'
 
 const PORT = Number(process.env.PORT || 8790)
 const PROJECTS_ROOT = fsApi.ensureProjectsRoot()
@@ -138,7 +141,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         name: 'blueprint-studio-server',
         version: fsApi.ENGINE_VERSION,
         projectsRoot: PROJECTS_ROOT,
-        wsClients,
+        // T5.4：参与调试观察的 WS 连接数（订阅者 + 生产者去重）
+        wsClients: wsHub.stats().connections,
+        wsHub: wsHub.stats(),
         uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
       })
       return
@@ -200,6 +205,16 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
     if (pathname === '/api/watch' && req.method === 'GET') {
       handleWatch(req, res, url.searchParams.get('path') ?? '')
+      return
+    }
+
+    // T3.3 TS 转译：POST /api/transpile（body: { path, content } 或 { source, loader }）。
+    // esbuild type-strip 纯文本转换（无路径执行、无文件 IO），(path, 内容哈希) LRU 缓存；
+    // 语法错误返回 200 + { ok:false, errors:[{line,column,message}] }（参数/超限走 FsError 统一映射）。
+    if (pathname === '/api/transpile' && req.method === 'POST') {
+      const body = await readJson(req)
+      const result = await transpileApi.handleTranspileRequest(body)
+      sendJson(res, result.status, result.payload)
       return
     }
 
@@ -318,11 +333,12 @@ function serveStatic(pathname: string, res: ServerResponse): void {
 }
 
 /* ============================================================
- * WS Hub（最小占位，协议扩展属 T0.4 / T5.4）
+ * WS Hub（正式协议·调试观察通道，T5.4 · 路由实现见 ./ws.ts）
  * ============================================================ */
 
 const wss = new WebSocketServer({ noServer: true })
-let wsClients = 0
+const wsHub = new WsDebugHub()
+wsHub.attach(wss)
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`)
@@ -334,27 +350,9 @@ server.on('upgrade', (req, socket, head) => {
 })
 
 /**
- * 扩展点（T0.2 只留占位）：
- * - T0.4 多窗口拆合：BroadcastChannel 语义跨窗口走 WS 时在此挂房间管理
- * - T5.4 运行时蓝图观察：调试反向推送（trace / pinValue，150ms 批量）在此挂通道
+ * 扩展点（T5.4 调试观察协议已落地，见 ./ws.ts）：
+ * - T0.4 多窗口拆合：BroadcastChannel 语义跨窗口走 WS 时在此追加房间管理
  */
-wss.on('connection', (ws: WebSocket) => {
-  wsClients++
-  ws.send(
-    JSON.stringify({
-      type: 'hello',
-      hub: 'blueprint-studio-v2',
-      protocol: 'placeholder',
-      note: 'WS 协议占位（T0.2），扩展见 T0.4 / T5.4',
-    }),
-  )
-  ws.on('close', () => {
-    wsClients--
-  })
-  ws.on('message', () => {
-    /* 占位：暂不处理任何消息 */
-  })
-})
 
 /* ============================================================
  * 启动
@@ -364,5 +362,5 @@ server.listen(PORT, () => {
   console.log(`[server] Blueprint Studio v2 后端已启动: http://localhost:${PORT}`)
   console.log(`[server] 项目安全根: ${PROJECTS_ROOT}`)
   console.log(`[server] 静态目录: ${DIST_DIR}（入口 / · /editor.html · /runtime.html）`)
-  console.log(`[server] WebSocket: ws://localhost:${PORT}/ws（占位 hub，协议扩展见 T0.4 / T5.4）`)
+  console.log(`[server] WebSocket: ws://localhost:${PORT}/ws（调试观察协议 debug.v1，T5.4）`)
 })

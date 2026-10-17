@@ -11,11 +11,13 @@
  * 后续任务接线方式：
  *  - T3.2 内建 API：@/script/api 的 scriptTypesExtension() 已在 TS 模式挂载
  *    （ScriptEditor.languageExtensionOf），补全随类型包自动生效；
- *  - T3.5 codegen / T3.8 双视图同步：ViewSwitch 独立导出可直接复用；
- *    ScriptEditor.onReady 暴露 EditorView（诊断 / 同步协议接入点）；
- *  - T3.6 解析器：syntaxDiagnosticsExtension() 空占位替换为 linter()；
- *    ScriptTab 蓝图视图占位面板（BlueprintPlaceholder）替换为
- *    BlueprintEditorPanel 受控渲染（接线点见 ScriptTab.tsx）；
+ *  - T3.5 codegen / T3.8 双视图同步：ScriptTab 已接同步协议状态机（./sync.ts，
+ *    保存者胜 / 过期提示重载 / 脏冲突横幅），蓝图视图为 BlueprintEditorPanel
+ *    真渲染（面板经动态 import 懒加载，node:test 无 CSS shim 时降级只读提示）；
+ *    ScriptEditor.onReady 暴露 EditorView（诊断跳转接入点）；
+ *  - T3.6 解析器：ScriptTab 顶栏诊断徽标 + 列表已接 parseScriptToIR diagnostics
+ *    （点击条目 CodeMirror dispatch 滚动到行）；ScriptEditor 的
+ *    syntaxDiagnosticsExtension() 保留为编辑器内 linter 的后续扩展位；
  *  - 只读 codegen 文本：直接复用 <ScriptEditor path value readOnly />。
  */
 import './script-editor.css';
@@ -32,10 +34,6 @@ export {
 } from './ScriptEditor';
 export { ViewSwitch, type ScriptViewKind, type ViewSwitchProps } from './ViewSwitch';
 export {
-  BlueprintPlaceholder,
-  type BlueprintPlaceholderProps,
-} from './BlueprintPlaceholder';
-export {
   createDraftTracker,
   type DraftTracker,
 } from './draft';
@@ -45,3 +43,14 @@ export {
   type ScriptLanguage,
   type ScriptScanSummary,
 } from './scan';
+export {
+  blueprintDirtyPending,
+  initSyncState,
+  scriptDraftPending,
+  viewStateMachine,
+  type SyncEffect,
+  type SyncEvent,
+  type SyncState,
+  type SyncTransition,
+  type SyncView,
+} from './sync';

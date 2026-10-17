@@ -18,6 +18,7 @@ import {
   type EdgeTypes,
   type IsValidConnection,
   type NodeTypes,
+  type NodeMouseHandler,
   type OnConnect,
   type OnConnectEnd,
   type OnEdgesChange,
@@ -65,6 +66,8 @@ export interface BPGraphCanvasProps {
   onSelectionChange?: OnSelectionChangeFunc<FlowNode, FlowEdge>;
   /** 连线右键（断开菜单） */
   onEdgeContextMenu?: EdgeMouseHandler<FlowEdge>;
+  /** 节点双击（T3.7：片段节点双击展开源码编辑模态；其余节点不响应） */
+  onNodeDoubleClick?: NodeMouseHandler<FlowNode>;
   /** 视口移动开始（关闭弹出菜单） */
   onMoveStart?: OnMoveStart;
   /** 连线吸附预检（exec↔data 不互吸 / 重复线 / 同节点） */
@@ -98,6 +101,7 @@ export function BPGraphCanvas({
   onNodeDragStop,
   onSelectionChange,
   onEdgeContextMenu,
+  onNodeDoubleClick,
   onMoveStart,
   isValidConnection,
   panActivationKeyCode = 'Space',
@@ -121,6 +125,7 @@ export function BPGraphCanvas({
         onNodeDragStop={onNodeDragStop}
         onSelectionChange={onSelectionChange}
         onEdgeContextMenu={onEdgeContextMenu}
+        onNodeDoubleClick={onNodeDoubleClick}
         onMoveStart={onMoveStart}
         isValidConnection={isValidConnection}
         panActivationKeyCode={panActivationKeyCode}

@@ -24,6 +24,7 @@ import {
   NODE_HEAD_COLORS,
   rawToken,
 } from '../../shell/theme/tokens';
+import { SNIPPET_NODE_TYPE, snippetOfAsset, snippetSpecFromPins } from '../../script/snippet';
 
 /* ============================================================
  * 1. 视图模型类型（FlowNode / FlowEdge，T2.2 交互层共用）
@@ -301,6 +302,18 @@ function offsetAvoidingPositioned(
 const EMPTY_SET: ReadonlySet<string> = new Set();
 const EMPTY_ARR: readonly string[] = [];
 
+/**
+ * 片段节点的视图 spec（T3.7，ADR-007 §5）：params.snippet 引用 IRSnippet →
+ * 按其 pins 合成动态 spec（引脚声明与节点库同构，数据引脚可正常连线/渲染）。
+ * 引用缺失（孤儿引用 / 新建未编辑）→ 空引脚占位 spec（节点可见可双击编辑）。
+ */
+function snippetViewSpec(node: IRNode, asset: IRAsset): NodeSpec {
+  const id = node.params?.['snippet'];
+  const snip = snippetOfAsset(asset, id);
+  if (!snip) return snippetSpecFromPins(typeof id === 'string' && id !== '' ? id : '未命名', []);
+  return snippetSpecFromPins(snip.id, snip.pins);
+}
+
 function pushDegraded(
   degraded: Map<string, { in: string[]; out: string[] }>,
   nodeId: string,
@@ -335,6 +348,12 @@ export function irToFlow(
 
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
 
+  /** 节点实例的有效 spec：片段节点按资产现算（引脚动态），其余查全局 specs 表 */
+  const effectiveSpecOf = (n: IRNode | undefined): NodeSpec | null => {
+    if (!n) return null;
+    return n.type === SNIPPET_NODE_TYPE ? snippetViewSpec(n, asset) : specs.get(n.type) ?? null;
+  };
+
   // 1) 连线预扫描：已连线输入引脚集合 + 未知节点的降级引脚（从连线还原）
   const connectedInputs = new Map<string, Set<string>>();
   const degraded = new Map<string, { in: string[]; out: string[] }>();
@@ -345,10 +364,10 @@ export function irToFlow(
       connectedInputs.set(e.to.node, set);
     }
     set.add(e.to.pin);
-    if (!specs.get(nodeById.get(e.from.node)?.type ?? '')) {
+    if (!effectiveSpecOf(nodeById.get(e.from.node))) {
       pushDegraded(degraded, e.from.node, 'out', e.from.pin);
     }
-    if (!specs.get(nodeById.get(e.to.node)?.type ?? '')) {
+    if (!effectiveSpecOf(nodeById.get(e.to.node))) {
       pushDegraded(degraded, e.to.node, 'in', e.to.pin);
     }
   }
@@ -357,7 +376,9 @@ export function irToFlow(
   const unpositionedNodes: IRNode[] = [];
   const positionedIds = new Set<string>();
   for (const n of graph.nodes) {
-    const spec = specs.get(n.type) ?? null;
+    // 片段节点（T3.7 ADR-007 §5）：引脚按 IRSnippet.pins 动态声明，spec 按资产现算
+    //（标题「片段：<id 前 8 位>」、紫头 plugin 变体复用），不依赖全局 specs 表
+    const spec = effectiveSpecOf(n);
     const variant = headVariantFor(n.type, spec);
     const positioned = hasPosition(n);
     if (positioned) positionedIds.add(n.id);
@@ -384,7 +405,7 @@ export function irToFlow(
     const unpositionedIds = new Set(unpositionedNodes.map((n) => n.id));
     const entriesById = new Map<string, LayoutEntry>();
     const entries: LayoutEntry[] = unpositionedNodes.map((n) => {
-      const size = nodeSizeFor(headVariantFor(n.type, specs.get(n.type) ?? null));
+      const size = nodeSizeFor(headVariantFor(n.type, effectiveSpecOf(n)));
       const entry: LayoutEntry = { id: n.id, width: size.width, height: size.height };
       entriesById.set(n.id, entry);
       return entry;
@@ -396,7 +417,7 @@ export function irToFlow(
       .filter((n) => positionedIds.has(n.id))
       .map((n) => ({
         position: n.position,
-        size: nodeSizeFor(headVariantFor(n.type, specs.get(n.type) ?? null)),
+        size: nodeSizeFor(headVariantFor(n.type, effectiveSpecOf(n))),
       }));
     const laidOut = autoLayoutPositions(entries, links);
     const shifted = offsetAvoidingPositioned(laidOut, entriesById, positionedBoxes);
@@ -410,10 +431,8 @@ export function irToFlow(
   for (const e of graph.edges) {
     let pinType: IRValueType = e.kind === 'exec' ? 'exec' : 'any';
     if (e.kind === 'data') {
-      const fromNode = nodeById.get(e.from.node);
-      const fromSpec = fromNode ? specs.get(fromNode.type) : undefined;
-      const toNode = nodeById.get(e.to.node);
-      const toSpec = toNode ? specs.get(toNode.type) : undefined;
+      const fromSpec = effectiveSpecOf(nodeById.get(e.from.node));
+      const toSpec = effectiveSpecOf(nodeById.get(e.to.node));
       pinType =
         fromSpec?.outputs.find((p) => p.id === e.from.pin)?.type ??
         toSpec?.inputs.find((p) => p.id === e.to.pin)?.type ??

@@ -34,6 +34,7 @@ import type {
   IREventDef,
   IRGraph,
   IRNode,
+  IRSnippet,
   IRVariable,
   NodeSpec,
 } from '../ir/types';
@@ -44,8 +45,11 @@ import {
   EXPR_TABLE_MAP,
   FUNC_ENTRY_TYPES,
   FUNC_RETURN_TYPES,
+  SNIPPET_IN_WIRE_PREFIX,
   SNIPPET_NODE_TYPE,
+  SNIPPET_OUT_WIRE_PREFIX,
   SNIPPET_PARAM_KEY,
+  SNIPPET_WIRING_PREFIX,
   TYPE_EVENT_CUSTOM,
   TYPE_EVENT_LISTEN,
   TYPE_EVENT_START,
@@ -71,6 +75,7 @@ import {
   uniqueName,
   withTypeComment,
 } from './codegen-common';
+import { snippetExecOut, snippetHasExecIn, snippetIsPure, snippetPinIssue } from './snippet';
 
 /** codegen 失败（含图名与节点 id 定位；调用方应降级为蓝图视图并提示，中文消息） */
 export class CodegenError extends Error {
@@ -140,6 +145,8 @@ interface MethodCtx {
   joins: Set<string>;
   /** 本方法内已发射的节点（防重复发射） */
   emitted: Set<string>;
+  /** 片段出脚变量名避让集（循环变量 / 局部名命名时不得与片段裸名出脚冲突） */
+  reserved: Set<string>;
 }
 
 /* ============================================================
@@ -427,6 +434,7 @@ class Codegen {
     }
     const chainStart = this.followExec(ctx, node.id, 'exec');
     const bodyLines = this.capture(() => {
+      this.emitPureSnippetPrelude(ctx, graph);
       if (chainStart) this.emitChain(ctx, chainStart, undefined, { stopOnJoin: false });
       this.emitDanglingPure(ctx, graph);
       this.flushPending(ctx);
@@ -462,6 +470,7 @@ class Codegen {
     for (const p of params) ctx.pinRefs.set(pinKey(entryNode.id, p.name), p.name);
     const fnChainStart = this.followExec(ctx, entryNode.id, 'exec');
     const bodyLines = this.capture(() => {
+      this.emitPureSnippetPrelude(ctx, graph);
       if (fnChainStart) this.emitChain(ctx, fnChainStart, undefined, { stopOnJoin: false });
       this.emitDanglingPure(ctx, graph);
       this.flushPending(ctx);
@@ -512,6 +521,17 @@ class Codegen {
     for (const [nodeId, count] of execInCount) {
       if (count >= 2) joins.add(nodeId);
     }
+    // 片段出脚以裸名变量承载（var 提升）：循环变量等局部名需避让
+    const reserved = new Set<string>();
+    for (const n of graph.nodes) {
+      if (n.type !== SNIPPET_NODE_TYPE) continue;
+      const snipId = n.params?.[SNIPPET_PARAM_KEY];
+      const snip =
+        typeof snipId === 'string' ? (this.asset.snippets ?? []).find((s) => s.id === snipId) : undefined;
+      for (const p of snip?.pins ?? []) {
+        if (p && p.dir === 'out' && p.type !== 'exec') reserved.add(p.id);
+      }
+    }
     return {
       graphName,
       graph,
@@ -526,6 +546,7 @@ class Codegen {
       outDegree,
       joins,
       emitted: new Set<string>(),
+      reserved,
     };
   }
 
@@ -583,6 +604,19 @@ class Codegen {
           node.id,
         );
       }
+      // 片段节点：exec 入脚由 IRSnippet.pins 动态声明（spec 骨架为空引脚），单独检查
+      if (node.type === SNIPPET_NODE_TYPE && !visited.has(node.id)) {
+        const snipId = node.params?.[SNIPPET_PARAM_KEY];
+        const snip =
+          typeof snipId === 'string' ? (this.asset.snippets ?? []).find((s) => s.id === snipId) : undefined;
+        if (snip && snippetHasExecIn(snip.pins)) {
+          throw new CodegenError(
+            `图「${graphName}」中的片段节点「${node.id}」（片段 ${snipId}）声明了 exec 入脚但无法从任何入口沿 exec 链到达——请先在蓝图中连接或删除该节点再生成脚本`,
+            graphName,
+            node.id,
+          );
+        }
+      }
     }
   }
 
@@ -632,11 +666,10 @@ class Codegen {
       }
       first = false;
       const node = this.nodeOf(ctx, arriving.node);
-      console.error('[W] emit', node.id, node.type);
       const emitted = this.emitNodeStatement(ctx, node);
-      if (!emitted.out) { console.error('[W] dead at', node.id); return EMPTY_CHAIN; }
+      if (!emitted.out) return EMPTY_CHAIN;
       const nextEndpoint = this.followExec(ctx, emitted.out.nodeId, emitted.out.pin);
-      if (!nextEndpoint) { console.error('[W] no-edge from', emitted.out.nodeId, emitted.out.pin); return EMPTY_CHAIN; }
+      if (!nextEndpoint) return EMPTY_CHAIN;
       lastFrom = emitted.out;
       arriving = nextEndpoint;
     }
@@ -791,7 +824,7 @@ class Codegen {
     const cmp = negative ? '>=' : '<=';
     const stepText = negative ? String(Math.abs(stepLit as number)) : step;
 
-    const varName = uniqueName('i', new Set(ctx.pinRefs.values()));
+    const varName = uniqueName('i', new Set([...ctx.pinRefs.values(), ...ctx.reserved]));
     ctx.pinRefs.set(pinKey(node.id, 'index'), varName);
     ctx.aliasDepth.set(varName, ctx.depth);
 
@@ -820,8 +853,8 @@ class Codegen {
   /** array.forEach → for..of（entries 形式；index/element 均 let 提升支持循环后引用） */
   private emitForEach(ctx: MethodCtx, node: IRNode): NodeEmit {
     const arr = this.expectSingle(ctx, node, 'array', 'array.forEach');
-    const idxName = uniqueName('i', new Set(ctx.pinRefs.values()));
-    const elName = uniqueName('el', new Set([...ctx.pinRefs.values(), idxName]));
+    const idxName = uniqueName('i', new Set([...ctx.pinRefs.values(), ...ctx.reserved]));
+    const elName = uniqueName('el', new Set([...ctx.pinRefs.values(), ...ctx.reserved, idxName]));
     ctx.pinRefs.set(pinKey(node.id, 'index'), idxName);
     ctx.pinRefs.set(pinKey(node.id, 'element'), elName);
     ctx.aliasDepth.set(idxName, ctx.depth);
@@ -1027,34 +1060,192 @@ class Codegen {
     return EMPTY_NODE_EMIT; // 链终止（func.return 无 exec 出口）
   }
 
-  /** 片段节点 → __bps-snippet 标记对内原样输出源码（接线情况以注释说明，解析端剔除） */
+  /**
+   * 片段节点 → __bps-snippet 标记对内原样输出源码（T3.7 引脚重建，ADR-007 §3）：
+   *  - 数据入脚：块前发射 `const __bps_vN = <expr>; // __bps-snippet-in(<pin>)`
+   *    （连线源表达式 / pinDefaults 字面量；解析端按尾注释延迟接线）；
+   *  - 数据出脚：块内首部 `// __bps-snippet-wiring: let <out>` + `let <out>;`
+   *    （片段代码以裸名赋值出脚），被下游引用的出脚在块后发射
+   *    `const __bps_vM = <out>; // __bps-snippet-out(<pin>)` 并登记具名引用；
+   *  - exec 出口：按片段引脚声明取第一个 exec 出（无 = 链终止）。
+   */
   private emitSnippetNode(ctx: MethodCtx, node: IRNode): NodeEmit {
-    const snipId = node.params?.[SNIPPET_PARAM_KEY];
-    if (typeof snipId !== 'string' || snipId === '') {
-      throw new CodegenError(`片段节点「${node.id}」缺少 ${SNIPPET_PARAM_KEY} 参数`, ctx.graphName, node.id);
-    }
-    const snip = (this.asset.snippets ?? []).find((s) => s.id === snipId);
-    if (!snip) {
-      throw new CodegenError(`片段节点「${node.id}」引用的片段「${snipId}」不在资产 snippets 中`, ctx.graphName, node.id);
-    }
+    const snip = this.snippetOfNode(ctx, node);
     this.flushPending(ctx);
+    this.emitSnippetInWireLines(ctx, node, snip);
     this.push(snippetBeginLine(snip.id, snip.lang, snip.pins));
-    // 接线说明：片段引脚上的数据连线（T3.7 完善挂接机制前的可见提示）
-    for (const e of ctx.graph.edges) {
-      if (e.kind !== 'data') continue;
-      if (e.from.node !== node.id && e.to.node !== node.id) continue;
-      this.push(`// __bps-snippet-wiring: ${e.from.node}.${e.from.pin} -> ${e.to.node}.${e.to.pin}`);
-    }
+    this.emitSnippetOutDecls(snip);
     if (snip.lang === 'ts') {
       for (const line of snip.code.split('\n')) this.push(line);
     } else {
       for (const line of snip.code.split('\n')) this.push(line === '' ? '//' : `// ${line}`);
     }
     this.push(snippetEndLine(snip.id));
+    this.emitSnippetOutWireLines(ctx, node, snip);
     // exec 出口：按片段引脚声明（无 exec 出 = 链终止）
-    const outPin = snip.pins.find((p) => p.dir === 'out' && p.type === 'exec');
-    if (!outPin) return EMPTY_NODE_EMIT;
-    return { out: { nodeId: node.id, pin: outPin.id } };
+    const execOut = snippetExecOut(snip.pins);
+    if (!execOut) return EMPTY_NODE_EMIT;
+    return { out: { nodeId: node.id, pin: execOut.id } };
+  }
+
+  /** 片段节点引用的 IRSnippet（缺失 / 引脚非法即抛 CodegenError） */
+  private snippetOfNode(ctx: MethodCtx, node: IRNode): IRSnippet {
+    const snipId = node.params?.[SNIPPET_PARAM_KEY];
+    if (typeof snipId !== 'string' || snipId === '') {
+      throw new CodegenError(
+        `片段节点「${node.id}」缺少 ${SNIPPET_PARAM_KEY} 参数（双击节点填写源码与引脚）`,
+        ctx.graphName,
+        node.id,
+      );
+    }
+    const snip = (this.asset.snippets ?? []).find((s) => s.id === snipId);
+    if (!snip) {
+      throw new CodegenError(
+        `片段节点「${node.id}」引用的片段「${snipId}」不在资产 snippets 中`,
+        ctx.graphName,
+        node.id,
+      );
+    }
+    for (const pin of snip.pins ?? []) {
+      if (pin.type === 'exec') continue;
+      const issue = snippetPinIssue(pin);
+      if (issue) {
+        throw new CodegenError(`片段「${snipId}」：${issue}（节点 ${node.id}）`, ctx.graphName, node.id);
+      }
+    }
+    if (!snippetHasExecIn(snip.pins) && snippetExecOut(snip.pins)) {
+      throw new CodegenError(
+        `片段「${snipId}」只声明了 exec 出脚（无 exec 入）——无法进入执行链，请补 exec 入脚或移除 exec 出脚（节点 ${node.id}）`,
+        ctx.graphName,
+        node.id,
+      );
+    }
+    return snip;
+  }
+
+  /** 片段数据入脚的别名行（连线表达式 / pinDefaults 字面量；块前发射，解析端延迟接线）。
+   * 求值可能产生新的共享别名声明（ensureAlias → pending），先全部求值再统一冲刷，
+   * 保证「别名声明 → 入脚别名行」的文本顺序（纯片段前奏不得前向引用）。 */
+  private emitSnippetInWireLines(ctx: MethodCtx, node: IRNode, snip: IRSnippet): void {
+    const lines: string[] = [];
+    for (const pin of snip.pins ?? []) {
+      if (pin.dir !== 'in' || pin.type === 'exec') continue;
+      const edges = this.dataEdgesInto(ctx, node.id, pin.id);
+      if (edges.length === 0 && !(node.pinDefaults && pin.id in node.pinDefaults)) continue;
+      let expr: string;
+      if (edges.length > 0) {
+        // 纯片段的入脚只能由可内联表达式源供给（ADR-007 §3）：执行节点输出此刻尚无具名承载
+        const src = this.nodeOf(ctx, edges[0].from.node);
+        const srcSpec = specOfType(src.type);
+        const srcIsExec =
+          !!srcSpec &&
+          !srcSpec.pure &&
+          (srcSpec.inputs.some((p) => p.type === 'exec') || src.type === SNIPPET_NODE_TYPE);
+        if (srcIsExec && !ctx.pinRefs.has(pinKey(src.id, edges[0].from.pin))) {
+          throw new CodegenError(
+            `片段节点「${node.id}」的入脚「${pin.id}」来自执行节点输出——纯片段无法在脚本视图中线性承载该连线，请改用声明 exec 入/出的片段或在片段内经 vars 读取变量`,
+            ctx.graphName,
+            node.id,
+          );
+        }
+        expr = this.sourceExpr(ctx, edges[0].from);
+      } else {
+        expr = literalToExpr(node.pinDefaults?.[pin.id]);
+      }
+      const alias = this.freshAlias(ctx);
+      lines.push(`const ${alias} = ${expr}; // ${SNIPPET_IN_WIRE_PREFIX}(${pin.id})`);
+    }
+    this.flushPending(ctx);
+    for (const line of lines) this.push(line);
+  }
+
+  /** 片段数据出脚的声明行（块内首部；解析端按 SNIPPET_WIRING_PREFIX 剔除）。
+   * 用 var 而非 let：多个片段节点（同方法作用域）声明同名出脚时 var 重声明合法，
+   * 保证生成码可转译；片段代码以裸名赋值出脚，var 函数域提升与该形态兼容（ADR-007 §3）。 */
+  private emitSnippetOutDecls(snip: IRSnippet): void {
+    for (const pin of snip.pins ?? []) {
+      if (pin.dir !== 'out' || pin.type === 'exec') continue;
+      // 声明行成对携带前缀注释（行首或行尾均可被解析端按前缀剔除，见 prescanBody 过滤）
+      this.push(`${SNIPPET_WIRING_PREFIX}: let ${pin.id}`);
+      this.push(`var ${pin.id}; // ${SNIPPET_WIRING_PREFIX}`);
+    }
+  }
+
+  /** 片段数据出脚的出口别名行（块后发射；仅被下游引用的出脚） */
+  private emitSnippetOutWireLines(ctx: MethodCtx, node: IRNode, snip: IRSnippet): void {
+    for (const pin of snip.pins ?? []) {
+      if (pin.dir !== 'out' || pin.type === 'exec') continue;
+      if (!ctx.consumed.has(pinKey(node.id, pin.id))) continue;
+      const alias = this.freshAlias(ctx);
+      this.push(`const ${alias} = ${pin.id}; // ${SNIPPET_OUT_WIRE_PREFIX}(${pin.id})`);
+      ctx.pinRefs.set(pinKey(node.id, pin.id), alias);
+      ctx.aliasDepth.set(alias, ctx.depth);
+    }
+  }
+
+  /**
+   * 纯片段（完全无 exec 引脚）的方法体前奏（ADR-007 §3）：
+   * 纯片段块提升到方法体顶部发射（脚本顺序执行语义：先求片段、后消费出值）；
+   * 纯片段之间的入脚依赖按数据边拓扑排序（环回退为声明序，解析端可正常重建）。
+   */
+  private emitPureSnippetPrelude(ctx: MethodCtx, graph: IRGraph): void {
+    const pureNodes = graph.nodes.filter((n) => {
+      if (n.type !== SNIPPET_NODE_TYPE) return false;
+      const snipId = n.params?.[SNIPPET_PARAM_KEY];
+      const snip =
+        typeof snipId === 'string' ? (this.asset.snippets ?? []).find((s) => s.id === snipId) : undefined;
+      return !!snip && snippetIsPure(snip.pins);
+    });
+    if (pureNodes.length === 0) return;
+    for (const node of this.topoPureSnippets(ctx, graph, pureNodes)) {
+      const snip = this.snippetOfNode(ctx, node);
+      this.flushPending(ctx);
+      this.emitSnippetInWireLines(ctx, node, snip);
+      this.push(snippetBeginLine(snip.id, snip.lang, snip.pins));
+      this.emitSnippetOutDecls(snip);
+      if (snip.lang === 'ts') {
+        for (const line of snip.code.split('\n')) this.push(line);
+      } else {
+        for (const line of snip.code.split('\n')) this.push(line === '' ? '//' : `// ${line}`);
+      }
+      this.push(snippetEndLine(snip.id));
+      this.emitSnippetOutWireLines(ctx, node, snip);
+    }
+  }
+
+  /** 纯片段拓扑序（入脚来自其他纯片段的先发射；存在环 / 外部依赖时回落声明序） */
+  private topoPureSnippets(_ctx: MethodCtx, graph: IRGraph, pureNodes: IRNode[]): IRNode[] {
+    void _ctx;
+    const ids = new Set(pureNodes.map((n) => n.id));
+    // 依赖：to 的入脚来自集合内其他纯片段 → from 先于 to
+    const deps = new Map<string, Set<string>>();
+    for (const n of pureNodes) deps.set(n.id, new Set());
+    for (const e of graph.edges) {
+      if (e.kind !== 'data') continue;
+      if (ids.has(e.from.node) && ids.has(e.to.node) && e.from.node !== e.to.node) {
+        deps.get(e.to.node)!.add(e.from.node);
+      }
+    }
+    const done = new Set<string>();
+    const out: IRNode[] = [];
+    const byId = new Map(pureNodes.map((n) => [n.id, n]));
+    let progressed = true;
+    while (out.length < pureNodes.length && progressed) {
+      progressed = false;
+      for (const n of pureNodes) {
+        if (done.has(n.id)) continue;
+        if (![...deps.get(n.id)!].some((d) => !done.has(d))) {
+          done.add(n.id);
+          out.push(byId.get(n.id)!);
+          progressed = true;
+        }
+      }
+    }
+    // 回路兜底：剩余节点按声明序补齐
+    for (const n of pureNodes) {
+      if (!done.has(n.id)) out.push(n);
+    }
+    return out;
   }
 
   /** ui 写值节点 → 属性式 ui.<n>.<attr> = v（名字/属性可静态化时）或 ui.write 调用形态 */
@@ -1132,6 +1323,14 @@ class Codegen {
     if (named !== undefined) {
       this.assertAliasVisible(ctx, named);
       return named;
+    }
+    // 片段节点：出脚值必须经出口别名行承载（emitSnippetOutWireLines 登记的具名引用）
+    if (src.type === SNIPPET_NODE_TYPE) {
+      throw new CodegenError(
+        `数据连线引用了片段节点「${src.id}」的输出「${from.pin}」，但该出脚未被下游引用登记——请检查片段出脚声明与连线`,
+        ctx.graphName,
+        src.id,
+      );
     }
     const spec = specOfType(src.type);
     const isDataOnly = !!spec && !spec.pure && !spec.inputs.some((p) => p.type === 'exec');

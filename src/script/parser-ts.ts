@@ -42,7 +42,9 @@ import { IR_VERSION } from '../ir/types';
 import {
   EVENT_NAME_PARAM,
   EXPR_TABLE_MAP,
+  SNIPPET_IN_WIRE_PREFIX,
   SNIPPET_NODE_TYPE,
+  SNIPPET_OUT_WIRE_PREFIX,
   SNIPPET_PARAM_KEY,
   SNIPPET_WIRING_PREFIX,
   TYPE_EVENT_CUSTOM,
@@ -63,6 +65,7 @@ import {
   tsAnnotationToIrType,
   typeCommentOf,
 } from './codegen-common';
+import { analyzeSnippetNode } from './snippet';
 
 /** 解析诊断（行列 1 起；severity = warning 的条目对应折叠为片段等降级说明） */
 export interface ParseDiagnostic {
@@ -144,12 +147,28 @@ class Parser {
   private foldSeq = 0;
   private readonly eventMethods: { method: ts.MethodDeclaration; kind: string; eventName: string }[] = [];
   private readonly fnMethods: { method: ts.MethodDeclaration; name: string; returns: IRParamSpec[] }[] = [];
+  /** loose 片段块覆盖的行区间（1 起闭区间 from=begin 行 / to=end 行；构造器中扫描） */
+  private readonly looseRanges: { from: number; to: number }[] = [];
 
   constructor(
     private readonly code: string,
     private readonly opts: ParseScriptOptions,
   ) {
     this.sf = ts.createSourceFile('asset.ts', code, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+    // loose 标记对行区间扫描（class 外语句折叠时跳过 loose 内容，见 run()）
+    const lines = code.split('\n');
+    let open: { id: string; from: number } | null = null;
+    for (let i = 0; i < lines.length; i += 1) {
+      if (!open) {
+        const meta = parseSnippetBeginLine(lines[i], 'loose');
+        if (meta) open = { id: meta.id, from: i + 1 };
+        continue;
+      }
+      if (parseSnippetEndLine(lines[i], 'loose') === open.id) {
+        this.looseRanges.push({ from: open.from, to: i + 1 });
+        open = null;
+      }
+    }
   }
 
   /* ============================================================
@@ -195,17 +214,21 @@ class Parser {
           severity: 'warning',
           message: '构造器 / 存取器 / 无体方法等类成员不受受控子集支持，已折叠为脚本片段',
         });
-        this.pushFoldedSnippet(member.getText(this.sf), []);
+        this.pushFoldedSnippetDerived(member);
       }
     }
     for (const stmt of this.sf.statements) {
       if (stmt === cls) continue;
+      // loose 片段块（__bps-loose 标记对）内的语句由 collectLooseSnippets 原样重建，
+      // 不再作为顶层散件折叠（否则同一份源码会被收录两次，T3.7 修复）
+      const stmtLine = this.posAt(stmt.getStart(this.sf)).line;
+      if (this.looseRanges.some((r) => stmtLine > r.from && stmtLine < r.to)) continue;
       this.diags.push({
         ...this.posAt(stmt.getStart(this.sf)),
         severity: 'warning',
         message: '类之外的顶层语句不受受控子集支持，已折叠为脚本片段保留',
       });
-      this.pushFoldedSnippet(stmt.getText(this.sf), []);
+      this.pushFoldedSnippetDerived(stmt);
     }
 
     /* ---------- 事件表：方法签名 + 孤儿事件注释（'start' 是内建事件，不进事件表） ---------- */
@@ -237,6 +260,7 @@ class Parser {
     for (const m of this.eventMethods) {
       this.buildEventMethod(entryBuilder, m);
     }
+    entryBuilder.resolveSnippetWirings();
     graphs[entryName].nodes = entryBuilder.nodes;
     graphs[entryName].edges = entryBuilder.edges;
 
@@ -256,6 +280,7 @@ class Parser {
       const entryNode = builder.addNode(TYPE_FUNC_ENTRY);
       for (const p of params) builder.scope.set(p.name, { kind: 'node', node: entryNode.id, pin: p.name });
       builder.buildLoopAwareBody(m.method.body as ts.Block, [{ node: entryNode.id, pin: 'exec' }], null);
+      builder.resolveSnippetWirings();
       graphs[graphName] = {
         nodes: builder.nodes,
         edges: builder.edges,
@@ -312,18 +337,25 @@ class Parser {
         severity: 'warning',
         message: '非标识符字段名不受支持，已折叠为脚本片段',
       });
-      this.pushFoldedSnippet(prop.getText(this.sf), []);
+      this.pushFoldedSnippetDerived(prop);
       return;
     }
     const declText = prop.getText(this.sf);
     let exposed = false;
     let annoDefault: unknown;
+    let annoType: string | undefined;
     let category: string | undefined;
     for (const d of ts.getDecorators(prop) ?? []) {
-      if (!ts.isCallExpression(d.expression)) continue;
-      if (!ts.isIdentifier(d.expression.expression) || d.expression.expression.text !== 'expose') continue;
+      const expr = d.expression;
+      // 裸 @expose（无括号）：仅暴露标记（T3.4 补缺——手工脚本常见形态，与 scan.ts / PLAN §9.2 对齐）
+      if (ts.isIdentifier(expr)) {
+        if (expr.text === 'expose') exposed = true;
+        continue;
+      }
+      if (!ts.isCallExpression(expr)) continue;
+      if (!ts.isIdentifier(expr.expression) || expr.expression.text !== 'expose') continue;
       exposed = true;
-      const arg = d.expression.arguments[0];
+      const arg = expr.arguments[0];
       if (arg && ts.isObjectLiteralExpression(arg)) {
         for (const p of arg.properties) {
           if (!ts.isPropertyAssignment(p) || !ts.isIdentifier(p.name)) continue;
@@ -333,14 +365,17 @@ class Parser {
             if (lit.ok) annoDefault = lit.value;
           } else if (p.name.text === 'category' && ts.isStringLiteralLike(v)) {
             category = v.text;
+          } else if (p.name.text === 'type' && ts.isStringLiteralLike(v)) {
+            annoType = v.text;
           }
-          // type 值由下方注释 / 注解推断覆盖（annotation type 仅作 exposed 标记）
+          // 注解 type 仅在字段无 TS 类型注解时兜底（见下方类型优先级）
         }
       }
     }
     const commentType = typeCommentOf(declText);
-    const annoText = prop.type ? tsAnnotationToIrType(prop.type.getText(this.sf)) : 'any';
-    const type = commentType ?? annoText;
+    // 类型优先级：行内 @bps 注释 > TS 类型注解 > @expose type 参数（无 TS 注解时的兜底）> any
+    const annoText = prop.type ? tsAnnotationToIrType(prop.type.getText(this.sf)) : undefined;
+    const type = commentType ?? annoText ?? annoType ?? 'any';
     const v: IRVariable = { name: prop.name.text, type };
     if (exposed) v.exposed = true;
     if (category !== undefined) v.category = category;
@@ -359,7 +394,7 @@ class Parser {
         severity: 'warning',
         message: '非标识符方法名不受支持，已折叠为脚本片段',
       });
-      this.pushFoldedSnippet(m.getText(this.sf), []);
+      this.pushFoldedSnippetDerived(m);
       return;
     }
     let eventName: string | undefined;
@@ -545,6 +580,33 @@ class Parser {
     return id;
   }
 
+  /** 折叠 AST 节点 → 孤儿片段：引脚自动推导（外部引用 → in、裸赋值目标 / return 值 → out，ADR-007 §2） */
+  pushFoldedSnippetDerived(node: ts.Node): string {
+    const { inPins, outPins } = analyzeSnippetNode(node);
+    const pins: IRSnippetPin[] = [
+      ...inPins.map((p) => ({ id: p.id, dir: 'in' as const, type: p.type })),
+      ...outPins.map((p) => ({ id: p.id, dir: 'out' as const, type: p.type })),
+    ];
+    return this.pushFoldedSnippet(node.getText(this.sf), pins);
+  }
+
+  /**
+   * 语句的片段接线尾注释检测（T3.7，ADR-007 §3）：
+   *  - `// __bps-snippet-in(<pin>)`：片段数据入脚别名行（初始化器延迟求值接线）；
+   *  - `// __bps-snippet-out(<pin>)`：片段数据出脚别名行（别名 → 最近片段节点出脚）。
+   */
+  trailingSnippetWire(stmt: ts.Statement): { kind: 'in' | 'out'; pin: string } | null {
+    const full = this.sf.getFullText();
+    for (const r of ts.getTrailingCommentRanges(full, stmt.end) ?? []) {
+      const text = full.slice(r.pos, r.end);
+      const mIn = new RegExp(`${SNIPPET_IN_WIRE_PREFIX}\\(([^)]*)\\)`).exec(text);
+      if (mIn) return { kind: 'in', pin: mIn[1] };
+      const mOut = new RegExp(`${SNIPPET_OUT_WIRE_PREFIX}\\(([^)]*)\\)`).exec(text);
+      if (mOut) return { kind: 'out', pin: mOut[1] };
+    }
+    return null;
+  }
+
   /** 表达式的 JSON 兼容字面量提取（对象 / 数组递归；非常量 → 不 ok） */
   exprLiteral(e: ts.Expression | undefined): LiteralOf {
     if (!e) return NOT_LITERAL;
@@ -621,6 +683,12 @@ class GraphBuilder {
   private edgeSeq = 0;
   /** 作用域回滚日志（语句级回滚用） */
   private scopeLog: string[] = [];
+  /** 片段入脚标记（已拦截、待最近片段块认领；T3.7 ADR-007 §3） */
+  private pendingSnippetIns: { pin: string; expr?: ts.Expression; pos?: number }[] = [];
+  /** 已认领待接线的片段入脚（方法体构建完成后统一求值接线） */
+  private deferredSnippetIns: { pin: string; nodeId: string; expr?: ts.Expression; pos?: number }[] = [];
+  /** 最近创建的片段节点 id（出脚标记 __bps-snippet-out 的绑定目标） */
+  private lastSnippetNodeId: string | null = null;
 
   constructor(
     private readonly p: Parser,
@@ -634,6 +702,7 @@ class GraphBuilder {
   resetScope(): void {
     this.scope = new Map();
     this.scopeLog = [];
+    this.lastSnippetNodeId = null;
   }
 
   /** 源文件（来自宿主 Parser；行列诊断与源码提取共用） */
@@ -854,7 +923,8 @@ class GraphBuilder {
       const markerIndent = /^[ \t]*/.exec(markers[i].text)![0];
       const dedent = (l: string): string =>
         l.trim() === '' ? '' : l.startsWith(markerIndent) ? l.slice(markerIndent.length) : l;
-      const codeLines = rawLines.map(dedent).filter((l) => !l.trimStart().startsWith(SNIPPET_WIRING_PREFIX));
+      // 片段源码行：剔除出脚声明对（行首/行尾携带 __bps-snippet-wiring 前缀的行，ADR-007 §3）
+      const codeLines = rawLines.map(dedent).filter((l) => !l.includes(SNIPPET_WIRING_PREFIX));
       const code =
         meta.lang === 'py'
           ? codeLines.map((l) => (l.trim() === '//' ? '' : l.replace(/^\s*\/\/ ?/, ''))).join('\n')
@@ -897,7 +967,11 @@ class GraphBuilder {
     return [{ node: seqNode.id, pin: item.pin }];
   }
 
-  /** 片段块 → 片段节点 + IRSnippet（pins 来自标记行元数据，往返无损） */
+  /**
+   * 片段块 → 片段节点 + IRSnippet（pins 来自标记行元数据，往返无损）。
+   * T3.7：认领块前的数据入脚标记（延迟接线）并记录为「最近片段节点」，
+   * 供块后的数据出脚标记（__bps-snippet-out）绑定具名引用（ADR-007 §3）。
+   */
   private handleSnippetBlock(
     item: { id: string; lang: 'ts' | 'py'; pins: unknown[]; code: string },
     pending: ExecSource[],
@@ -910,20 +984,69 @@ class GraphBuilder {
         pins: this.p.normalizeSnippetPins(item.pins),
       });
     }
+    const pins = this.p.normalizeSnippetPins(item.pins);
     const node = this.addNode(SNIPPET_NODE_TYPE, { [SNIPPET_PARAM_KEY]: item.id });
-    const execIn = (item.pins as IRSnippetPin[]).find((x) => x && x.dir === 'in' && x.type === 'exec');
+    // 认领块前的入脚标记 → 延迟接线（方法体构建完成后统一求值，解纯片段间引用顺序）
+    const claimed = this.pendingSnippetIns.splice(0);
+    for (const c of claimed) this.deferredSnippetIns.push({ ...c, nodeId: node.id });
+    this.lastSnippetNodeId = node.id;
+    const execIn = pins.find((x) => x.dir === 'in' && x.type === 'exec');
     if (execIn) {
       for (const s of pending) this.connectExec(s, node, execIn.id);
+      const execOut = pins.find((x) => x.dir === 'out' && x.type === 'exec');
+      return execOut ? [{ node: node.id, pin: execOut.id }] : [];
     }
-    const execOut = (item.pins as IRSnippetPin[]).find((x) => x && x.dir === 'out' && x.type === 'exec');
-    return execOut ? [{ node: node.id, pin: execOut.id }] : [];
+    // 无 exec 入（纯片段 / 仅 exec 出）：exec 中立——链 pending 直通（纯片段块不切断执行链）
+    return pending;
   }
 
-  /** 语句折叠：原文进 IRSnippet（exec 入/出骨架引脚），链在此续接 */
+  /**
+   * 延迟接线：方法体构建完成后对已认领的入脚标记统一求值并连数据边。
+   * 初始化器此刻求值可命中后续语句绑定的别名/出脚引用（纯片段拓扑序由 codegen 保证）。
+   */
+  resolveSnippetWirings(): void {
+    const deferred = this.deferredSnippetIns.splice(0);
+    for (const w of deferred) {
+      const node = this.nodesRef.get(w.nodeId);
+      if (!node || !w.expr) {
+        this.p.diags.push({
+          ...this.p.posAt(w.pos ?? 0),
+          severity: 'warning',
+          message: `片段入脚标记「${w.pin}」缺少片段节点或初始化器，已忽略（源码可能被手工改动）`,
+        });
+        continue;
+      }
+      try {
+        this.connect(node, w.pin, this.expr(w.expr));
+      } catch (err) {
+        if (!(err instanceof FoldSignal)) throw err;
+        const pos = this.p.posAt(w.pos ?? 0);
+        this.p.diags.push({
+          ...pos,
+          severity: 'warning',
+          message: `片段入脚「${w.pin}」的初始化器无法求值，已忽略：${err.reason}`,
+        });
+      }
+    }
+    // 悬空入脚标记（后面没有片段块认领）：清理 + 诊断（正常生成不会出现）
+    for (const stray of this.pendingSnippetIns.splice(0)) {
+      const pos = this.p.posAt(stray.pos ?? 0);
+      this.p.diags.push({
+        ...pos,
+        severity: 'warning',
+        message: `片段入脚标记「${stray.pin}」之后没有对应的片段块，已忽略（源码可能被手工改动）`,
+      });
+    }
+  }
+
+  /** 语句折叠：原文进 IRSnippet（exec 骨架 + 推导数据引脚，ADR-007 §2），链在此续接 */
   private foldStatement(stmt: ts.Statement, pending: ExecSource[]): ExecSource[] {
+    const derived = analyzeSnippetNode(stmt);
     const id = this.p.pushFoldedSnippet(stmt.getText(this.sf), [
       { id: 'exec', dir: 'in', type: 'exec' },
       { id: 'exec', dir: 'out', type: 'exec' },
+      ...derived.inPins.map((p) => ({ id: p.id, dir: 'in' as const, type: p.type })),
+      ...derived.outPins.map((p) => ({ id: p.id, dir: 'out' as const, type: p.type })),
     ]);
     const node = this.addNode(SNIPPET_NODE_TYPE, { [SNIPPET_PARAM_KEY]: id });
     for (const s of pending) this.connectExec(s, node, 'exec');
@@ -1320,6 +1443,30 @@ class GraphBuilder {
     index: number,
   ): ExecSource[] {
     const decls = stmt.declarationList.declarations;
+
+    /* 片段接线别名行（T3.7 ADR-007 §3）：尾注释 __bps-snippet-in / -out 标记 */
+    if (decls.length === 1) {
+      const wire = this.p.trailingSnippetWire(stmt);
+      const decl = decls[0];
+      if (wire && ts.isIdentifier(decl.name)) {
+        if (wire.kind === 'in') {
+          // 入脚别名行：初始化器延迟求值（resolveSnippetWirings 统一接线）
+          this.pendingSnippetIns.push({
+            pin: wire.pin,
+            ...(decl.initializer ? { expr: decl.initializer } : {}),
+            pos: stmt.getStart(this.sf),
+          });
+          return pending;
+        }
+        // 出脚别名行：别名 → 最近片段节点的出脚（初始化器不求值）
+        if (!this.lastSnippetNodeId) {
+          throw new FoldSignal(`片段出脚标记「${wire.pin}」之前没有对应的片段块`);
+        }
+        this.bindScope(decl.name.text, { kind: 'node', node: this.lastSnippetNodeId, pin: wire.pin });
+        return pending;
+      }
+    }
+
     if (decls.length !== 1) throw new FoldSignal('一条声明语句只支持一个声明');
     const decl = decls[0];
 

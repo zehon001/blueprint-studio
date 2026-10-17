@@ -14,6 +14,7 @@ import type { CSSProperties } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { IRNode, NodeSpec, PinSpec } from '../../ir/types';
 import { PIN_COLORS, pinColor } from '../../shell/theme/tokens';
+import type { DebugHighlightKind } from '../../shell/debug/overlay-state';
 import {
   headColorFor,
   headIconFor,
@@ -23,6 +24,17 @@ import {
   type BPNodeData,
   type FlowNode,
 } from './model';
+
+/** 叠加层数据形态（T5.4 debugHighlight 由 src/shell/debug 注入；type-only，不依赖运行时） */
+type BPNodeDataWithDebug = BPNodeData & { debugHighlight?: DebugHighlightKind };
+
+/** 节点运行时叠加 class（data.debugHighlight → 描边脉冲 / 错误红晕，样式见 debug.css） */
+function debugClassOf(data: BPNodeData): string {
+  const kind = (data as BPNodeDataWithDebug).debugHighlight;
+  if (kind === 'error') return ' bp-node--debug-error';
+  if (kind === 'active') return ' bp-node--debug-active';
+  return '';
+}
 
 /** CSS 自定义属性内联样式（React 类型不含任意 --var，集中收口） */
 function cssVars(vars: Record<string, string>): CSSProperties {
@@ -264,7 +276,7 @@ function RegularNodeView({ nodeId, data, selected }: { nodeId: string; data: BPN
   const title = node.title ?? spec.title;
   const subtitle = nodeSubtitle(spec, data.graphName);
   return (
-    <div className={`bp-node bp-variant-${variant}${selected ? ' bp-node--selected' : ''}`}>
+    <div className={`bp-node bp-variant-${variant}${selected ? ' bp-node--selected' : ''}${debugClassOf(data)}`}>
       <div className="bp-node-head" style={{ background: headColorFor(variant) }}>
         <span className="bp-node-icon" aria-hidden="true">
           {headIconFor(variant)}
@@ -304,7 +316,7 @@ function VarNodeView({ data, selected }: { data: BPNodeData; selected: boolean }
   const dataInPin = inPins.find((p) => p.type !== 'exec');
   const dataOutPin = outPins.find((p) => p.type !== 'exec');
   const typeColor = pinColor((op === 'get' ? dataOutPin?.type : dataInPin?.type) ?? 'any');
-  const rootClass = `bp-node bp-node-var${selected ? ' bp-node--selected' : ''}`;
+  const rootClass = `bp-node bp-node-var${selected ? ' bp-node--selected' : ''}${debugClassOf(data)}`;
   const titleEl = (
     <span className="bp-var-title">
       {op === 'set' ? 'Set ' : 'Get '}
@@ -343,7 +355,7 @@ function VarNodeView({ data, selected }: { data: BPNodeData; selected: boolean }
 function UnknownNodeView({ data, selected }: { data: BPNodeData; selected: boolean }) {
   const { node, variant } = data;
   return (
-    <div className={`bp-node bp-variant-unknown${selected ? ' bp-node--selected' : ''}`}>
+    <div className={`bp-node bp-variant-unknown${selected ? ' bp-node--selected' : ''}${debugClassOf(data)}`}>
       <div className="bp-node-head" style={{ background: headColorFor(variant) }}>
         <span className="bp-node-icon" aria-hidden="true">
           {headIconFor(variant)}

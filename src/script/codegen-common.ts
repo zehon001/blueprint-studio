@@ -103,6 +103,18 @@ export function parseSequenceMarkerLine(line: string): { nodeId: string; pin: st
 /** 片段块内的接线说明注释行前缀（解析时从片段源码中剔除） */
 export const SNIPPET_WIRING_PREFIX = '// __bps-snippet-wiring';
 
+/**
+ * 片段数据引脚重建标记（T3.7，ADR-007 §3）：
+ *  - in：块前别名行 `const __bps_vN = <expr>; // __bps-snippet-in(<pinId>)`，
+ *    解析端按尾注释拦截，延迟到方法体构建完成后求值接线；
+ *  - out：块后别名行 `const __bps_vM = <outVar>; // __bps-snippet-out(<pinId>)`，
+ *    解析端拦截为「别名 → (片段节点, 引脚)」的具名引用（初始化器不求值）；
+ *  - 出脚变量声明行 `// __bps-snippet-wiring: let <outVar>` 落在块内首部，
+ *    解析端按 SNIPPET_WIRING_PREFIX 从片段源码中剔除。
+ */
+export const SNIPPET_IN_WIRE_PREFIX = '__bps-snippet-in';
+export const SNIPPET_OUT_WIRE_PREFIX = '__bps-snippet-out';
+
 /* ============================================================
  * 2. 图级操作节点（解释器自有类型）
  * ============================================================ */

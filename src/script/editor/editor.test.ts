@@ -6,8 +6,8 @@
  *  2. ScriptEditor：happy-dom 挂载（CodeMirror 可挂载；若挂载失败自动降级为
  *     纯状态层测试——EditorState 文档模型 / Mod-s 命令 / 只读 facet——并显式记录）
  *  3. ScriptTab 加载/保存/脏标记状态机（mock fetch：GET→ready→防抖标脏→PUT→清脏→
- *     missing 建空脚本→蓝图视图占位信息）
- *  4. 蓝图视图占位信息扫描：@on/@expose 正则计数纯函数（含 PLAN §9.2 示例、
+ *     missing 建空脚本→蓝图视图（T3.8 真渲染接线：无 CSS shim 环境降级只读提示））
+ *  4. 蓝图视图注解粗扫：@on/@expose 正则计数纯函数（含 PLAN §9.2 示例、
  *     参数内冒号跳过、裸 @expose、Python 双引号、语言判定）
  *  5. 草稿状态层：防抖只标一次 / flush / reset / dispose（保存节流的纯逻辑面）
  */
@@ -226,7 +226,6 @@ const { act, createElement } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { ViewSwitch } = await import('./ViewSwitch')
 const { ScriptEditor } = await import('./ScriptEditor')
-const { BlueprintPlaceholder } = await import('./BlueprintPlaceholder')
 const { ScriptTab } = await import('./ScriptTab')
 const { useWorkspaceStore, tabIdOf } = await import('@/shell/workspace-store')
 
@@ -361,9 +360,10 @@ test('DOM：ScriptEditor 挂载（行号/内容/诊断占位徽标/onChange/Mod-
       (readyView as EditorView | null)?.state.doc.toString().startsWith('// log-viewer.ts'),
       '初值文档载入（onReady 暴露 view）',
     )
-    assert.ok(
-      dom.document.querySelector('.script-editor-lint-badge')?.textContent?.includes('待 T3.6'),
-      '诊断占位徽标（语法检查：待 T3.6）',
+    assert.equal(
+      dom.document.querySelector('.script-editor-lint-badge'),
+      null,
+      'T3.6 诊断占位徽标已撤除（行列诊断由 ScriptTab 顶栏渲染，T3.8）',
     )
 
     // 编辑 → onChange 全文回调
@@ -465,7 +465,7 @@ function editorViewOf(): EditorView | null {
   return el ? EditorView.findFromDOM(el as unknown as HTMLElement) ?? null : null
 }
 
-test('DOM：ScriptTab 加载→编辑→防抖标脏→Ctrl+S PUT 清脏→蓝图视图占位', async () => {
+test('DOM：ScriptTab 加载→编辑→防抖标脏→Ctrl+S PUT 清脏→蓝图视图（真渲染降级路径）', async () => {
   dom.document.body.innerHTML = ''
   resetWorkspace()
   const mock = installFetchMock({ ok: true, content: SAMPLE_TS })
@@ -495,19 +495,24 @@ test('DOM：ScriptTab 加载→编辑→防抖标脏→Ctrl+S PUT 清脏→蓝�
     assert.equal(put?.body?.path, 'D:/proj/demo/logic/log-viewer.ts')
     assert.ok(put?.body?.content?.startsWith('// draft\n'), '保存的是草稿全文（含未保存编辑）')
 
-    // 蓝图视图：占位面板（T3.6 归属 + 粗扫信息）+ 脏标记互锁提示
+    // 蓝图视图：T3.8 真渲染——ScriptTab 动态 import BlueprintEditorPanel（@/blueprint
+    // barrel 含 .css import；本文件未装 CSS shim → 加载失败 → 降级只读提示），
+    // 脚本脏时同步协议提示条出现（保存者胜：缺省基于已保存版本渲染）。
     // （先制造一个草稿再切视图：提示应出现）
     const view2 = editorViewOf() as EditorView
     view2.dispatch({ changes: { from: 0, insert: '@expose\nextra: number = 1\n' } })
     await waitFor(() => tabDirty())
     click(dom.document.querySelector('.script-view-switch-btn') as unknown as HTMLButtonElement) // 蓝图
-    assert.ok(await waitFor(() => dom.document.querySelector('.script-bp-placeholder') !== null), '切到占位面板')
+    assert.ok(
+      await waitFor(() => dom.document.querySelector('.script-tab-syncbar') !== null),
+      '切到蓝图视图出现脏冲突提示条',
+    )
     const text = dom.document.body.textContent ?? ''
-    assert.ok(text.includes('脚本 IR 解析由 T3.6 提供'), '占位显式标注归属卡')
-    assert.ok(text.includes('蓝图视图（占位）'))
-    assert.ok(text.includes('2：start、btnFetch'), '@on 计数与事件名')
-    assert.ok(text.includes('3'), '粗扫计数含草稿新增 expose')
-    assert.ok(text.includes('脚本有未保存修改'), '互锁提示在占位视图仍展示')
+    assert.ok(text.includes('脚本有未保存修改'), '同步协议提示（保存者胜：蓝图基于已保存版本）')
+    assert.ok(
+      await waitFor(() => (dom.document.body.textContent ?? '').includes('蓝图面板加载失败')),
+      '无 CSS shim 环境（node:test）面板加载失败 → 降级只读提示（不白屏）',
+    )
     // 切回脚本视图
     click((dom.document.querySelectorAll('.script-view-switch-btn')[1] ?? null) as unknown as HTMLButtonElement)
     assert.ok(await waitFor(() => dom.document.querySelector('.cm-content') !== null), '切回脚本视图')
@@ -553,29 +558,5 @@ test('DOM：ScriptTab 加载失败（网络错误）显示错误信息', async (
   } finally {
     await unmount()
     globalThis.fetch = original
-  }
-})
-
-/* ---------------- 4.4 蓝图视图占位面板（独立挂载） ---------------- */
-
-test('DOM：BlueprintPlaceholder 占位信息（归属卡 / 资产名 / 计数 / 草稿提示）', async () => {
-  dom.document.body.innerHTML = ''
-  const unmount = mount(
-    createElement(BlueprintPlaceholder, {
-      assetPath: 'logic/log-viewer.ts',
-      source: SAMPLE_TS,
-      scriptDirty: true,
-    }),
-  )
-  try {
-    const text = dom.document.body.textContent ?? ''
-    assert.ok(text.includes('脚本 IR 解析由 T3.6 提供'), '归属卡标注')
-    assert.ok(text.includes('log-viewer.ts'), '资产名')
-    assert.ok(text.includes('事件（@on）'), '事件行')
-    assert.ok(text.includes('start、btnFetch'), '事件名列表')
-    assert.ok(text.includes('packageName'), '暴露变量名')
-    assert.ok(text.includes('草稿未保存'), '脏提示')
-  } finally {
-    await unmount()
   }
 })

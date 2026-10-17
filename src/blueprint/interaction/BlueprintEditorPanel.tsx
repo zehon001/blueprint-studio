@@ -16,6 +16,7 @@
  *  - T6.4 插件节点：useBlueprintStore.getState().setSpecs(以 editorSpecMap() 为基线合并)。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { registerShortcut } from '../../shell/keymap/registry';
 import { serializeIR, validateIR } from '../../ir/validate';
@@ -47,6 +48,27 @@ import { SelectionToolbar } from './SelectionToolbar';
 import { ValidationBar } from './ValidationBar';
 import { computeAlignedPositions, type AlignEntry, type AlignMode, type SpecEntry } from './logic';
 import { useCanvasInteractions } from './useCanvasInteractions';
+// T5.4 运行时蓝图观察：WS 订阅 + 叠加层（节点高亮 / exec 流动 / 端口实时值）
+import {
+  DebugPinValues,
+  applyEdgeOverlay,
+  applyNodeOverlay,
+  buildInExecEdges,
+  loadObserveEnabled,
+  saveObserveEnabled,
+  useDebugOverlay,
+} from '../../shell/debug';
+import '../../shell/debug/debug.css';
+// T3.7 片段节点：双击展开编辑模态 + 按资产注入片段 spec（ADR-007 §5）
+import { SnippetEditModal, saveSnippetEdit } from '../view/SnippetEditModal';
+import {
+  SNIPPET_NODE_TYPE,
+  snippetOfAsset,
+  snippetSpecForAsset,
+  withSnippetSpecs,
+} from '../../script/snippet';
+import { SNIPPET_PARAM_KEY, stableStringify } from '../../script/codegen-common';
+import type { IRSnippetPin } from '../../ir/types';
 
 export interface BlueprintEditorPanelProps {
   /** 受控资产（本期由工作区传入；文件加载接线属后续任务） */
@@ -112,6 +134,46 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
   useEffect(() => {
     useBlueprintStore.getState().loadRecentSpecs();
   }, []);
+
+  /* ---------------- T3.7：片段节点 spec 注入（ADR-007 §5） ----------------
+   * 片段引脚按 IRSnippet.pins 动态声明，静态 spec 无法如实声明——挂载与资产变化时
+   * 把按资产合成的片段 spec（引脚并集）合并进 store.specs，校验 / 连线 / 搜索 /
+   * 新建「脚本片段」即走常规机制。T6.4 插件注入覆盖后，本 effect 于渲染时重合。 */
+  useEffect(() => {
+    const st = useBlueprintStore.getState();
+    if (!st.asset) return;
+    const wanted = snippetSpecForAsset(st.asset);
+    const cur = st.specs.get(SNIPPET_NODE_TYPE);
+    if (
+      cur &&
+      stableStringify([cur.inputs, cur.outputs]) === stableStringify([wanted.inputs, wanted.outputs])
+    ) {
+      return;
+    }
+    st.setSpecs(withSnippetSpecs(st.specs, st.asset));
+  }, [asset, specs]);
+
+  /* ---------------- T3.7：片段节点双击展开编辑（模态） ---------------- */
+
+  /** 打开中的片段编辑（nodeId + 打开时的图名；模态保存/取消后清空） */
+  const [snippetEdit, setSnippetEdit] = useState<{ nodeId: string; graphName: string } | null>(null);
+
+  const onNodeDoubleClick = useCallback(
+    (_event: ReactMouseEvent, node: FlowNode): void => {
+      if (node.data.node.type !== SNIPPET_NODE_TYPE) return;
+      setSnippetEdit({ nodeId: node.id, graphName: useBlueprintStore.getState().graphName });
+    },
+    [],
+  );
+
+  // 模态指向的片段节点（store 订阅：undo/重做后节点仍在则保持打开，已删则自动关闭）
+  const snippetEditNode = useBlueprintStore((s) => {
+    if (!snippetEdit) return null;
+    return s.asset?.graphs[snippetEdit.graphName]?.nodes.find((n) => n.id === snippetEdit.nodeId) ?? null;
+  });
+  useEffect(() => {
+    if (snippetEdit && !snippetEditNode) setSnippetEdit(null);
+  }, [snippetEdit, snippetEditNode]);
 
   /* ---------------- 保存（Ctrl+S 经 keymap 重绑定；PLAN §8.5 保存即校验） ---------------- */
 
@@ -261,6 +323,46 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
     });
   }, [focusComment, rf]);
 
+  /* ---------------- T5.4：运行时蓝图观察（WS 反向通道叠加层） ---------------- */
+
+  // 观察开关：默认开（编辑器打开该蓝图视图时自动接入——WS 未连接 / 无运行实例时静默降级）；
+  // 状态持久化 localStorage（一键关闭即整链生效：编辑器 unsubscribe → 服务端 → 运行窗口 mute 停发）
+  const [observeEnabled, setObserveEnabled] = useState(() => loadObserveEnabled());
+  const toggleObserve = useCallback((): void => {
+    setObserveEnabled((prev) => {
+      saveObserveEnabled(!prev);
+      return !prev;
+    });
+  }, []);
+
+  // nodeEnter → 入向 exec 边 的拓扑表（受控边变化时重建；流动动画的映射依据）
+  const inExecEdges = useMemo(() => buildInExecEdges(interactions.edges), [interactions.edges]);
+
+  const overlay = useDebugOverlay({
+    enabled: observeEnabled,
+    assetPath,
+    foldContext: { inExecEdges, graphName },
+  });
+
+  // 受控视图叠加映射（纯视图层 state，不经命令栈；空闲时返回原数组引用，React memo 跳过）
+  const [overlayNow, setOverlayNow] = useState(() => Date.now());
+  const viewNodes = useMemo(
+    () => (overlay.active ? applyNodeOverlay(interactions.nodes, overlay.state, overlayNow) : interactions.nodes),
+    [interactions.nodes, overlay.active, overlay.state, overlayNow],
+  );
+  const viewEdges = useMemo(
+    () =>
+      overlay.active
+        ? applyEdgeOverlay(interactions.edges, overlay.state.flowingEdges, overlayNow)
+        : interactions.edges,
+    [interactions.edges, overlay.active, overlay.state.flowingEdges, overlayNow],
+  );
+
+  // 衰减 tick（250ms 扫描）→ 渲染映射的 now 基准推进（过期高亮 / 流动 / 徽标随之消失）
+  useEffect(() => {
+    setOverlayNow(Date.now());
+  }, [overlay.tick]);
+
   /* ---------------- 渲染 ---------------- */
 
   const searchEntries = useMemo<SpecEntry[]>(() => {
@@ -283,6 +385,7 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
    */
   const canvasHandlers = {
     ...interactions.handlers,
+    onNodeDoubleClick,
     onPaneClick: () => {
       interactions.handlers.onPaneClick();
       const st = useBlueprintStore.getState();
@@ -303,13 +406,31 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
         <div className="bp-editor-main">
           <GraphTabs />
           <div className="bp-editor-canvas">
+            {/* T5.4 观察开关（画布右上）：默认开，localStorage 记忆；WS 未连接 / 无运行实例静默降级 */}
+            <button
+              type="button"
+              className={`bp-observe-toggle${overlay.active ? ` bp-observe-toggle--on` : ''}`}
+              title={
+                overlay.active
+                  ? overlay.connected
+                    ? '观察运行中：节点高亮 / exec 流动 / 端口实时值（点击暂停）'
+                    : '观察已开启（WS 未连接，静默等待）——点击暂停'
+                  : '观察已暂停——点击开启（运行窗口的节点高亮 / 流动 / 端口值叠加）'
+              }
+              onClick={toggleObserve}
+            >
+              <span className="bp-observe-toggle-dot" aria-hidden="true" />
+              {overlay.active ? '观察运行 ▶' : '观察暂停 ⏸'}
+            </button>
             <BPGraphCanvas
-              nodes={interactions.nodes}
-              edges={interactions.edges}
+              nodes={viewNodes}
+              edges={viewEdges}
               {...canvasHandlers}
             >
               {/* T2.7 注释框图层：视口内最底层（ViewportPortal），节点点击 / 框选不受影响 */}
               <CommentLayer />
+              {/* T5.4 端口实时值徽标层：选中节点的输出引脚值显示在节点下方 */}
+              <DebugPinValues state={overlay.state} tick={overlay.tick} />
             </BPGraphCanvas>
             {menu?.kind === 'search' ? (
               <NodeSearchMenu
@@ -367,6 +488,24 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
               >
                 {toast.text}
               </div>
+            ) : null}
+            {/* T3.7 片段编辑模态（双击片段节点展开；保存入命令栈，可撤销） */}
+            {snippetEdit && snippetEditNode && snippetEditNode.type === SNIPPET_NODE_TYPE ? (
+              <SnippetEditModal
+                snippet={snippetOfAsset(asset, snippetEditNode.params?.[SNIPPET_PARAM_KEY])}
+                title={
+                  typeof snippetEditNode.params?.[SNIPPET_PARAM_KEY] === 'string' &&
+                  snippetEditNode.params[SNIPPET_PARAM_KEY] !== ''
+                    ? `片段：${String(snippetEditNode.params[SNIPPET_PARAM_KEY])}`
+                    : '新建脚本片段'
+                }
+                onSave={(code: string, pins: IRSnippetPin[]) => {
+                  saveSnippetEdit(snippetEdit.graphName, snippetEdit.nodeId, code, pins);
+                  setSnippetEdit(null);
+                  useBlueprintStore.getState().notify('片段已保存');
+                }}
+                onCancel={() => setSnippetEdit(null)}
+              />
             ) : null}
           </div>
         </div>

@@ -945,3 +945,199 @@ test('解析：孤儿片段（无节点引用）从 loose 标记恢复', async (
   assert.equal(recovered.code, 'const orphan = 1;');
   assert.deepEqual(recovered.pins, [{ id: 'v', dir: 'out', type: 'int' }]);
 });
+
+/* ============================================================
+ * ⑩⑪⑫ T3.7：片段引脚重建（多片段 / 引脚连线往返 / 折叠推导幂等）
+ * ============================================================ */
+
+/**
+ * ⑩ 多片段资产：exec 片段（数据入脚 ← var.get、出脚被下游引用 / 未引用出脚）、
+ * 链尾片段（无数据脚）、纯片段（表达式 → 下游）、孤儿片段（多引脚 loose）。
+ */
+const multiSnippetAsset = asset(
+  {
+    main: graph(
+      [
+        node('st', 'event.start'),
+        node('g1', 'var.get', { params: { varName: 'seed' } }),
+        node('snipExec', 'script.snippet', { params: { snippet: 'snipExec' } }),
+        node('pr1', 'system.print'),
+        node('snipTail', 'script.snippet', { params: { snippet: 'snipTail' } }),
+        node('snipPure', 'script.snippet', { params: { snippet: 'snipPure' } }),
+        node('pr2', 'system.print'),
+      ],
+      [
+        execEdge('x1', 'st', 'snipExec'),
+        execEdge('x2', 'snipExec', 'pr1'),
+        execEdge('x3', 'pr1', 'snipTail'),
+        execEdge('x4', 'snipTail', 'pr2'),
+        dataEdge('d1', 'g1', 'value', 'snipExec', 'base'),
+        dataEdge('d2', 'snipExec', 'doubled', 'pr1', 'value'),
+        dataEdge('d3', 'g1', 'value', 'snipPure', 'x'), // 纯片段入脚 ← 纯/数据型源（可内联）
+        dataEdge('d4', 'snipPure', 'result', 'pr2', 'value'),
+      ],
+    ),
+  },
+  {
+    variables: [{ name: 'seed', type: 'float', default: 21 }],
+    snippets: [
+      {
+        id: 'snipExec',
+        lang: 'ts',
+        code: 'doubled = base * 2;\nextra = 7;',
+        pins: [
+          { id: 'exec', dir: 'in', type: 'exec' },
+          { id: 'exec', dir: 'out', type: 'exec' },
+          { id: 'base', dir: 'in', type: 'float' },
+          { id: 'doubled', dir: 'out', type: 'float' },
+          { id: 'extra', dir: 'out', type: 'int' }, // 未被下游引用 → 无出脚别名行（引脚元数据仍保留）
+        ],
+      },
+      {
+        id: 'snipPure',
+        lang: 'ts',
+        code: 'result = `x=${x}`;',
+        pins: [
+          { id: 'x', dir: 'in', type: 'any' },
+          { id: 'result', dir: 'out', type: 'string' },
+        ],
+      },
+      {
+        id: 'snipTail',
+        lang: 'ts',
+        code: 'print("tail");',
+        pins: [
+          { id: 'exec', dir: 'in', type: 'exec' },
+          { id: 'exec', dir: 'out', type: 'exec' },
+        ],
+      },
+      {
+        id: 'snipOrphan',
+        lang: 'ts',
+        code: 'const orphan = 1;',
+        pins: [
+          { id: 'v', dir: 'out', type: 'int' },
+          { id: 'w', dir: 'in', type: 'string', label: '宽' },
+        ],
+      },
+    ],
+  },
+);
+
+test('roundtrip ⑩：多片段资产（exec 片段引脚连线 / 纯片段前奏 / 链尾 / 孤儿多引脚）', async () => {
+  const code = await assertRoundtrip(multiSnippetAsset);
+  // 引脚重建标记：入脚别名行（块前）与出脚别名行（块后）
+  assert.match(code, /\/\/ __bps-snippet-in\(base\)/);
+  assert.match(code, /\/\/ __bps-snippet-out\(doubled\)/);
+  assert.match(code, /\/\/ __bps-snippet-in\(x\)/);
+  assert.match(code, /\/\/ __bps-snippet-out\(result\)/);
+  // 未引用出脚：无别名行；引脚声明仍由 begin 行元数据携带
+  assert.doesNotMatch(code, /__bps-snippet-out\(extra\)/);
+  assert.match(code, /__bps-snippet-begin\(snipExec\) \{"lang":"ts","pins":\[/);
+  // 纯片段块提升到方法体顶部（先求片段、后消费出值）
+  const bodyStart = code.indexOf("@on('start')");
+  const purePos = code.indexOf('__bps-snippet-begin(snipPure)');
+  const printPos = code.indexOf('print(__bps_v');
+  assert.ok(purePos > bodyStart && purePos < printPos, '纯片段块应先于消费它的链语句');
+  // 孤儿片段（多引脚）以 loose 标记输出 + 元数据完整
+  assert.match(code, /__bps-loose-begin\(snipOrphan\)/);
+  const r = parseScriptToIR(code);
+  const orphan = r.asset.snippets.find((s) => s.id === 'snipOrphan');
+  assert.ok(orphan);
+  assert.deepEqual(orphan.pins, [
+    { id: 'v', dir: 'out', type: 'int' },
+    { id: 'w', dir: 'in', type: 'string', label: '宽' },
+  ]);
+});
+
+/** 引脚方向索引（测试辅助；exec 骨架脚除外，只看推导数据脚） */
+function pinDirsOf(pins: { id: string; dir: 'in' | 'out'; type: string }[]): { in: string[]; out: string[] } {
+  const data = pins.filter((p) => p.type !== 'exec');
+  return {
+    in: data.filter((p) => p.dir === 'in').map((p) => p.id),
+    out: data.filter((p) => p.dir === 'out').map((p) => p.id),
+  };
+}
+
+/**
+ * ⑪ 折叠语句的引脚推导（T3.7 ADR-007 §2）：不可映射语句折叠时生成
+ * exec 骨架 + 推导数据引脚；引脚元数据进标记行 → 再往返保持稳定（幂等）。
+ */
+test('roundtrip ⑪：折叠语句 pins 自动推导 + 往返幂等（引脚进标记元数据）', async () => {
+  const code = [
+    "@tool('折叠推导')",
+    'class X {',
+    "  @on('start')",
+    '  onStart(): void {',
+    '    print("ok");',
+    '    const local = risky(opInput);', // 折叠：in [risky, opInput]，local 为局部名
+    '    counter = counter + 1;', // 折叠：in [counter] + out [counter]（裸赋值目标）
+    '  }',
+    '}',
+  ].join('\n');
+  const first = parseScriptToIR(code);
+  const folded1 = first.asset.snippets.find((s) => s.code.includes('risky'));
+  const folded2 = first.asset.snippets.find((s) => s.code.includes('counter'));
+  assert.ok(folded1 && folded2, '两条语句都应折叠为片段');
+  assert.deepEqual(pinDirsOf(folded1.pins), { in: ['risky', 'opInput'], out: [] });
+  assert.deepEqual(pinDirsOf(folded2.pins), { in: ['counter'], out: ['counter'] });
+  // 折叠片段作为节点留在链中（exec 骨架）
+  const mainNodes = first.asset.graphs['main'].nodes.filter((n) => n.type === 'script.snippet');
+  assert.equal(mainNodes.length, 2);
+  // 全资产往返：引脚元数据经标记行无损携带（canonical 含 snippets[].pins 深等）
+  const r = roundtripIR(first.asset);
+  assert.equal(r.ok, true, `折叠片段往返失败：${r.diff ?? ''}\n${r.code ?? ''}`);
+  noDiags(parseScriptToIR(r.code ?? '').diagnostics);
+  await assertTranspiles(r.code ?? '');
+});
+
+/**
+ * ⑫ 片段引脚的内联默认值与跨节点引用：入脚字面量（pinDefaults）经入脚别名行往返，
+ * 出脚别名行被分支条件引用——标记重建一致性。
+ */
+test('roundtrip ⑫：片段入脚内联默认值 + 出脚跨节点引用（标记重建一致性）', async () => {
+  const a = asset(
+    {
+      main: graph(
+        [
+          node('st', 'event.start'),
+          node('snip', 'script.snippet', {
+            params: { snippet: 'snipMix' },
+            pinDefaults: { threshold: 3 },
+          }),
+          node('br', 'flow.branch'),
+          node('pr1', 'system.print', { pinDefaults: { value: '高' } }),
+          node('pr2', 'system.print', { pinDefaults: { value: '低' } }),
+        ],
+        [
+          execEdge('x1', 'st', 'snip'),
+          execEdge('x2', 'snip', 'br'),
+          execEdge('x3', 'br', 'pr1', 'true'),
+          execEdge('x4', 'br', 'pr2', 'false'),
+          dataEdge('d1', 'snip', 'signal', 'br', 'cond'),
+        ],
+      ),
+    },
+    {
+      snippets: [
+        {
+          id: 'snipMix',
+          lang: 'ts',
+          code: 'signal = threshold > 2;',
+          pins: [
+            { id: 'exec', dir: 'in', type: 'exec' },
+            { id: 'exec', dir: 'out', type: 'exec' },
+            { id: 'threshold', dir: 'in', type: 'int' },
+            { id: 'signal', dir: 'out', type: 'bool' },
+          ],
+        },
+      ],
+    },
+  );
+  const code = await assertRoundtrip(a);
+  // 入脚字面量（pinDefaults.threshold = 3）经入脚别名行往返
+  assert.match(code, /const __bps_v\d+ = 3; \/\/ __bps-snippet-in\(threshold\)/);
+  // 出脚别名行 + 分支条件引用
+  assert.match(code, /const __bps_v\d+ = signal; \/\/ __bps-snippet-out\(signal\)/);
+  assert.match(code, /if \(__bps_v\d+\) \{/);
+});

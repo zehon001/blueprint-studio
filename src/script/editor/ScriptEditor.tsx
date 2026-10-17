@@ -7,10 +7,9 @@
  * Ctrl+S（Mod-s keymap → onSave；全局 file.save 重绑定在 ScriptTab，两者共用
  * 同一个保存函数：编辑器聚焦时 CM 先处理并 preventDefault，全局层自然跳过）。
  *
- * 诊断标记（DoD 口径 · 不虚报）：受控子集解析器 T3.6 未交付，本期**没有**
- * 行列诊断——语法诊断扩展位 syntaxDiagnosticsExtension() 返回空数组占位，
- * 编辑器右上角常驻徽标「语法检查：待 T3.6」显式标注；T3.6 交付后在
- * syntaxDiagnosticsExtension 内接入 linter() + 行列定位，徽标随之撤除。
+ * 诊断展示（T3.8 口径 · 不虚报）：行列诊断由 ScriptTab 顶栏渲染（parseScriptToIR
+ * 的 diagnostics → 徽标 + 列表 + 点击跳转到行），本组件不再显示占位徽标；
+ * syntaxDiagnosticsExtension() 保留为编辑器内 linter 标记的后续扩展位（返回空数组）。
  *
  * 与 T3.2 的接口约定（同批并行）：`@/script/api` 导出
  * `scriptTypesExtension(): LanguageSupport | Extension`——TS 模式挂载其内建
@@ -67,12 +66,12 @@ import { scriptEditorTheme, scriptHighlightStyle } from './editor-theme'
 
 /** 装饰器/注解在 @lezer 高亮里走 meta tag（editor-theme.ts 映射为插件紫） */
 
-/* ---------------- 诊断标记扩展位（T3.6 接入点 · 本期占位） ---------------- */
+/* ---------------- 编辑器内诊断扩展位（T3.8：行列诊断在 ScriptTab 顶栏，此处为后续 linter 扩展位） ---------------- */
 
 /**
- * 语法诊断扩展位：受控子集解析器（T3.6）交付前**没有**行列诊断，返回空数组。
- * TODO(T3.6)：替换为 linter(view => tsParserDiagnostics(view.state.doc)) +
- * lintGutter()，并把编辑器右上角徽标「语法检查：待 T3.6」撤除（见 ScriptEditor）。
+ * 编辑器内诊断扩展位：行列诊断的展示入口在 ScriptTab 顶栏（徽标 + 列表 + 跳转到行）；
+ * 本扩展位留给后续把诊断落为编辑器内 linter 下划线标记（linter(view => …) +
+ * lintGutter()）时使用，当前返回空数组（占位无副作用）。
  */
 export function syntaxDiagnosticsExtension(): Extension[] {
   return []
@@ -136,7 +135,7 @@ export function buildScriptExtensions(opts: ScriptExtensionOptions): Extension[]
     syntaxHighlighting(scriptHighlightStyle, { fallback: true }),
     scriptEditorTheme,
     ...languageExtensionOf(opts.language),
-    // 诊断标记扩展位（T3.6 接入行列诊断；本期空占位——徽标显式标注）
+    // 编辑器内诊断扩展位（ScriptTab 顶栏已展示行列诊断；此处留给后续 linter 下划线标记）
     ...syntaxDiagnosticsExtension(),
     keymap.of([
       { key: 'Mod-s', run: makeSaveCommand(() => opts.onSave?.()) },
@@ -146,7 +145,7 @@ export function buildScriptExtensions(opts: ScriptExtensionOptions): Extension[]
       ...historyKeymap,
       ...foldKeymap,
       ...completionKeymap,
-      ...lintKeymap, // T3.6 诊断接入后的跳转键位（本期无诊断，键位空转）
+      ...lintKeymap, // 诊断接入后的跳转键位（当前无编辑器内诊断，键位空转）
       indentWithTab,
     ]),
     EditorView.editable.of(opts.readOnly !== true),
@@ -188,9 +187,9 @@ export interface ScriptEditorProps {
 
 /**
  * CodeMirror 脚本编辑器。
- * 值流：props.value 只是**初始/外部确认值**（磁盘内容 / 重载 / T3.8 对侧保存），
+ * 值流：props.value 只是**初始/外部确认值**（磁盘内容 / 重载 / T3.8 对侧保存与写回），
  * 编辑草稿在 CM 文档内；外部 value 与内部文档不同时整体替换（标记外部更新，
- * 不回调 onChange 以免误标脏）。右上角徽标「语法检查：待 T3.6」为诊断占位。
+ * 不回调 onChange 以免误标脏）。行列诊断徽标与列表在 ScriptTab 顶栏（T3.8）。
  */
 export function ScriptEditor({ path, value, readOnly = false, onChange, onSave, onReady, className }: ScriptEditorProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -249,10 +248,6 @@ export function ScriptEditor({ path, value, readOnly = false, onChange, onSave, 
   return (
     <div className={`script-editor${className ? ` ${className}` : ''}`}>
       <div ref={hostRef} className="script-editor-host" />
-      {/* 诊断占位徽标（不虚报）：T3.6 解析器交付后撤除并接入行列诊断 */}
-      <span className="script-editor-lint-badge" title="受控子集解析器（T3.6）交付后在此接入行列诊断">
-        语法检查：待 T3.6
-      </span>
     </div>
   )
 }
