@@ -50,6 +50,8 @@ import type { UIRenderEvent, UIRenderHandle } from './render/render';
 import { updateUI } from './render/render';
 import { createRuntime, type DebugEvent, type RuntimeHandle } from './interpreter';
 import { createEventBus, runtimeEventSink, type EventBus } from './events';
+import { DebugWsClient } from '@/shell/debug/debug-ws';
+import type { DebugClientMessage } from '@/shell/debug/protocol';
 
 /* ============================================================
  * 1. 绑定发现（纯函数，可单测）
@@ -487,6 +489,13 @@ export interface BindingRunnerOptions {
   uiId?: string;
   /** 调试观察探针（T5.4，运行窗口注入）：present 时各实例 onDebug 追加推入观察通道（150ms 批量见 ./debug-probe.ts）；缺省不接 */
   debugProbe?: DebugProbeLike;
+  /**
+   * 持续流事件订阅开关（T6.5）：开启后经 WS 订阅服务端 plugin.push 推送（协议扩展，
+   * hub 见 server/plugins/executor.ts），收到行 → 事件总线 pushPlugin(插件id, 'line',
+   * { line, streamId }) → 蓝图 event.listen('line') 语义可收。缺省关；蓝图使用了
+   * event 型插件节点（无 exec 入、有 exec 出）时自动开启（见 loadAndStart）。
+   */
+  streamEvents?: boolean;
 }
 
 /**
@@ -567,6 +576,35 @@ const KIND_LABEL: Record<AssetKind, string> = {
 /** 非插件但不在 editorSpecMap 中的运行时节点类型（T6.4 needsPluginSpecs 豁免；片段 spec 按资产注入） */
 const NON_PLUGIN_RUNTIME_TYPES: ReadonlySet<string> = new Set([SNIPPET_NODE_TYPE, SNIPPET_PURE_TYPE]);
 
+/** 收集资产中「基线 specs 之外」的节点类型（= 插件节点类型；豁免片段类型，T6.5 用） */
+function unknownNodeTypes(asset: IRAsset, base: ReadonlyMap<string, NodeSpec>): string[] {
+  const out: string[] = [];
+  for (const graph of Object.values(asset.graphs ?? {})) {
+    for (const node of graph?.nodes ?? []) {
+      const type = node?.type;
+      if (
+        typeof type === 'string' &&
+        type !== '' &&
+        !base.has(type) &&
+        !NON_PLUGIN_RUNTIME_TYPES.has(type) &&
+        !out.includes(type)
+      ) {
+        out.push(type);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * event 型插件节点形状识别（T6.5；ADR-004 规范化第 3 条：event 节点无 exec 输入
+ * 引脚、有 exec 输出引脚——specs 转换层不保留 kind 字段，故按形状判定）。
+ */
+function looksLikeEventPluginSpec(spec: NodeSpec | undefined): boolean {
+  if (!spec) return false;
+  return spec.inputs.length === 0 && spec.outputs.some((p) => p.type === 'exec');
+}
+
 /**
  * 绑定运行器：发现绑定 → 按扩展名加载（.bp.json → deserializeIR；.ts → 服务端转译 +
  * parseScriptToIR，T3.3；.py → T4.1 提示）→ 逐资产建 runtime（UiHandle / hub / print /
@@ -580,6 +618,8 @@ export class BindingRunner {
   private readonly entries: RuntimeEntry[] = [];
   private seq = 0;
   private stopped = false;
+  /** T6.5：plugin.push 持续流订阅客户端（懒建一次；stop 时关闭） */
+  private pluginStream: DebugWsClient | null = null;
 
   constructor(opts: BindingRunnerOptions) {
     this.opts = { fetchImpl: undefined, onPrint: undefined, onError: undefined, ...opts };
@@ -590,6 +630,45 @@ export class BindingRunner {
 
   private print(line: string): void {
     this.opts.onPrint?.(line);
+  }
+
+  /**
+   * T6.5 持续流接线（懒建一次）：WS 连接本地服务 /ws，订阅本项目的 plugin.push
+   * 推送（服务端协议扩展，hub 见 server/plugins/executor.ts；断线重连后 onOpen
+   * 重发订阅——服务端订阅表随连接清理）。收到行 → 事件总线 pushPlugin(插件id,
+   * 'line', { line, streamId })，蓝图 event.listen('line') 语义可收；close 帧
+   * 同步为 'close' 事件（蓝图可感知流结束）。node:test 环境 DebugWsClient 自身
+   * 不建立真实连接（非 http(s) 页面上下文静默），测试无副作用。
+   */
+  private ensurePluginStream(): void {
+    if (this.pluginStream || this.stopped) return;
+    const client = new DebugWsClient({
+      onOpen: () => {
+        client.send({
+          type: 'plugin.subscribe',
+          project: this.opts.project,
+        } as unknown as DebugClientMessage);
+      },
+      onMessage: (msg) => {
+        const m = msg as unknown as { type?: string; plugin?: unknown; streamId?: unknown; line?: unknown };
+        if (!this.bus || typeof m?.plugin !== 'string' || m.plugin === '') return;
+        if (m.type === 'plugin.push') {
+          this.bus.pushPlugin(
+            m.plugin,
+            'line',
+            {
+              line: typeof m.line === 'string' ? m.line : String(m.line ?? ''),
+              streamId: m.streamId,
+            },
+            { uiId: this.opts.uiId },
+          );
+        } else if (m.type === 'plugin.close') {
+          this.bus.pushPlugin(m.plugin, 'close', { streamId: m.streamId }, { uiId: this.opts.uiId });
+        }
+      },
+    });
+    this.pluginStream = client;
+    client.connect();
   }
 
   /** GET /api/file（与 RuntimeApp 同契约）；失败抛中文错误 */
@@ -660,8 +739,9 @@ export class BindingRunner {
   async loadAndStart(): Promise<void> {
     if (this.loaded || this.stopped) return;
     this.loaded = true;
-    // 事件总线（T5.1）：可注入共享实例（跨 UI 实例广播）；环保护警告 → 控制台 print
-    const bus = this.opts.bus ?? (this.bus = createEventBus({ onWarn: (m) => this.print(m) }));
+    // 事件总线（T5.1）：可注入共享实例（跨 UI 实例广播）；环保护警告 → 控制台 print。
+    // 无论注入与否都登记到 this.bus（T6.5 plugin.push 订阅与 routeEvent 依赖该引用）
+    const bus = (this.bus = this.opts.bus ?? createEventBus({ onWarn: (m) => this.print(m) }));
     const bindings = collectBoundNodes(this.opts.asset);
     // T6.4 插件节点动态注册：运行装配——project / fetchImpl 记入动态运行时配置
     //（插件节点 run 的 HTTP 调用与 ctx 兜底共用）；插件 specs 按需拉取：仅当绑定资产
@@ -712,6 +792,14 @@ export class BindingRunner {
           ? await ensurePluginSpecs()
           : base;
         if (this.stopped) return;
+        // T6.5 持续流接线：显式 opts.streamEvents 或资产使用了 event 型插件节点
+        // （无 exec 入、有 exec 出，按形状识别）时开启 plugin.push 订阅（本 runner 一次）
+        if (
+          this.opts.streamEvents === true ||
+          unknownNodeTypes(ir, base).some((t) => looksLikeEventPluginSpec(assetBase.get(t)))
+        ) {
+          this.ensurePluginStream();
+        }
         // 片段运行时（T3.7 / ADR-007）：按资产注入 script.snippet spec 并重写纯片段节点类型
         const { asset: irWithSnippets, specs: assetSpecs } = injectSnippetRuntime(ir, assetBase);
         const kindLabel = KIND_LABEL[kind];
@@ -775,6 +863,9 @@ export class BindingRunner {
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
+    // T6.5：关闭 plugin.push 订阅连接（服务端在项目最后一名订阅者离开后延迟停流）
+    this.pluginStream?.close();
+    this.pluginStream = null;
     for (const entry of this.entries) {
       this.bus?.unregister(entry.tag); // 总线注销：后续事件不再投递
       entry.rt.stop(); // 解释器 stop：清队 + abort signal + 复位状态槽

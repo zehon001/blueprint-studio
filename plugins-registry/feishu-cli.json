@@ -2,10 +2,13 @@
   "id": "feishu-cli",
   "name": "飞书 CLI",
   "kind": "cli",
-  "description": "封装飞书 CLI（feishu）：不实现功能本体，只做「检测 → 安装 → 更新」+ 节点透传封装。发送消息节点为透传占位，CLI 具体命令约定属 T6.6。",
+  "description": "封装飞书 CLI（feishu）：不实现功能本体，只做「检测 → 安装 → 更新」+ 节点透传封装。feishuCli.send 由服务端执行器按命令模板构造并透传执行（T6.6）。",
   "detect": { "cmd": "feishu --version", "versionRegex": "feishu(?:-cli)?[ v]+([\\d.]+)" },
   "install": { "strategy": "npm-global", "args": ["@blueprint-studio/feishu-cli"] },
   "update": { "latestVersion": "0.1.0", "source": "registry" },
+  "invoke": {
+    "cmdTemplate": "feishu send --text {message}"
+  },
   "nodes": [
     {
       "id": "feishuCli.send",
@@ -13,7 +16,7 @@
       "category": "插件",
       "keywords": ["飞书", "feishu", "lark", "消息", "发送"],
       "kind": "action",
-      "doc": "透传封装占位：把消息内容等参数交给飞书 CLI 发送，回传 CLI 输出文本。占位实现，功能本体（CLI 命令约定与执行器）属 T6.6。",
+      "doc": "透传封装：服务端把 message / target 参数按命令模板构造为 feishu CLI 命令并执行，回传 CLI 输出文本（outputs.text）。目标模板：target 非空时为 `feishu send --to {target} --text {message}`，否则 `feishu send --text {message}`。只封装命令构造与执行，不实现功能本体（T6.6）。",
       "inputs": [
         { "id": "exec", "type": "exec" },
         { "id": "message", "type": "string", "label": "消息内容" },

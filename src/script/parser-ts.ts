@@ -890,9 +890,11 @@ class GraphBuilder {
     const bodyStart = block.getStart(this.sf);
     const bodyEnd = block.end;
 
-    /* 注释标记扫描（__bps-snippet / __bps-seq；其余注释忽略） */
+    /* 注释标记扫描（__bps-snippet / __bps-seq；其余注释忽略。
+     * seq 标记为括号形 `// __bps-seq(<id>) <pin>`（见 sequenceMarkerLine），snippet 为
+     * 连字符形 `__bps-snippet-begin/end(...)`——扫描正则须同时兼容 `[-(]` 两种后随符） */
     const slice = fullText.slice(bodyStart, bodyEnd);
-    const markerRe = /^[ \t]*\/\/ __bps-(?:snippet|seq)-.*$/gm;
+    const markerRe = /^[ \t]*\/\/ __bps-(?:snippet|seq)[-(].*$/gm;
     const markers: { pos: number; text: string }[] = [];
     let m: RegExpExecArray | null;
     while ((m = markerRe.exec(slice)) !== null) {
@@ -1351,7 +1353,8 @@ class GraphBuilder {
         callee.expression.text === 'ui' &&
         callee.name.text === 'write'
       ) {
-        // ui.write(n, attr, v) → ui.setValue（attr='visible' 时走 setVisible 节点）
+        // ui.write(n, attr, v) → 按属性名反查写值节点（visible→setVisible；title→setTitle；
+        // 其余 text/value/checked/placeholder/动态属性 → setValue）
         if (e.arguments.length !== 3) throw new FoldSignal('ui.write 需要 3 个参数（节点名, 属性, 值）');
         const attrLit = this.p.exprLiteral(e.arguments[1]);
         const attr = attrLit.ok && typeof attrLit.value === 'string' ? attrLit.value : null;
@@ -1361,7 +1364,7 @@ class GraphBuilder {
           this.connect(node, 'name', this.expr(e.arguments[0]));
           this.connect(node, 'visible', this.expr(e.arguments[2]));
         } else {
-          node = this.addNode('ui.setValue');
+          node = this.addNode(this.uiWriteTypeForAttr(attr));
           this.connect(node, 'name', this.expr(e.arguments[0]));
           this.connect(node, 'attr', this.expr(e.arguments[1]));
           this.connect(node, 'value', this.expr(e.arguments[2]));
@@ -1414,7 +1417,20 @@ class GraphBuilder {
     return pending;
   }
 
-  /** ui.<节点>.<属性> = v → ui.setValue / ui.setVisible / ui.listSetItems */
+  /**
+   * ui 写值属性 → 节点类型反查（attr 值域语义见 src/nodes/ui.ts）：
+   * visible → ui.setVisible（显隐节点专用属性）；items → ui.listSetItems（列表项）；
+   * title → ui.setTitle（ATTR_TITLE 缺省属性）；其余（text/value/checked/placeholder、
+   * 动态属性）→ ui.setValue（ATTR_VALUE 通用写值）。
+   */
+  private uiWriteTypeForAttr(attr: string | null): string {
+    if (attr === 'visible') return 'ui.setVisible';
+    if (attr === 'items') return 'ui.listSetItems';
+    if (attr === 'title') return 'ui.setTitle';
+    return 'ui.setValue';
+  }
+
+  /** ui.<节点>.<属性> = v → ui.setValue / ui.setVisible / ui.listSetItems / ui.setTitle */
   private buildUiWrite(nodeName: string, attr: string, valueExpr: ts.Expression, pending: ExecSource[]): ExecSource[] {
     let node: IRNode;
     if (attr === 'visible') {
@@ -1426,7 +1442,8 @@ class GraphBuilder {
       this.connect(node, 'name', { kind: 'literal', value: nodeName });
       this.connect(node, 'items', this.expr(valueExpr));
     } else {
-      node = this.addNode('ui.setValue');
+      // 按属性名反查节点类型（title → ui.setTitle；其余值域 → ui.setValue；见 uiWriteTypeForAttr）
+      node = this.addNode(this.uiWriteTypeForAttr(attr));
       this.connect(node, 'name', { kind: 'literal', value: nodeName });
       this.connect(node, 'attr', { kind: 'literal', value: attr });
       this.connect(node, 'value', this.expr(valueExpr));

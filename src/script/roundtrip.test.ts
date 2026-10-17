@@ -2,9 +2,11 @@
  * Blueprint Studio v2 —— roundtrip 幂等测试（T3.5 / T3.6 共同 DoD；TA.1 的 TS 部分基座）
  *
  * *******************************************************************************************
- *  本文件即 TA.1（roundtrip 幂等测试框架）的 TS 部分雏形：TA.1 落地 `tests/roundtrip/`
- *  时，应把本文件的 roundtripIR / canonicalIR 比较器与样本库原样迁入，并扩展
- *  IR→Py→IR 与片段节点专项样本；`npm run roundtrip` 的 script-check.ts 接线同源。
+ *  本文件即 TA.1（roundtrip 幂等测试框架）的 TS 部分基座：TA.1 已落地 `tests/roundtrip/`，
+ *  其 roundtrip-helpers.ts 对本文件的比较器（roundtripIR / canonicalIR / firstDiff）、
+ *  样本构造器（node/graph/execEdge/dataEdge/asset/pureNodeSample）与场景样本
+ *  （counterAsset 等）做 re-export 单源复用（不复制实现）；本文件为此补的 export
+ *  仅为暴露共享符号，测试逻辑未改动。`npm run roundtrip` 的 script-check.ts 接线同源。
  * *******************************************************************************************
  *
  * 断言口径（PLAN §10 / §20-2）：
@@ -42,23 +44,24 @@ import { interopSpecMap, stableStringify } from './codegen-common';
  * 样本构造帮助（与 validate.test.ts 同款）
  * ============================================================ */
 
-function node(id: string, type: string, extra?: Partial<Omit<IRNode, 'id' | 'type'>>): IRNode {
+// 以下工具 / 样本均 export：TA.1 的 tests/roundtrip/roundtrip-helpers.ts 原样 re-export（单源，禁止复制实现）。
+export function node(id: string, type: string, extra?: Partial<Omit<IRNode, 'id' | 'type'>>): IRNode {
   return { id, type, params: {}, pinDefaults: {}, position: { x: 0, y: 0 }, ...extra };
 }
 
-function graph(nodes: IRNode[], edges: IREdge[]): IRGraph {
+export function graph(nodes: IRNode[], edges: IREdge[]): IRGraph {
   return { nodes, edges };
 }
 
-function execEdge(id: string, fromNode: string, toNode: string, fromPin = 'exec', toPin = 'exec'): IREdge {
+export function execEdge(id: string, fromNode: string, toNode: string, fromPin = 'exec', toPin = 'exec'): IREdge {
   return { id, from: { node: fromNode, pin: fromPin }, to: { node: toNode, pin: toPin }, kind: 'exec' };
 }
 
-function dataEdge(id: string, fromNode: string, fromPin: string, toNode: string, toPin: string): IREdge {
+export function dataEdge(id: string, fromNode: string, fromPin: string, toNode: string, toPin: string): IREdge {
   return { id, from: { node: fromNode, pin: fromPin }, to: { node: toNode, pin: toPin }, kind: 'data' };
 }
 
-function asset(graphs: Record<string, IRGraph>, extra?: Partial<Omit<IRAsset, 'graphs'>>): IRAsset {
+export function asset(graphs: Record<string, IRGraph>, extra?: Partial<Omit<IRAsset, 'graphs'>>): IRAsset {
   return {
     version: 2,
     name: '测试资产',
@@ -73,7 +76,7 @@ function asset(graphs: Record<string, IRGraph>, extra?: Partial<Omit<IRAsset, 'g
 }
 
 /** 递归找首个差异路径（语义对齐 assert.deepStrictEqual；undefined 值键视同缺失） */
-function firstDiff(a: unknown, b: unknown, path = ''): string {
+export function firstDiff(a: unknown, b: unknown, path = ''): string {
   if (Object.is(a, b)) return '';
   if (
     typeof a !== 'object' || a === null || typeof b !== 'object' || b === null ||
@@ -111,7 +114,7 @@ function firstDiff(a: unknown, b: unknown, path = ''): string {
 }
 
 /** 生成码经 esbuild 转译无语法错（受控子集可编译性的轻量证明；transform 失败时抛错） */
-async function assertTranspiles(code: string): Promise<void> {
+export async function assertTranspiles(code: string): Promise<void> {
   try {
     await transform(code, {
       loader: 'ts',
@@ -122,7 +125,7 @@ async function assertTranspiles(code: string): Promise<void> {
   }
 }
 
-function noDiags(diagnostics: ParseDiagnostic[]): void {
+export function noDiags(diagnostics: ParseDiagnostic[]): void {
   assert.deepEqual(
     diagnostics,
     [],
@@ -207,7 +210,7 @@ function canonicalGraph(g: IRGraph): RefinedGraph {
 }
 
 /** 资产规范化：id / position / layout 剔除语义等价性噪声；events / snippets 排序 */
-function canonicalIR(asset: IRAsset): IRAsset {
+export function canonicalIR(asset: IRAsset): IRAsset {
   const base = normalizeIR(asset);
   const graphs: Record<string, IRGraph> = {};
   for (const name of Object.keys(base.graphs).sort()) {
@@ -291,7 +294,7 @@ export function roundtripIR(asset: IRAsset): RoundtripResult {
 }
 
 /** 样本断言：roundtrip 全绿 + 生成码可转译 + 解析零诊断 */
-async function assertRoundtrip(asset: IRAsset): Promise<string> {
+export async function assertRoundtrip(asset: IRAsset): Promise<string> {
   const r = roundtripIR(asset);
   assert.equal(r.ok, true, `roundtrip 失败：${r.diff ?? ''}\n===== 生成码 =====\n${r.code ?? ''}`);
   noDiags(parseScriptToIR(r.code ?? '').diagnostics);
@@ -480,7 +483,7 @@ test('roundtrip ①b：事件参数引用 / 片段源码原样保留', async () 
  * ② 条件分支 + 循环计数（真实节点）
  * ============================================================ */
 
-const counterAsset = asset(
+export const counterAsset = asset(
   {
     main: graph(
       [
@@ -533,7 +536,7 @@ test('roundtrip ②：条件分支 + 循环计数（分支汇合 / 循环后引�
  * ③ 日志分析管线（真实节点：androidLogParse / filter / ui / format）
  * ============================================================ */
 
-const logPipelineAsset = asset(
+export const logPipelineAsset = asset(
   {
     main: graph(
       [
@@ -578,7 +581,7 @@ test('roundtrip ③：日志分析管线（androidLogParse 双输出别名 + fil
  * ④ 字符串处理链（真实节点：concat/trim/upper/length/json/map/regex）
  * ============================================================ */
 
-const stringChainAsset = asset(
+export const stringChainAsset = asset(
   {
     main: graph(
       [
@@ -639,7 +642,7 @@ test('roundtrip ④：字符串处理链（模板拼接 / 共享别名 / json / 
  * ============================================================ */
 
 /** 形态复用 validate.test.ts「分支+循环+变量读写」集成样本（事件监听并入主图） */
-const branchLoopVarAsset = asset(
+export const branchLoopVarAsset = asset(
   {
     main: graph(
       [
@@ -715,7 +718,7 @@ test('roundtrip ⑥：nodes.test forEach 形态（遍历 + break 引脚 + 下标
  * ============================================================ */
 
 /** 为一个纯节点构造最小样本：引脚取 spec 默认值 / 字面量，结果交给 print */
-function pureNodeSample(specId: string): IRAsset {
+export function pureNodeSample(specId: string): IRAsset {
   const spec = interopSpecMap().get(specId);
   assert.ok(spec, `spec ${specId} 应存在`);
   const nd = node('p1', specId);
@@ -954,7 +957,7 @@ test('解析：孤儿片段（无节点引用）从 loose 标记恢复', async (
  * ⑩ 多片段资产：exec 片段（数据入脚 ← var.get、出脚被下游引用 / 未引用出脚）、
  * 链尾片段（无数据脚）、纯片段（表达式 → 下游）、孤儿片段（多引脚 loose）。
  */
-const multiSnippetAsset = asset(
+export const multiSnippetAsset = asset(
   {
     main: graph(
       [

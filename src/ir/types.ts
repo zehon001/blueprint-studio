@@ -567,6 +567,18 @@ export type PluginNodeSpec = NodeSpec & {
   kind?: 'action' | 'event';
 };
 
+/**
+ * 节点执行命令模板（T6.6 扩展字段；服务端 invoke 透传封装用——按模板构造 CLI
+ * 命令并透传执行，不实现功能本体）。注意：ADR-004 尚未收录该字段，待 PM 追认后补记。
+ */
+export interface PluginInvokeSpec {
+  /**
+   * 命令模板：占位符 {message}（必填）/ {target}（可选）。target 非空且模板未含
+   * {target} 占位符时，服务端按内置约定在首个 `--text` 标记前插入 `--to "<target>" `。
+   */
+  cmdTemplate: string;
+}
+
 /** 插件清单（内置注册表 / 项目 plugins/ / 服务端静态目录 使用同一格式） */
 export interface PluginManifest {
   /** 插件 id（全局唯一；插件节点 id 必须以它为前缀） */
@@ -583,6 +595,8 @@ export interface PluginManifest {
   install?: InstallSpec;
   /** 更新信息（省略 = 不参与版本判定，状态恒为「已安装」） */
   update?: UpdateSpec;
+  /** 节点执行命令模板（可选；T6.6 透传封装用，ADR-004 待 PM 追认后补记） */
+  invoke?: PluginInvokeSpec;
   /** 插件封装的节点列表 */
   nodes: PluginNodeSpec[];
   /** 清单来源（由注册表按发现位置标注后附加，不在清单 JSON 中手写） */

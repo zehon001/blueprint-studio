@@ -75,7 +75,8 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
  *    （install.strategy 为 custom-cmd 时必须提供 cmd；versionRegex 必须可编译）；
  *  - 节点：id 必须带插件前缀（isPluginNodeId）、title 必填、inputs/outputs 必为数组、
  *    引脚 id/type 必填（ADR-004 规范化第 1 条：exec 引脚显式写 "type": "exec"）；
- *  - kind = 'event' 的节点（持续流）：不允许 exec 输入引脚、必须有 exec 输出引脚。
+ *  - kind = 'event' 的节点（持续流）：不允许 exec 输入引脚、必须有 exec 输出引脚；
+ *  - invoke（可选，T6.6 扩展字段 / ADR-004 待 PM 追认）：{ cmdTemplate } 必为非空字符串。
  * 不校验清单 JSON 中手写的 source（注册表统一标注覆盖，见 ADR-004）。
  */
 export function validateManifest(raw: unknown): ManifestValidation {
@@ -152,6 +153,15 @@ export function validateManifest(raw: unknown): ManifestValidation {
     }
   }
 
+  // ---- invoke（可选；T6.6 扩展字段，ADR-004 待 PM 追认后补记）----
+  if (o.invoke !== undefined) {
+    if (!isPlainObject(o.invoke)) {
+      errors.push('invoke 必须为对象（{ cmdTemplate }）')
+    } else if (typeof o.invoke.cmdTemplate !== 'string' || !o.invoke.cmdTemplate.trim()) {
+      errors.push('invoke.cmdTemplate 必须为非空字符串（命令模板，如 "feishu send --text {message}"）')
+    }
+  }
+
   // ---- nodes ----
   if (Array.isArray(o.nodes)) {
     o.nodes.forEach((n, i) => validatePluginNode(n, i, pluginId, errors))
@@ -182,6 +192,9 @@ export function validateManifest(raw: unknown): ManifestValidation {
   }
   if (isPlainObject(o.update)) {
     manifest.update = { latestVersion: o.update.latestVersion as string, source: o.update.source as string }
+  }
+  if (isPlainObject(o.invoke) && typeof o.invoke.cmdTemplate === 'string' && o.invoke.cmdTemplate.trim()) {
+    manifest.invoke = { cmdTemplate: o.invoke.cmdTemplate }
   }
   return { ok: true, manifest }
 }

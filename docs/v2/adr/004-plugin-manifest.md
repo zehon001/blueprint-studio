@@ -98,3 +98,10 @@ const registry = mergeManifests([builtinManifests, projectManifests, staticDirMa
 - 合并去重的优先级语义当前为「先到先得（内置 > 项目 > 静态目录）」，正式定案在 T6.1。
 - 自定义插件的 `executor.cjs` 入参 / 出参 JSON 协议由 Server-Agent（T6.1 / T6.3）定义，定案后可回写本 ADR。
 - `update.source` 当前仅作展示与人工核对；是否接入自动检查更新的远程源，M6 明确排除（不做插件市场 / 远程注册表）。
+
+
+## 追认记录（T6.1/T6.5 定案，PM 2026-10-17）
+
+1. **三源合并优先级**：项目 > 静态目录 > 内置（同 id 整清单覆盖）。
+2. **插件节点 id 前缀**：`camelCase(pluginId) + '.'`（如 `phone-log` → `phoneLog.read`）；兼容字面 `${pluginId}.` 读取；插件 id 约束 `^[A-Za-z][A-Za-z0-9_-]*$`。`pluginNodePrefix` 当前在 server/plugins/registry.ts 与 src/nodes/dynamic.ts 各一份（逻辑一致，测试锁定），后续可上移 src/ir/types.ts 单源化。
+3. **清单可选字段 `invoke?: { cmdTemplate: string }`**（T6.6）：CLI 插件节点的透传调用命令模板（如 `"feishu send --text {message}"`）；`{message}` 必填占位；target 非空时若模板含 `{target}` 直接替换，否则在首个 `--text` 前插入 `--to "<target>"`。validateManifest 已校验（非对象/空 cmdTemplate 报中文错）。

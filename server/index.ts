@@ -22,6 +22,7 @@ import { WebSocketServer } from 'ws'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import * as fsApi from './fs'
 import * as pluginsApi from './plugins/registry'
+import * as executorApi from './plugins/executor'
 import * as transpileApi from './transpile'
 import { WsDebugHub } from './ws'
 
@@ -218,6 +219,23 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       return
     }
 
+    // T6.3/T6.5 插件执行器（server/plugins/executor.ts，仅追加）：
+    //   POST /api/plugins/invoke                              → JSON（通用通道 / phone-log / feishu-cli）
+    //   POST|GET /api/plugins/:id/detect?project=&cmdOverride= → JSON（检测）
+    //   GET /api/plugins/:id/install?project=&action=&cmdOverride= → SSE（安装/更新流）
+    // 注意：须在下方 T6.1 注册表路由**之前**匹配——否则 GET /api/plugins/:id/detect
+    // 会被注册表的 /api/plugins/:id 处理器先行 404。
+    const executorHandled = await executorApi.handleExecutorRequest({
+      req,
+      res,
+      pathname,
+      query: url.searchParams,
+      projectsRoot: PROJECTS_ROOT,
+      readJson,
+      sendJson,
+    })
+    if (executorHandled) return
+
     // T6.1 插件注册表：GET /api/plugins?project=<项目>（三源合并清单，project 缺省 = 内置+静态目录）、
     // GET /api/plugins/:id?project=（单清单详情，含节点）。检测/安装/更新执行器属 T6.3，
     // 届时在 server/plugins/executor.ts 实现并在此追加 POST /api/plugins/:id/detect|install|update。
@@ -339,6 +357,10 @@ function serveStatic(pathname: string, res: ServerResponse): void {
 const wss = new WebSocketServer({ noServer: true })
 const wsHub = new WsDebugHub()
 wsHub.attach(wss)
+
+// T6.5 持续流推送（仅追加）：plugin.push / plugin.close 协议扩展（hub 实现见
+// server/plugins/executor.ts——复用 /ws 连接通道按 project 订阅广播，不改 ws.ts）
+executorApi.pluginPushHub.attach(wss)
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`)
