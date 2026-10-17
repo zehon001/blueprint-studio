@@ -12,7 +12,7 @@ export const VIEWPORT_STYLE_ID = 'bps-ui-viewport-style';
 /** 视口样式表（类名前缀 bps-vp-） */
 export const VIEWPORT_CSS = `
 /* ── 面板骨架 ───────────────────────────────────────── */
-.bps-vp{position:relative;display:flex;flex-direction:column;background:var(--bg-canvas);color:var(--text);font-family:var(--font-ui);font-size:var(--font-md);overflow:hidden;outline:none;min-height:0;min-width:0;}
+.bps-vp{position:relative;display:flex;flex-direction:column;flex:1;width:100%;background:var(--bg-canvas);color:var(--text);font-family:var(--font-ui);font-size:var(--font-md);overflow:hidden;outline:none;min-height:0;min-width:0;}
 .bps-vp:focus{outline:none;}
 .bps-vp:focus-visible{box-shadow:inset 0 0 0 1px var(--focus-ring);}
 .bps-vp__surface{position:absolute;inset:0;overflow:hidden;cursor:default;touch-action:none;}

@@ -159,6 +159,21 @@ body {
   min-height: 0;
 }
 
+/* 分栏子项包裹层：必须是弹性列容器，否则嵌套 split/tabs 的 flex:1 链在此断裂
+   （块级盒高度回退为内容高，左右列被压扁——E2E 冒烟发现） */
+.dock-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dock-pane > * {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
 .dock-split-h {
   flex-direction: row;
 }
