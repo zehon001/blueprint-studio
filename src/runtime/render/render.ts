@@ -40,7 +40,7 @@
  *   ensurePrefabLoaded 异步补拉，成功后回调 opts.onPrefabLoad 通知调用方 updateUI 刷新。
  *   实例元素带 data-prefab（完整路径）供树/检视器联动与测试。
  */
-import type { UIAsset, UINode, Size2 } from '../../ir/types';
+import type { UIAsset, UINode, Size2, UIEdges, UILength } from '../../ir/types';
 import { getUISchema } from '../../ui-editor/schema';
 import {
   ensurePrefabLoaded,
@@ -287,6 +287,98 @@ function applyTransform(el: HTMLElement, node: UINode, layout: ChildLayout): voi
 }
 
 /* ============================================================
+ * v3 flex 布局（ADR-011；有 layout/container 时覆盖 v2 transform 语义）
+ * ============================================================ */
+
+/** v3 长度 → CSS 值（数字 = px；auto = 空；百分比原样） */
+function cssLen(v: UILength | undefined): string {
+  if (v === undefined || v === 'auto') return ''
+  return typeof v === 'number' ? `${v}px` : v
+}
+
+/** 四向边距写入（partial；未声明项清空） */
+function applyEdges(st: CSSStyleDeclaration, kind: 'margin' | 'padding', edges: Partial<UIEdges> | undefined): void {
+  st[`${kind}Top`] = edges?.t !== undefined ? `${edges.t}px` : ''
+  st[`${kind}Right`] = edges?.r !== undefined ? `${edges.r}px` : ''
+  st[`${kind}Bottom`] = edges?.b !== undefined ? `${edges.b}px` : ''
+  st[`${kind}Left`] = edges?.l !== undefined ? `${edges.l}px` : ''
+}
+
+/** v3 子项布局：覆盖 applyTransform 的 position/size/flex 相关内联值 */
+function applyFlexLayout(el: HTMLElement, node: UINode): void {
+  const l = node.layout
+  if (!l) return
+  const st = el.style
+  st.position = ''
+  st.left = ''
+  st.top = ''
+  st.right = ''
+  st.bottom = ''
+  st.width = ''
+  st.height = ''
+  st.flexGrow = ''
+  st.flexShrink = ''
+  st.flexBasis = ''
+  st.alignSelf = ''
+  st.order = ''
+  applyEdges(st, 'margin', l.margin)
+
+  const absolute = l.position === 'absolute'
+  st.position = absolute ? 'absolute' : 'relative'
+  if (absolute) {
+    if (l.left !== undefined) st.left = cssLen(l.left)
+    if (l.top !== undefined) st.top = cssLen(l.top)
+    if (l.right !== undefined) st.right = cssLen(l.right)
+    if (l.bottom !== undefined) st.bottom = cssLen(l.bottom)
+  }
+  if (l.size) {
+    st.width = cssLen(l.size.w)
+    st.height = cssLen(l.size.h)
+  }
+  if (!absolute) {
+    if (l.grow !== undefined) st.flexGrow = String(l.grow)
+    if (l.shrink !== undefined) st.flexShrink = String(l.shrink)
+    if (l.basis !== undefined) st.flexBasis = cssLen(l.basis)
+    if (l.alignSelf !== undefined && l.alignSelf !== 'auto') {
+      st.alignSelf = l.alignSelf === 'start' ? 'flex-start' : l.alignSelf === 'end' ? 'flex-end' : l.alignSelf
+    }
+    if (l.order !== undefined) st.order = String(l.order)
+  }
+}
+
+/** v3 容器布局（挂在容器元素自身的 flex 属性；容器默认 column） */
+function applyContainer(el: HTMLElement, node: UINode): void {
+  const c = node.container
+  if (!c) return
+  const st = el.style
+  const justify: Record<string, string> = {
+    start: 'flex-start',
+    center: 'center',
+    end: 'flex-end',
+    'space-between': 'space-between',
+    'space-around': 'space-around',
+    'space-evenly': 'space-evenly',
+  }
+  const align: Record<string, string> = {
+    start: 'flex-start',
+    center: 'center',
+    end: 'flex-end',
+    stretch: 'stretch',
+    baseline: 'baseline',
+  }
+  st.display = 'flex'
+  st.flexDirection = c.direction === 'row' ? 'row' : 'column'
+  st.flexWrap = c.wrap ?? 'nowrap'
+  st.justifyContent = justify[c.justify ?? 'start'] ?? 'flex-start'
+  st.alignItems = align[c.align ?? 'stretch'] ?? 'stretch'
+  st.gap = `${c.gap ?? 0}px`
+  applyEdges(st, 'padding', c.padding)
+  st.overflow = c.overflow === 'scroll' ? 'auto' : (c.overflow ?? 'visible')
+  // 容器作为 absolute 子项的定位参照
+  if (!st.position || st.position === 'static') st.position = 'relative'
+}
+
+/* ============================================================
  * 预制体实例展开（T7.3 · ADR-009）
  * ============================================================ */
 
@@ -406,6 +498,9 @@ function patchNodeEl(el: HTMLElement, node: UINode, layout: ChildLayout, state: 
   applyTransform(el, node, layout);
   const r = rendererForNode(node);
   r.patch(el, node, state.ctx);
+  // v3：layout/container 覆盖 v2 属性（渲染器 patch 之后写入，保证内联优先）
+  applyContainer(el, node);
+  applyFlexLayout(el, node);
   if (r.childHost) {
     const host = r.childHost(el);
     const childEls = reconcileChildren(host, node.children ?? [], node.type, state);

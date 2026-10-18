@@ -32,7 +32,8 @@ import {
   commitDelete,
   commitDuplicate,
   commitMoves,
-  isFreeParentType,
+  isNodeFreelyPositionable,
+  readNodePosition,
   resolveAddParent,
   type NodeMove,
 } from './commands';
@@ -282,7 +283,8 @@ export function UIEditorPanel() {
     return selection.filter((id) => {
       const parent = pmap.get(id);
       if (parent === undefined) return false;
-      return isFreeParentType(parent ? parent.type : null);
+      const node = findUINode(asset.root, id);
+      return node ? isNodeFreelyPositionable(node, parent) : false;
     });
   }, [asset, selection]);
 
@@ -357,7 +359,8 @@ export function UIEditorPanel() {
     for (const id of ids) {
       const parent = pmap.get(id);
       if (parent === undefined) continue;
-      if (isFreeParentType(parent ? parent.type : null)) movableIds.push(id);
+      const node = findUINode(assetNow.root, id);
+      if (node && isNodeFreelyPositionable(node, parent)) movableIds.push(id);
       else flowCount++;
     }
     const boxOf = new Map(liveBoxes.map((b) => [b.id, b.rect]));
@@ -367,7 +370,7 @@ export function UIEditorPanel() {
       const node = findUINode(assetNow.root, id);
       const el = canvas.querySelector<HTMLElement>(`[data-uid="${id}"]`);
       if (!box || !node || !el) return [];
-      return [{ id, el, box, startPos: { x: node.transform.position.x, y: node.transform.position.y } }];
+      return [{ id, el, box, startPos: readNodePosition(node) }];
     });
     if (items.length === 0 && flowCount === 0) return;
 
@@ -680,16 +683,13 @@ export function UIEditorPanel() {
     for (const id of selectionRef.current) {
       const parent = pmap.get(id);
       if (parent === undefined) continue;
-      if (!isFreeParentType(parent ? parent.type : null)) {
+      const node = findUINode(assetNow.root, id);
+      if (!node || !isNodeFreelyPositionable(node, parent)) {
         flowCount++;
         continue;
       }
-      const node = findUINode(assetNow.root, id);
-      if (!node) continue;
-      moves.push({
-        id,
-        position: { x: node.transform.position.x + d.x, y: node.transform.position.y + d.y },
-      });
+      const cur = readNodePosition(node);
+      moves.push({ id, position: { x: cur.x + d.x, y: cur.y + d.y } });
     }
     if (flowCount > 0) showHint(FLOW_HINT);
     if (moves.length > 0) commitMoves(moves, '视口：微调节点位置');
@@ -742,7 +742,7 @@ export function UIEditorPanel() {
       .flatMap((b) => {
         const node = findUINode(assetNow.root, b.id);
         if (!node) return [];
-        return [{ id: b.id, position: { x: node.transform.position.x, y: node.transform.position.y }, box: b.rect }];
+        return [{ id: b.id, position: readNodePosition(node), box: b.rect }];
       });
     const result = computeAlignment(entries, mode);
     if (result.size === 0) return;

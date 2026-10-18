@@ -75,7 +75,10 @@ interface UIEditorState {
 export function parseUIAsset(text: string): UIAsset {
   const raw = JSON.parse(text) as Partial<UIAsset>
   if (!raw || typeof raw !== 'object') throw new Error('UI 资产格式错误：根节点不是对象')
-  if (raw.version !== 2) throw new Error(`UI 资产版本不识别：${String(raw.version)}`)
+  // v3 过渡期：接受 2（v2 兼容层）与 3；T13.2 版本门禁收口后只接受 3
+  if (raw.version !== 2 && raw.version !== 3) {
+    throw new Error(`UI 资产版本不识别：${String(raw.version)}（支持 2/3）`)
+  }
   if (!raw.root || typeof raw.root !== 'object') throw new Error('UI 资产缺少 root 节点')
   return raw as UIAsset
 }

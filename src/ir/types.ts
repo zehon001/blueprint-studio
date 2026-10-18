@@ -346,6 +346,49 @@ export interface UITransform {
   anchors?: UIAnchors;
 }
 
+/* ---------------- v3 flex 布局契约（ADR-011；v2 字段保留为兼容层） ---------------- */
+
+/** v3 长度：像素数值 / auto / 百分比字符串 */
+export type UILength = number | 'auto' | `${number}%`;
+
+/** v3 四向边距（t/r/b/l 像素） */
+export interface UIEdges {
+  t: number;
+  r: number;
+  b: number;
+  l: number;
+}
+
+/** v3 节点布局（作为父容器的流式子项 + 自身定位） */
+export interface UILayout {
+  /** 定位模式：relative（默认，参与父 flex 流）/ absolute（脱离流，left/top/right/bottom） */
+  position?: 'relative' | 'absolute';
+  grow?: number;
+  shrink?: number;
+  basis?: UILength;
+  alignSelf?: 'auto' | 'start' | 'center' | 'end' | 'stretch';
+  order?: number;
+  /** 首选尺寸（流式）/ 实际尺寸（absolute） */
+  size?: { w: UILength; h: UILength };
+  margin?: Partial<UIEdges>;
+  /** absolute 专属（px 或 %；可成对拉伸） */
+  left?: UILength;
+  top?: UILength;
+  right?: UILength;
+  bottom?: UILength;
+}
+
+/** v3 容器布局（容器原语与元素根） */
+export interface UIContainer {
+  direction?: 'row' | 'column';
+  wrap?: 'nowrap' | 'wrap' | 'wrap-reverse';
+  justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around' | 'space-evenly';
+  align?: 'start' | 'center' | 'end' | 'stretch' | 'baseline';
+  gap?: number;
+  padding?: Partial<UIEdges>;
+  overflow?: 'visible' | 'hidden' | 'scroll';
+}
+
 /** UI 节点（*.ui.json 资产树中的一个节点） */
 export interface UINode {
   /** 节点实例 id（资产内唯一） */
@@ -354,7 +397,13 @@ export interface UINode {
   name: string;
   /** UI 节点类型（PLAN §7.1 节点库，如 vbox / button / list；类型枚举由 T1.1 schema 定义） */
   type: string;
-  /** 变换属性 */
+  /** v3 布局（存在即走 flex 引擎；覆盖 transform 的 position/size） */
+  layout?: UILayout;
+  /** v3 容器布局（容器节点 / 元素根） */
+  container?: UIContainer;
+  /** v3 样式类（§3.3；M11 解析） */
+  classes?: string[];
+  /** 变换属性（v2 兼容层：无 layout 时由渲染器/视口读取） */
   transform: UITransform;
   /** 主题样式属性（键 = T1.1 属性 schema 定义的样式名） */
   theme: Record<string, unknown>;
@@ -377,10 +426,22 @@ export interface UINode {
 
 /** UI 资产（*.ui.json 的序列化对象） */
 export interface UIAsset {
-  /** 资产格式版本（当前 = 2；变更走 ADR） */
-  version: 2;
+  /** 资产格式版本（v3 = 3；v2 = 2 仅过渡兼容，T13.2 后拒载） */
+  version: 2 | 3;
   /** 资产名（默认与文件名一致） */
   name: string;
+  /** v3：场景 / 预制体（缺省 scene） */
+  kind?: 'scene' | 'prefab';
+  /** v3：本资产应用的样式表引用（§3.8；M11 解析） */
+  styles?: string[];
+  /** v3：内嵌蓝图图集合（§3.1；M10 接入） */
+  graphs?: Record<string, IRGraph & { kind?: 'event' | 'function' }>;
+  /** v3：图视图状态（键 = 图名） */
+  layout?: Record<string, IRGraphLayout>;
+  /** v3：变量表（内嵌蓝图，M10） */
+  variables?: IRVariable[];
+  /** v3：自定义事件声明 */
+  events?: IREventDef[];
   /** UI 树根节点 */
   root: UINode;
 }

@@ -162,6 +162,10 @@ export function expandPrefabNode(
     name: instance.name,
     type: prefabRoot.type,
     transform: instance.transform ?? prefabRoot.transform,
+    // v3：实例保留自身布局覆盖（位置/尺寸），容器语义取预制体根
+    ...(instance.layout ?? prefabRoot.layout ? { layout: instance.layout ?? prefabRoot.layout } : {}),
+    ...(prefabRoot.container ? { container: prefabRoot.container } : {}),
+    ...(instance.classes ?? prefabRoot.classes ? { classes: instance.classes ?? prefabRoot.classes } : {}),
     // 浅覆盖（ADR-009 §2）：实例 props 里的键写实例值，其余回落预制体根
     theme: { ...prefabRoot.theme, ...instance.theme },
     props: { ...prefabRoot.props, ...instance.props },
@@ -275,6 +279,9 @@ export function materializePrefabNode(
     name: instance.name,
     type: prefabRoot.type,
     transform: instance.transform,
+    ...(instance.layout ?? prefabRoot.layout ? { layout: instance.layout ?? prefabRoot.layout } : {}),
+    ...(prefabRoot.container ? { container: prefabRoot.container } : {}),
+    ...(instance.classes ?? prefabRoot.classes ? { classes: instance.classes ?? prefabRoot.classes } : {}),
     theme: { ...prefabRoot.theme, ...instance.theme },
     props: { ...prefabRoot.props, ...instance.props },
     // 与展开同规则：实例已声明用实例值，否则冻结预制体根的默认绑定

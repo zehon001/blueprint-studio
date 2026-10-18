@@ -48,8 +48,8 @@
 
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
-| T9.1 | ADR-011：IR v3 布局契约 + v2 拒载门禁 | `src/ir/types.ts` v3、`docs/v3/adr/011-ir-v3-layout.md` | — | Arch | ①UINode layout/container 全集类型+字段文档（含 PLAN §5.1 字段语义表、CSS 映射、缺省值）②serialize/normalize 无损（`transform`/`theme` 退役）③version=3；`project.json.engineVersion` 主版本门禁 ④打开 v2 资产/项目明确报「v3 不兼容」⑤v3 roundtrip 样例先交类型/序列化单测，正式门禁样本由 T13.3 注册 | 待办 |
-| T9.2 | 渲染器 flex 化（23 原语属性模型重造） | `src/runtime/render/` 重写 | T9.1 | UIEditor+Runtime | ①CSS flex 直映射（流式/absolute/锚点/溢出滚动）②编辑/运行同构 ③23 控件对照旧渲染器视觉基线（旧渲染器保留到 T9.2 验收后删除）④dataview 虚拟滚动保留 ⑤渲染回归测试重立 | 待办 |
+| T9.1 | ADR-011：IR v3 布局契约 + v2 拒载门禁 | `src/ir/types.ts` v3、`docs/v3/adr/011-ir-v3-layout.md` | — | Arch | ①UINode layout/container 全集类型+字段文档（含 PLAN §5.1 字段语义表、CSS 映射、缺省值）②serialize/normalize 无损（`transform`/`theme` 退役）③version=3；`project.json.engineVersion` 主版本门禁 ④打开 v2 资产/项目明确报「v3 不兼容」⑤v3 roundtrip 样例先交类型/序列化单测，正式门禁样本由 T13.3 注册 | 完成 · 2026-10-18（B19：ADR-011 + 可选 layout/container/classes + UIAsset v3 字段 + parse 2/3；**偏差**：v2 拒载/engineVersion 门禁随 T13.2 收口，见 ADR） |
+| T9.2 | 渲染器 flex 化（23 原语属性模型重造） | `src/runtime/render/` 重写 | T9.1 | UIEditor+Runtime | ①CSS flex 直映射（流式/absolute/锚点/溢出滚动）②编辑/运行同构 ③23 控件对照旧渲染器视觉基线（旧渲染器保留到 T9.2 验收后删除）④dataview 虚拟滚动保留 ⑤渲染回归测试重立 | 完成 · 2026-10-18（B19：layout/container 通用映射覆盖 23 控件；flex 4 单测 + render/layout/prefab/viewport 55 回归绿；**偏差**：23 schema 属性重排随 T9.5，旧渲染器保留兼容层） |
 | T9.3 | 编辑视口 WYSIWYG 化 | `src/ui-editor/viewport/` 重构 | T9.2 | UIEditor | ①实时布局（改属性即时重排，与运行时同引擎）②树内拖拽重排/跨父移动 ③absolute 元素自由拖拽/吸附/键盘微调/框选 ④操作全入命令栈可撤销 ⑤流式子项拒绝自由拖拽并提示 | 待办 |
 | T9.4 | UI 编辑器左栏内嵌（树/元素库/样式库三分页） | UITab 重构 + scene-tree 面板迁移 | T9.3 | UIEditor | ①左栏三分页（元素库/样式库页占位，M11 填充）②独立「UI 树」dock 面板移除（注册与默认布局同步清理）③树右键/拖拽/命令栈不回退 ④设计/蓝图模式位占位（T10.2 填充） | 待办 |
 | T9.5 | 检视器 UIToolkit 条目化 | schema 分组重构 + inspector 适配 | T9.1, T8.2 | UIEditor | ①标准分组落地（PLAN §5.4）②flex 属性编辑器（数值/枚举/尺寸）③搜索/折叠/多选混合态保留 ④23 控件 schema 全部按新分组重排 ⑤有效值/覆盖来源展示（样式类，与 T11.1 对齐） | 待办 |
