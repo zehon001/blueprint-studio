@@ -656,45 +656,54 @@ test('面板单选：分组组序、doc 悬浮提示、类型徽标、内建事�
   dom.document.body.innerHTML = ''
   openAsset(uiNode('btn', 'button', '提交按钮', { text: '提交' }))
   useUIEditorStore.getState().setSelection(['btn'])
-  const { unmount } = await mountEl(createElement(InspectorPanel, {}))
+   const { unmount } = await mountEl(createElement(InspectorPanel, {}))
   try {
     // 头部：名称 / 类型徽标 / id
     assert.equal(dom.document.querySelector('.insp-title')?.textContent, '提交按钮')
     assert.equal(dom.document.querySelector('.insp-badge')?.textContent, '按钮')
 
-    // 分组组序（v3 T9.5：flex 布局条目在前；button 的组：节点/布局/内容/外观）
+    // 分组组序（v3：flex 布局条目在前；单选的 transform 行由 flex 区接管）
     const groupTitles = Array.from(dom.document.querySelectorAll('.insp-group-title')).map((el) => el.textContent)
-    assert.deepEqual(groupTitles, ['布局（flex）', '节点', '布局', '内容', '外观'])
+    assert.deepEqual(groupTitles, ['布局', '节点', '文本', '外观'])
 
-    // doc 悬浮提示（title 属性）+ 类型徽标
+    // doc 悬浮提示（title 属性）；类型徽标改为来源徽标（无覆盖时不显示）
     const textRow = findRow('文本')!
     assert.ok(textRow, '文本属性行存在')
-    assert.equal(
-      textRow.querySelector('.insp-label')?.getAttribute('title'),
-      getUISchema('button')!.props.find((p) => p.id === 'text')!.doc,
-      '属性行 title = PropDef.doc',
+    assert.ok(
+      (textRow.querySelector('.insp-label')?.getAttribute('title') ?? '').includes(
+        getUISchema('button')!.props.find((p) => p.id === 'text')!.doc!,
+      ),
+      '属性行 title 含 PropDef.doc',
     )
-    assert.equal(textRow.querySelector('.insp-type')?.textContent, '文本')
+    assert.equal(textRow.querySelector('.insp-type'), null, '不再渲染 Web 表单式类型徽标')
+    assert.equal(textRow.querySelector('.insp-source')?.textContent, '内联', '内联覆盖显示来源')
 
     // 组头折叠（本地 state 记忆）与再展开
     const bodiesBefore = dom.document.querySelectorAll('.insp-group-body').length
     act(() => {
-      clickEl(dom.document.querySelector('.insp-group-head') as unknown as Element)
+      clickEl(dom.document.querySelectorAll('.insp-group-head')[1] as unknown as Element)
     })
     assert.equal(dom.document.querySelectorAll('.insp-group-body').length, bodiesBefore - 1, '点击组头折叠')
     act(() => {
-      clickEl(dom.document.querySelector('.insp-group-head') as unknown as Element)
+      clickEl(dom.document.querySelectorAll('.insp-group-head')[1] as unknown as Element)
     })
     assert.equal(dom.document.querySelectorAll('.insp-group-body').length, bodiesBefore, '再点展开')
 
-    // 内建事件区：pressed 行 + 跳转占位 toast
+    // 内建事件区：pressed 行 + 跳转内嵌蓝图（窗口事件）
     assert.equal(dom.document.querySelector('.insp-events-title')?.textContent, '内建事件')
     const eventRow = dom.document.querySelector('.insp-event-row') as unknown as HTMLElement
     assert.equal(eventRow.querySelector('.insp-event-name')?.textContent, '按下')
+    const requests: Array<{ eventName?: string; graph?: string }> = []
+    const onRequest = (e: Event): void => {
+      requests.push((e as CustomEvent<{ eventName?: string; graph?: string }>).detail)
+    }
+    window.addEventListener('bps:open-ui-blueprint', onRequest)
     act(() => {
       clickEl(eventRow.querySelector('button')!)
     })
-    assert.equal(dom.document.querySelector('.insp-toast')?.textContent, 'T5.2 事件面板接入')
+    window.removeEventListener('bps:open-ui-blueprint', onRequest)
+    assert.equal(requests[0]?.eventName, 'pressed')
+    assert.equal(requests[0]?.graph, 'event')
   } finally {
     await unmount()
   }
@@ -704,11 +713,11 @@ test('面板搜索：命中过滤 + 命中组自动展开 + 无匹配提示', as
   dom.document.body.innerHTML = ''
   openAsset(uiNode('btn', 'button', '提交按钮'))
   useUIEditorStore.getState().setSelection(['btn'])
-  const { unmount } = await mountEl(createElement(InspectorPanel, {}))
+   const { unmount } = await mountEl(createElement(InspectorPanel, {}))
   try {
     // 先折叠第一组（节点）
     act(() => {
-      clickEl(dom.document.querySelector('.insp-group-head') as unknown as Element)
+      clickEl(dom.document.querySelectorAll('.insp-group-head')[1] as unknown as Element)
     })
     const collapsedBodies = dom.document.querySelectorAll('.insp-group-body').length
 
@@ -769,7 +778,7 @@ test('面板修改入栈：text 草稿态 Enter 提交 → 资产变化 + undo �
   dom.document.body.innerHTML = ''
   openAsset(uiNode('lab', 'label', '标签', { text: '原始' }))
   useUIEditorStore.getState().setSelection(['lab'])
-  const { unmount } = await mountEl(createElement(InspectorPanel, {}))
+   const { unmount } = await mountEl(createElement(InspectorPanel, {}))
   try {
     const input = findRow('文本')!.querySelector<HTMLInputElement>('input[type=text]')!
 
@@ -798,7 +807,7 @@ test('面板修改入栈：数字草稿态 Enter 才入栈（含小数与钳制�
   dom.document.body.innerHTML = ''
   openAsset(uiNode('lab', 'label', '标签'))
   useUIEditorStore.getState().setSelection(['lab'])
-  const { unmount } = await mountEl(createElement(InspectorPanel, {}))
+   const { unmount } = await mountEl(createElement(InspectorPanel, {}))
   try {
     // 数字（rotation）：输入过程不入栈，Enter 提交
     const rot = findRow('旋转')!.querySelector<HTMLInputElement>('input[type=number]')!
@@ -870,7 +879,7 @@ test('面板多选：混合态「—」、批量修改单命令、undo 一次还
   ])
   openAsset(root)
   useUIEditorStore.getState().setSelection(['a', 'b', 'c'])
-  const { unmount } = await mountEl(createElement(InspectorPanel, {}))
+   const { unmount } = await mountEl(createElement(InspectorPanel, {}))
   try {
     // 头部：多选数量
     assert.equal(dom.document.querySelector('.insp-title')?.textContent, '已选中 3 个节点')
@@ -936,7 +945,7 @@ test('面板多选：混合态「—」、批量修改单命令、undo 一次还
     assert.equal(labels.includes('样式变体'), false, '非共同属性 variant 不显示')
     assert.deepEqual(
       labels,
-      ['名称', '可见', '悬停提示', '位置', '尺寸', '旋转', '拉伸填充', '文本'],
+      ['名称', '可见', '悬停提示', '位置', '尺寸', '拉伸填充', '文本', '旋转'],
       '只显示共同属性（组内按声明序、组间按 PROP_GROUP_ORDER）',
     )
   } finally {
@@ -948,7 +957,7 @@ test('面板：listColumns 校验错误就地显示且不入栈，合法值提�
   dom.document.body.innerHTML = ''
   openAsset(uiNode('lst', 'list', '列表'))
   useUIEditorStore.getState().setSelection(['lst'])
-  const { unmount } = await mountEl(createElement(InspectorPanel, {}))
+   const { unmount } = await mountEl(createElement(InspectorPanel, {}))
   try {
     const row = findRow('列定义')!
     const textarea = row.querySelector<HTMLTextAreaElement>('textarea')!
@@ -979,7 +988,7 @@ test('runUICommand 空配方不入栈（同值提交不产生命令）', async (
   dom.document.body.innerHTML = ''
   openAsset(uiNode('lab', 'label', '标签', { text: '原始' }))
   useUIEditorStore.getState().setSelection(['lab'])
-  const { unmount } = await mountEl(createElement(InspectorPanel, {}))
+   const { unmount } = await mountEl(createElement(InspectorPanel, {}))
   try {
     const input = findRow('文本')!.querySelector<HTMLInputElement>('input[type=text]')!
     act(() => setControlledValue(input, '原始')) // 与现值相同

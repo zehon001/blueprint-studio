@@ -221,7 +221,7 @@ test('反射：缓存中的预制体内容更新后 updateUI 即渲染新内容'
   );
   updateUI(h, asset);
   assert.equal(byUid(h, 'inst4').dataset.nodeType, 'vbox', '同 uid 换 type → 重建');
-  assert.equal(byUid(h, 'p_lbl').textContent, 'v2 新结构', '改动反射到引用处');
+  assert.equal(byUid(h, 'inst4::p_lbl').textContent, 'v2 新结构', '改动反射到引用处');
   cleanup(h);
 });
 
@@ -269,9 +269,9 @@ test('循环引用：占位就地显示中文错误，且不发起补拉', () =>
   // a 层正常展开，b 内对 a 的回引是占位（中文错误）
   const inst = byUid(h, 'inst5');
   assert.equal(inst.dataset.nodeType, 'vbox');
-  const bLayer = byUid(h, 'toB');
+  const bLayer = byUid(h, 'inst5::toB');
   assert.equal(bLayer.dataset.nodeType, 'vbox');
-  const cyclePh = byUid(h, 'toA');
+  const cyclePh = byUid(h, 'inst5::toB::toA');
   assert.equal(cyclePh.dataset.nodeType, PREFAB_PLACEHOLDER_TYPE);
   assert.match(cyclePh.textContent ?? '', /检测到预制体循环引用：a\.ui\.json → b\.ui\.json → a\.ui\.json/);
   assert.equal(refreshed, 0, '缓存全命中：无补拉');
@@ -307,7 +307,7 @@ test('嵌套实例：预制体子树内的实例一并展开（props 浅覆盖 +
     }),
   );
   const h = renderUI(asset, { mode: 'edit' });
-  const nested = byUid(h, 'o_inst');
+  const nested = byUid(h, 'inst6::o_inst');
   assert.equal(nested.dataset.nodeType, 'label', '嵌套实例以其预制体根 type 渲染');
   assert.equal(nested.textContent, '外层覆盖', '嵌套实例 props 浅覆盖生效');
   cleanup(h);

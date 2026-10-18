@@ -96,7 +96,7 @@ describe('workspace 注册表同步', () => {
   })
 
   it('12 面板布局 → 6 个 openTabs；activePanelId 决定 activeTabId', () => {
-    useDockStore.getState().initDockLayout(buildLargeLayout(), null, 'asset:blueprint:logic/main.bp.json')
+    useDockStore.getState().initDockLayout(buildLargeLayout(), undefined, 'asset:blueprint:logic/main.bp.json')
     syncWorkspaceFromDock()
     const ws = useWorkspaceStore.getState()
     assert.equal(ws.openTabs.length, 6)
@@ -110,7 +110,7 @@ describe('workspace 注册表同步', () => {
   })
 
   it('关闭资产面板 → 对应 tab 移除；重复打开只聚焦', () => {
-    useDockStore.getState().initDockLayout(buildLargeLayout(), null, 'asset:ui:ui/main.ui.json')
+    useDockStore.getState().initDockLayout(buildLargeLayout(), undefined, 'asset:ui:ui/main.ui.json')
     syncWorkspaceFromDock()
     useDockStore.getState().closePanel('asset:ui:ui/main.ui.json')
     syncWorkspaceFromDock()
@@ -135,7 +135,7 @@ describe('workspace 注册表同步', () => {
         sizes: [4, 1],
         children: [makeTabs(['runtime']), makeTabs(['console'])],
       },
-      null,
+      undefined,
     )
     useDockStore.getState().openPanel('inspector', 'center')
     const runtimeGroup = findTabsByPanel(useDockStore.getState().root, 'runtime')
@@ -145,7 +145,7 @@ describe('workspace 注册表同步', () => {
   })
 
   it('脏标记关闭确认：无 confirm 环境视为同意；requestClosePanel 移除面板', () => {
-    useDockStore.getState().initDockLayout(makeTabs([assetPanelId('ui', 'ui/main.ui.json')]), null)
+    useDockStore.getState().initDockLayout(makeTabs([assetPanelId('ui', 'ui/main.ui.json')]))
     syncWorkspaceFromDock()
     const id = tabIdOf('ui', 'ui/main.ui.json')
     useWorkspaceStore.getState().markDirty(id)
@@ -155,7 +155,7 @@ describe('workspace 注册表同步', () => {
   })
 
   it('confirm 返回 false → 不关闭；关闭其他批量同样受确认保护', () => {
-    useDockStore.getState().initDockLayout(buildLargeLayout(), null)
+    useDockStore.getState().initDockLayout(buildLargeLayout())
     syncWorkspaceFromDock()
     const detail = 'asset:ui:ui/main.ui.json'
     useWorkspaceStore.getState().markDirty(tabIdOf('ui', 'ui/main.ui.json'))

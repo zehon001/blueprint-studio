@@ -8,7 +8,8 @@
 import { useEffect, useState } from 'react'
 import { BlueprintEditorPanel } from '@/blueprint'
 import type { IRAsset } from '@/ir/types'
-import { useWorkspaceStore } from '@/shell/workspace-store'
+import { tabIdOf, useWorkspaceStore } from '@/shell/workspace-store'
+import { useEditorStore } from '@/shell/commands'
 import { fnNameOf, functionIR, functionTextOf, isLibraryFunctionPath, type FnAsset } from './functionAsset'
 
 export interface FunctionTabProps {
@@ -20,11 +21,25 @@ export { functionIR, functionTextOf } from './functionAsset'
 
 export function FunctionTab({ path, panelId }: FunctionTabProps) {
   const project = useWorkspaceStore((s) => s.currentProject)
+  const tabId = tabIdOf('function', path)
+  const markDirty = useWorkspaceStore((s) => s.markDirty)
+  const clearDirty = useWorkspaceStore((s) => s.clearDirty)
   const [state, setState] = useState<{ status: 'loading' | 'ready' | 'error'; asset: IRAsset | null; message: string }>({
     status: 'loading',
     asset: null,
     message: '',
   })
+
+  /* 命令栈变化 → 函数资产脏标记（关闭确认 / 自动重跑） */
+  useEffect(() => {
+    let lastLen = useEditorStore.getState().undoStack.length
+    return useEditorStore.subscribe((s) => {
+      if (s.undoStack.length !== lastLen) {
+        markDirty(tabId)
+        lastLen = s.undoStack.length
+      }
+    })
+  }, [tabId, markDirty])
 
   useEffect(() => {
     let alive = true
@@ -56,7 +71,7 @@ export function FunctionTab({ path, panelId }: FunctionTabProps) {
     }
   }, [path, project?.path])
 
-  const save = (ir: IRAsset): void => {
+  const save = async (ir: IRAsset): Promise<boolean> => {
     const scope: 'global' | 'project' = isLibraryFunctionPath(path) ? 'global' : 'project'
     const text = functionTextOf(ir, path, scope)
     const p = isLibraryFunctionPath(path)
@@ -72,12 +87,16 @@ export function FunctionTab({ path, panelId }: FunctionTabProps) {
             body: JSON.stringify({ path: `${project.path}/${path}`, content: text }),
           })
         : Promise.resolve(null)
-    void p
-      .then((r) => (r ? r.json() : null))
-      .then((j: { ok?: boolean; message?: string } | null) => {
-        if (j && j.ok === false) console.error('[函数保存失败]', j.message)
-      })
-      .catch((err: unknown) => console.error('[函数保存失败]', err))
+    try {
+      const r = await p
+      const j = r ? ((await r.json()) as { ok?: boolean; message?: string }) : null
+      if (j && j.ok === false) throw new Error(j.message ?? '保存失败')
+      clearDirty(tabId)
+      return true
+    } catch (err) {
+      console.error('[函数保存失败]', err)
+      return false
+    }
   }
 
   if (state.status === 'loading') return <div className="workspace-tab-loading">加载中…</div>
@@ -90,6 +109,8 @@ export function FunctionTab({ path, panelId }: FunctionTabProps) {
       assetPath={path}
       onSave={(ir) => save(ir)}
       className="workspace-bp-panel"
+      hideFunctionSection
+      panelId={panelId ?? `asset:function:${path}`}
       key={panelId}
     />
   )

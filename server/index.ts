@@ -281,6 +281,32 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
      * 路径越界 / 非法名 / 跨类型由 library.ts 抛 FsError（400/403/404/409/413/500）。
      * 库变更经 /api/library/watch（SSE）广播 { kind, name, action }（PLAN §7.6）。
      */
+    // v3 D9/T11.4：库根设置（前端 bps.settings.v1 → 服务端运行时生效）
+    if (pathname === '/api/library/root' && req.method === 'GET') {
+      sendJson(res, 200, { ok: true, root: libraryApi.libraryRoot() })
+      return
+    }
+    if (pathname === '/api/library/root' && (req.method === 'POST' || req.method === 'PUT')) {
+      const body = await readJson(req)
+      const raw = typeof body.root === 'string' ? body.root.trim() : ''
+      if (raw === '') {
+        // 空 = 回落默认库根
+        delete process.env.BP_LIBRARY_ROOT
+        const root = libraryApi.libraryRoot()
+        libraryApi.ensureLibraryRoot(root)
+        sendJson(res, 200, { ok: true, root })
+        return
+      }
+      if (!path.isAbsolute(raw) || /[\u0000-\u001f]/.test(raw)) {
+        sendJson(res, 400, { ok: false, message: '库根必须是绝对路径且不含控制字符' })
+        return
+      }
+      const root = libraryApi.ensureLibraryRoot(raw)
+      process.env.BP_LIBRARY_ROOT = root
+      sendJson(res, 200, { ok: true, root })
+      return
+    }
+
     if (pathname === '/api/library/list' && req.method === 'GET') {
       const kind = url.searchParams.get('kind') ?? ''
       sendJson(res, 200, {

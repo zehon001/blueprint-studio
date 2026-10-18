@@ -22,7 +22,8 @@ import {
   prefetchPrefabs,
   setPrefabLoaderContext,
 } from './prefab'
-import { parseStyleSheet, type StyleSheet } from './styles'
+import { stripDefaultProps, type StyleSheet } from './styles'
+import { loadStyleSheets } from './styleLoad'
 import {
   clearElementCache,
   findElementCycle,
@@ -67,6 +68,12 @@ interface UIEditorState {
   selection: string[]
   /** v3 T11.1：本资产已应用的样式表（按 asset.styles 顺序） */
   styleSheets: StyleSheet[]
+  /** v3 T11.5：库变更后强制刷新计数（视口据此重新展开元素/样式） */
+  assetEpoch: number
+  /** 重新读取 asset.styles（库变更即时生效，不丢当前草稿） */
+  refreshStyleSheets: () => Promise<void>
+  /** 触发视口刷新（元素/预制体缓存失效后） */
+  bumpAssetEpoch: () => void
   /** 打开 UI 资产（加载入 scene-tree 域） */
   openUIAsset: (projectPath: string, assetPath: string) => Promise<void>
   /** 保存当前资产（JSON.stringify → PUT /api/file）；成功返回 true */
@@ -93,7 +100,10 @@ export function parseUIAsset(text: string): UIAsset {
     throw new Error(`UI 资产版本不识别：${String(raw.version)}（v3 仅支持 3）`)
   }
   if (!raw.root || typeof raw.root !== 'object') throw new Error('UI 资产缺少 root 节点')
-  return raw as UIAsset
+  const asset = raw as UIAsset
+  // v3 T11.1：去掉与 schema 默认值相同的物化 props，保证样式类优先级。
+  asset.root = stripDefaultProps(asset.root)
+  return asset
 }
 
 /**
@@ -109,6 +119,7 @@ export const useUIEditorStore = create<UIEditorState>()((set, get) => ({
   message: '',
   selection: [],
   styleSheets: [],
+  assetEpoch: 0,
 
   openUIAsset: async (projectPath, assetPath) => {
     ensureDomain()
@@ -129,25 +140,18 @@ export const useUIEditorStore = create<UIEditorState>()((set, get) => ({
         styleSheets = cached.styleSheets
         assetDrafts.delete(assetPath)
       } else {
-        const r = await fetch(`/api/file?path=${encodeURIComponent(`${projectPath}/${assetPath}`)}`)
+        const url = assetPath.startsWith('@library/elements/')
+          ? `/api/library/read?kind=elements&name=${encodeURIComponent(assetPath.slice('@library/elements/'.length))}`
+          : `/api/file?path=${encodeURIComponent(`${projectPath}/${assetPath}`)}`
+        const r = await fetch(url)
         const json = (await r.json()) as { ok: boolean; content?: string; message?: string }
         if (!json.ok) {
           set({ status: 'error', message: json.message ?? '加载失败' })
           return
         }
         asset = parseUIAsset(String(json.content ?? ''))
-        // v3 T11.1：装载 asset.styles 声明的样式表（项目相对路径；@library/* 待 T11.4 服务接入）
-        styleSheets = []
-        for (const ref of asset.styles ?? []) {
-          if (ref.startsWith('@library/')) continue
-          try {
-            const sr = await fetch(`/api/file?path=${encodeURIComponent(`${projectPath}/${ref}`)}`)
-            const sj = (await sr.json()) as { ok: boolean; content?: string }
-            if (sj.ok) styleSheets.push(parseStyleSheet(String(sj.content ?? '')))
-          } catch {
-            /* 样式缺失不阻断打开（校验器在 T13.1 报 ref-style-missing） */
-          }
-        }
+        // v3 T11.1：装载 asset.styles（项目相对 + @library/styles/*）
+        styleSheets = await loadStyleSheets(projectPath, asset.styles)
       }
       // ADR-009（T7.3）：打开资产即重建预制体缓存并预取树内全部预制体（含嵌套）——
       // 「每次打开/刷新重新拉取」就是预制体改动反射到引用处的机制；拉取失败静默
@@ -176,10 +180,17 @@ export const useUIEditorStore = create<UIEditorState>()((set, get) => ({
     const asset = getSceneTreeDomain().asset
     if (!assetPath || !asset) return false
     try {
-      const r = await fetch('/api/file', {
+      const isLibrary = assetPath.startsWith('@library/elements/')
+      const r = await fetch(isLibrary ? '/api/library/write' : '/api/file', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: `${get().projectPath}/${assetPath}`, content: JSON.stringify(asset, null, 2) }),
+        body: isLibrary
+          ? JSON.stringify({
+              kind: 'elements',
+              name: assetPath.slice('@library/elements/'.length),
+              content: JSON.stringify(asset, null, 2),
+            })
+          : JSON.stringify({ path: `${get().projectPath}/${assetPath}`, content: JSON.stringify(asset, null, 2) }),
       })
       const json = (await r.json()) as { ok: boolean; message?: string }
       if (!json.ok) {
@@ -193,6 +204,14 @@ export const useUIEditorStore = create<UIEditorState>()((set, get) => ({
       return false
     }
   },
+
+  refreshStyleSheets: async () => {
+    const { projectPath } = get()
+    const current = getSceneTreeDomain().asset
+    if (!projectPath || !current) return
+    set({ styleSheets: await loadStyleSheets(projectPath, current.styles) })
+  },
+  bumpAssetEpoch: () => set((s) => ({ assetEpoch: s.assetEpoch + 1 })),
 
   setSelection: (ids) => set({ selection: ids }),
   addSelection: (ids) => set((s) => ({ selection: [...new Set([...s.selection, ...ids])] })),

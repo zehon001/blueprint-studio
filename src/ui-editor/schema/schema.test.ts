@@ -70,7 +70,7 @@ const COMMON_GROUPS: Record<string, string> = {
   tooltip: '节点',
   position: '布局',
   size: '布局',
-  rotation: '布局',
+  rotation: '外观',
   expand: '布局',
 };
 

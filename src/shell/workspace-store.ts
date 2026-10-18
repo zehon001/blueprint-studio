@@ -12,7 +12,7 @@
 import { create } from 'zustand'
 
 /** 资产 tab 类型（与中央工作区占位视图一一对应） */
-export type OpenTabKind = 'ui' | 'blueprint' | 'script' | 'plugin-manager'
+export type OpenTabKind = 'ui' | 'blueprint' | 'script' | 'element' | 'style' | 'function'
 
 /** 一个打开的资产 tab */
 export interface OpenTab {

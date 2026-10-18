@@ -25,8 +25,12 @@ export function fnNameOf(path: string): string {
 
 /** .fn.json → IRAsset 视图 */
 export function functionIR(asset: FnAsset, fallbackName: string): IRAsset {
+  if (asset.version !== 3) {
+    throw new Error(`函数资产版本不识别：${String(asset.version)}（v3 仅支持 version 3）`)
+  }
   const graph = asset.graph ?? { nodes: [], edges: [] }
   const main: IRGraph = {
+    kind: 'function',
     nodes: graph.nodes ?? [],
     edges: graph.edges ?? [],
     params: asset.params ?? graph.params ?? [],

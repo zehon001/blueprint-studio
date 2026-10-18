@@ -63,7 +63,7 @@ export function dataEdge(id: string, fromNode: string, fromPin: string, toNode: 
 
 export function asset(graphs: Record<string, IRGraph>, extra?: Partial<Omit<IRAsset, 'graphs'>>): IRAsset {
   return {
-    version: 2,
+    version: 3,
     name: '测试资产',
     entry: 'main',
     graphs,

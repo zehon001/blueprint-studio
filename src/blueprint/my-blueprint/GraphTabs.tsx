@@ -9,7 +9,13 @@ import { useRef, useState } from 'react';
 import { useBlueprintStore } from '../store/blueprint-store';
 import { nextFunctionName, orderedGraphNames } from './model';
 
-export function GraphTabs({ className }: { className?: string }) {
+export function GraphTabs({
+  className,
+  allowAdd = true,
+}: {
+  className?: string;
+  allowAdd?: boolean;
+}) {
   const asset = useBlueprintStore((s) => s.asset);
   const graphName = useBlueprintStore((s) => s.graphName);
   const [adding, setAdding] = useState(false);
@@ -89,11 +95,11 @@ export function GraphTabs({ className }: { className?: string }) {
           }}
           onBlur={commitAdd}
         />
-      ) : (
+      ) : allowAdd ? (
         <button type="button" className="bp-mb-tab bp-mb-tab--add" title="新建函数" onClick={startAdd}>
           ＋函数
         </button>
-      )}
+      ) : null}
       {duplicate ? <span className="bp-mb-tabs-warn">名称已存在</span> : null}
     </div>
   );

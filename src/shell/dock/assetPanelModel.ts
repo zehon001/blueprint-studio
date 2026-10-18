@@ -14,7 +14,7 @@ import { useWorkspaceStore, tabIdOf, type OpenTabKind } from '@/shell/workspace-
 
 export const ASSET_PANEL_PREFIX = 'asset:'
 
-/** 可由 dock 面板承载的资产类型（元素/样式/函数随 M11/M12 接入） */
+/** 可由 dock 面板承载的资产类型（元素/样式/函数已接入） */
 export type AssetPanelKind = 'ui' | 'blueprint' | 'script' | 'element' | 'style' | 'function'
 
 export interface AssetPanelRef {

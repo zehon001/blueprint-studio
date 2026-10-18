@@ -16,6 +16,7 @@ import { UITab } from '@/shell/workspace/UITab'
 import { BlueprintTab } from '@/shell/workspace/BlueprintTab'
 import { ScriptTab } from '@/script/editor'
 import { FunctionTab } from '@/ui-editor/functionTab'
+import { StyleTab } from '@/ui-editor/styleTab'
 import {
   assetBadge,
   assetPanelId,
@@ -43,13 +44,15 @@ function AssetPanelHost({ panelId }: { panelId: string }) {
       return <ScriptTab assetPath={ref.path} />
     case 'element':
       // 元素编辑器 = UI 编辑器同款（kind=element 保留；T11.3）
-      return <UITab assetPath={ref.path} panelId={panelId} />
+      return <UITab assetPath={ref.path} panelId={panelId} kind="element" />
     case 'function':
       return <FunctionTab path={ref.path} panelId={panelId} />
+    case 'style':
+      return <StyleTab path={ref.path} panelId={panelId} />
     default:
       return (
         <div className="dock-panel-placeholder">
-          {assetBadge(ref.kind, ref.path)} 编辑器将在 M11/M12 开放：{ref.path}
+          {assetBadge(ref.kind, ref.path)} 未知资产类型：{ref.path}
         </div>
       )
   }

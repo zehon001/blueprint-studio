@@ -45,6 +45,19 @@ export function sortTree(node: FsNode): FsNode {
   return { ...node, children: sortNodes(node.children).map(sortTree) }
 }
 
+/**
+ * 隐藏项目库目录（PLAN §3.7：全项目函数不显示在文件系统，由资源库面板管理）。
+ * 仅过滤项目根下的 `library/`。
+ */
+export function hideProjectLibrary(root: FsNode): FsNode {
+  return {
+    ...root,
+    children: sortNodes(root.children)
+      .filter((c) => !(c.type === 'dir' && c.name === 'library'))
+      .map(sortTree),
+  }
+}
+
 /** 按 path 查找节点（逐段下探；找不到返回 null） */
 export function findNode(root: FsNode, path: string): FsNode | null {
   const target = normalizePosix(path)

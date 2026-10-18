@@ -185,9 +185,13 @@ describe('模板与项目', () => {
       }
       assert.equal(ui.version, 3)
       assert.equal(ui.root.type, 'vbox')
-      assert.equal(ui.root.children.length, 2)
+      assert.equal(ui.root.children.length, 3)
       assert.equal(ui.root.children[0].type, 'label')
-      const list = ui.root.children[1]
+      const stat = ui.root.children[1] as unknown as { type: string; element?: string; props?: { value?: string } }
+      assert.equal(stat.type, '__element', '模板演示元素实例')
+      assert.equal(stat.element, 'ui/elements/StatCard.elem.json')
+      assert.equal(stat.props?.value, '42')
+      const list = ui.root.children[2]
       assert.equal(list.type, 'list')
       // v3：逻辑内嵌（不再引用 logicAsset）；事件图随 UI 资产
       assert.equal(list.logicAsset, undefined)

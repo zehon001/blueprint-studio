@@ -18,15 +18,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
-import { registerShortcut } from '../../shell/keymap/registry';
+import { registerShortcut, unregisterShortcut } from '../../shell/keymap/registry';
+import { registerSaveHandler } from '../../shell/workspace/saveRegistry';
 import { useWorkspaceStore } from '../../shell/workspace-store';
+import { openAssetPanel } from '../../shell/dock/assetPanelModel';
 import { serializeIR, validateIR } from '../../ir/validate';
 import type { ValidationIssue } from '../../ir/validate';
 import type { IRAsset, IRComment, NodeSpec } from '../../ir/types';
 import { NODE_CATEGORIES } from '../../nodes';
 import { reflectionEntries, type ReflectTargetNode } from '../../nodes/reflect';
 import { useSceneTreeDomain } from '../../ui-editor/store';
-import { getUISchema } from '../../ui-editor/schema';
+import { getUISchema, type PropDef } from '../../ui-editor/schema';
 import { BPGraphCanvas, headVariantFor, nodeSizeFor } from '../view';
 import type { FlowEdge, FlowNode } from '../view';
 import { useBlueprintStore, EMPTY_SELECTION } from '../store/blueprint-store';
@@ -64,6 +66,7 @@ import {
 import '../../shell/debug/debug.css';
 // T3.7 片段节点：双击展开编辑模态 + 按资产注入片段 spec（ADR-007 §5）
 import { SnippetEditModal, saveSnippetEdit } from '../view/SnippetEditModal';
+import { setFunctionSignature } from '../view/externalSignatures';
 import {
   SNIPPET_NODE_TYPE,
   snippetOfAsset,
@@ -78,10 +81,14 @@ export interface BlueprintEditorPanelProps {
   asset: IRAsset;
   /** 资产路径（如 'logic/main.bp.json'；保存回调透传） */
   assetPath?: string;
-  /** 保存回调（Ctrl+S 校验通过后触发；返回前已 serializeIR，写盘由后续接线） */
-  onSave?: (asset: IRAsset, assetPath?: string) => void;
+  /** 保存回调（Ctrl+S 校验通过后触发；返回 false = 外部校验失败，不提示保存成功） */
+  onSave?: (asset: IRAsset, assetPath?: string) => void | boolean | Promise<void | boolean>;
   /** 附加类名（dock 面板内控制尺寸用） */
   className?: string;
+  /** 函数资产编辑器：单图契约，不允许再建函数子图 */
+  hideFunctionSection?: boolean;
+  /** dock 面板 id（活动面板保存分发；缺省回落全局 file.save） */
+  panelId?: string;
 }
 
 /* ---------------- T2.7：画布右键搜索菜单里的「添加注释」伪条目 ---------------- */
@@ -111,7 +118,14 @@ export function BlueprintEditorPanel(props: BlueprintEditorPanelProps) {
   );
 }
 
-function BlueprintEditorInner({ asset, assetPath, onSave, className }: BlueprintEditorPanelProps) {
+function BlueprintEditorInner({
+  asset,
+  assetPath,
+  onSave,
+  className,
+  hideFunctionSection = false,
+  panelId,
+}: BlueprintEditorPanelProps) {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const interactions = useCanvasInteractions();
 
@@ -180,7 +194,7 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
 
   /* ---------------- 保存（Ctrl+S 经 keymap 重绑定；PLAN §8.5 保存即校验） ---------------- */
 
-  const save = useCallback((): void => {
+  const save = useCallback(async (): Promise<void> => {
     const st = useBlueprintStore.getState();
     if (!st.asset) return;
     const issues = validateIR(st.asset, st.specs);
@@ -191,9 +205,13 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
       return;
     }
     const text = serializeIR(st.asset);
-    // 写盘由后续任务接线（项目文件系统 T0.2 的 FS API）；本期回调 + 控制台留痕
+    // 写盘由外部 onSave 接线（UI 内嵌蓝图会追加 v3 引用完整性校验）
     console.log(`[blueprint] 保存资产 ${st.assetPath ?? '(未命名)'}：${text.length} 字节`);
-    onSave?.(st.asset, st.assetPath ?? undefined);
+    const result = await onSave?.(st.asset, st.assetPath ?? undefined);
+    if (result === false) {
+      st.notify('保存被阻止：引用完整性校验未通过（见检视器/校验条）', 'error');
+      return;
+    }
     st.markSaved();
     st.notify('保存成功');
   }, [onSave]);
@@ -203,18 +221,19 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
   }, [save]);
 
   useEffect(() => {
-    // 重绑定全局 file.save（Ctrl+S 默认空实现）：蓝图面板打开期间由本面板保存
+    if (panelId) {
+      // v3：按 dock 面板注册保存，全局 file.save 投递给 activePanelId
+      return registerSaveHandler(panelId, () => saveRef.current());
+    }
+    // 无 dock 上下文（组件单测 / 嵌入方未传 id）：兼容旧行为
     registerShortcut({
       id: 'file.save',
       label: '保存',
       keys: 'Ctrl+S',
       handler: () => saveRef.current(),
     });
-    return () => {
-      // 卸载恢复默认空实现（避免悬挂引用已卸载面板的状态）
-      registerShortcut({ id: 'file.save', label: '保存', keys: 'Ctrl+S', handler: () => {} });
-    };
-  }, []);
+    return () => unregisterShortcut('file.save');
+  }, [panelId]);
 
   /* ---------------- 轻提示自动消失 / 抖动动画 ---------------- */
 
@@ -394,18 +413,56 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
     let alive = true;
     const load = async (): Promise<void> => {
       const out: Array<{ name: string; scope: 'project' | 'global' }> = [];
+      const loadSignature = async (
+        scope: 'project' | 'global',
+        name: string,
+        url: string,
+      ): Promise<void> => {
+        try {
+          const j = (await (await fetch(url)).json()) as { ok?: boolean; content?: string };
+          if (!j.ok || typeof j.content !== 'string') return;
+          const raw = JSON.parse(j.content) as {
+            params?: unknown;
+            returns?: unknown;
+            graph?: { params?: unknown; returns?: unknown };
+          };
+          setFunctionSignature(scope, name, {
+            params: (raw.params ?? raw.graph?.params ?? []) as never,
+            returns: (raw.returns ?? raw.graph?.returns ?? []) as never,
+          });
+        } catch {
+          /* 单个签名加载失败：该调用节点暂不显示动态引脚 */
+        }
+      };
       if (projectPath) {
         try {
           const r = await fetch(`/api/tree?path=${encodeURIComponent(`${projectPath}/library/functions`)}`);
-          const j = (await r.json()) as { ok?: boolean; tree?: { children?: Array<{ name?: string; type?: string }> } };
+          const j = (await r.json()) as {
+            ok?: boolean;
+            tree?: { children?: Array<{ name?: string; type?: string; path?: string }> };
+          };
           for (const c of j.tree?.children ?? []) {
             if (c.type === 'file' && typeof c.name === 'string' && c.name.toLowerCase().endsWith('.fn.json')) {
-              out.push({ name: c.name.replace(/\.fn\.json$/i, ''), scope: 'project' });
+              const name = c.name.replace(/\.fn\.json$/i, '');
+              out.push({ name, scope: 'project' });
+              await loadSignature(
+                'project',
+                name,
+                `/api/file?path=${encodeURIComponent(`${projectPath}/library/functions/${c.name}`)}`,
+              );
             }
           }
           const lr = await fetch('/api/library/list?kind=functions');
           const lj = (await lr.json()) as { ok?: boolean; entries?: Array<{ name?: string }> };
-          for (const e of lj.entries ?? []) if (e.name) out.push({ name: e.name, scope: 'global' });
+          for (const e of lj.entries ?? []) {
+            if (!e.name) continue;
+            out.push({ name: e.name, scope: 'global' });
+            await loadSignature(
+              'global',
+              e.name,
+              `/api/library/read?kind=functions&name=${encodeURIComponent(e.name)}`,
+            );
+          }
         } catch {
           /* 库不可用时仅显示资产内函数 */
         }
@@ -418,22 +475,84 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
     };
   }, [projectPath]);
 
+  /** v3 T12.2①：新建项目/全局函数（蓝图作用域仍由 store.addFunction 处理） */
+  const createScopedFunction = async (
+    scope: 'project' | 'global',
+    name: string,
+  ): Promise<boolean> => {
+    if (!projectPath) {
+      window.alert('未打开项目，无法新建项目/全局函数');
+      return false;
+    }
+    if (externalFns.some((f) => f.scope === scope && f.name === name)) {
+      window.alert(`同名${scope === 'project' ? '项目' : '全局'}函数已存在`);
+      return false;
+    }
+    const content = JSON.stringify(
+      {
+        version: 3,
+        kind: 'function',
+        scope,
+        name,
+        params: [],
+        returns: [],
+        graph: { nodes: [], edges: [] },
+      },
+      null,
+      2,
+    );
+    try {
+      const r =
+        scope === 'project'
+          ? await fetch('/api/file', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                path: `${projectPath}/library/functions/${name}.fn.json`,
+                content,
+              }),
+            })
+          : await fetch('/api/library/write', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ kind: 'functions', name, content }),
+            });
+      const j = (await r.json()) as { ok?: boolean; message?: string };
+      if (!j.ok) {
+        window.alert(`新建函数失败：${j.message ?? '未知错误'}`);
+        return false;
+      }
+      setExternalFns((prev) => [...prev, { name, scope }]);
+      openAssetPanel(
+        'function',
+        scope === 'project' ? `library/functions/${name}.fn.json` : `@library/functions/${name}`,
+      );
+      return true;
+    } catch (err) {
+      window.alert(`新建函数失败：${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+  };
+
   const searchEntries = useMemo<SpecEntry[]>(() => {
     const entries: SpecEntry[] = [...specs.values()].map((spec) => ({ spec, pin: null }));
     // v3 T12.3：本资产函数图作为「函数」分组伪条目（pick 时建 flow.call 并预填 graph）
-    const fnEntries: SpecEntry[] = Object.keys(asset.graphs ?? {})
-      .filter((name) => name !== asset.entry)
-      .map((name) => ({
-        spec: {
-          id: `fncall:${name}`,
-          title: `调用 ${name}`,
-          category: '函数',
-          keywords: ['函数', 'call', '调用', name],
-          inputs: [],
-          outputs: [],
-        },
-        pin: null,
-      }));
+    const blueprintNames = new Set(
+      Object.keys(asset.graphs ?? {}).filter((name) => name !== asset.entry),
+    );
+    const fnEntries: SpecEntry[] = [...blueprintNames].map((name) => ({
+      spec: {
+        id: `fncall:${name}`,
+        title: `调用 ${name}`,
+        category: '函数',
+        keywords: ['函数', 'call', '调用', name],
+        inputs: [],
+        outputs: [],
+      },
+      pin: null,
+      badge: '蓝图',
+    }));
+    const projectNames = new Set(externalFns.filter((f) => f.scope === 'project').map((f) => f.name));
     const externalEntries: SpecEntry[] = externalFns.map((f) => ({
       spec: {
         id: `fncall:${f.scope}:${f.name}`,
@@ -444,11 +563,25 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
         outputs: [],
       },
       pin: null,
+      badge: f.scope === 'project' ? '项目' : '全局',
+      note:
+        f.scope === 'project' && blueprintNames.has(f.name)
+          ? '同名蓝图函数优先（auto）'
+          : f.scope === 'global' && (blueprintNames.has(f.name) || projectNames.has(f.name))
+            ? '同名函数优先（auto）'
+            : undefined,
     }));
     // v3 T12.6：反射条目（图属主自身树节点 × reflect:true 属性；UI 内嵌蓝图时有树）
     const reflectNodes: ReflectTargetNode[] = [];
+    const instanceProps: PropDef[] = [
+      { id: 'name', label: '名称', type: 'string', group: '行为', reflect: true },
+      { id: 'visible', label: '可见', type: 'bool', group: '行为', default: true, reflect: true },
+    ];
     const walkUi = (n: NonNullable<typeof uiAsset>['root']): void => {
-      reflectNodes.push({ name: n.name, type: n.type, props: getUISchema(n.type)?.props ?? null });
+      const base = getUISchema(n.type)?.props ?? [];
+      // 元素/预制体实例：整体只反射 name / visible（内部不透明）
+      const props = n.element || n.prefab ? [...base, ...instanceProps] : base;
+      reflectNodes.push({ name: n.name, type: n.type, props });
       for (const c of n.children ?? []) walkUi(c);
     };
     if (uiAsset) walkUi(uiAsset.root);
@@ -513,11 +646,14 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
       <div className="bp-editor-layout">
         {/* 左栏：My Blueprint 结构面板（T2.3） */}
         <aside className="bp-editor-side bp-editor-side--structure">
-          <MyBlueprint />
+          <MyBlueprint
+            onCreateScopedFunction={createScopedFunction}
+            hideFunctions={hideFunctionSection}
+          />
         </aside>
         {/* 中部：图签 + 画布（叠加层以画布区为定位基准） */}
         <div className="bp-editor-main">
-          <GraphTabs />
+          <GraphTabs allowAdd={!hideFunctionSection} />
           <div className="bp-editor-canvas">
             {/* T5.4 观察开关（画布右上）：默认开，localStorage 记忆；WS 未连接 / 无运行实例静默降级 */}
             <button

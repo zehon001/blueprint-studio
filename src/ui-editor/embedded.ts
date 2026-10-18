@@ -102,3 +102,28 @@ export function applyEmbeddedBlueprint(asset: UIAsset, ir: IRAsset): void {
 export function runtimeEmbeddedBlueprint(asset: UIAsset): IRAsset | null {
   return hasEmbeddedBlueprint(asset) ? embeddedBlueprintOf(asset) : null
 }
+
+/** 图属主最小形状（UIAsset / ElementAsset 共用） */
+export interface GraphOwnerLike {
+  name: string
+  graphs?: Record<string, IRGraph & { kind?: 'event' | 'function' }>
+  variables?: IRAsset['variables']
+  events?: IRAsset['events']
+  layout?: IRAsset['layout']
+}
+
+/**
+ * 任意图属主（UI 资产 / 元素 / 预制体）→ IRAsset 视图。
+ * 无 graphs 返回 null（无图零成本）。
+ */
+export function graphOwnerBlueprint(owner: GraphOwnerLike): IRAsset | null {
+  if (!owner.graphs || Object.keys(owner.graphs).length === 0) return null
+  return embeddedBlueprintOf({
+    version: 3,
+    name: owner.name,
+    graphs: owner.graphs,
+    variables: owner.variables ?? [],
+    events: owner.events ?? [],
+    layout: owner.layout ?? {},
+  } as UIAsset)
+}

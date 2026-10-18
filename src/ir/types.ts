@@ -129,11 +129,38 @@ export function isNumericType(t: IRValueType): boolean {
 export function isTypeAssignable(from: IRValueType, to: IRValueType): boolean {
   if (from === to) return true;
   if (from === 'any' || to === 'any') return true;
+  // v3 T12.4：UiHandle 族 —— to 要求的 trait 必须全部由 from 提供；
+  // 裸 'uiHandle' 视为「未声明 trait」（宽松兼容 ui.get 的静态输出）。
+  if (isUiHandleType(from) && isUiHandleType(to)) {
+    const fromTraits = uiHandleTraits(from);
+    const toTraits = uiHandleTraits(to);
+    if (fromTraits.length === 0) return true;
+    if (toTraits.length === 0) return true;
+    return toTraits.every((t) => fromTraits.includes(t));
+  }
   if (from === 'int' && to === 'float') return true;
   if (isArrayType(from) && isArrayType(to)) {
     return isTypeAssignable(elementType(from), elementType(to));
   }
   return false;
+}
+
+/** 是否为 UiHandle 值类型（`uiHandle` / `uiHandle<text,value>`） */
+export function isUiHandleType(t: IRValueType): boolean {
+  return typeof t === 'string' && (t === 'uiHandle' || t.startsWith('uiHandle<'));
+}
+
+/** 解析 UiHandle 的 trait 列表（`uiHandle<text,value>` → ['text','value']） */
+export function uiHandleTraits(t: IRValueType): string[] {
+  if (typeof t !== 'string') return [];
+  const m = /^uiHandle<(.+)>$/.exec(t);
+  if (!m) return [];
+  return m[1]!.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/** 生成带 trait 的 UiHandle 类型串 */
+export function uiHandleTypeOf(traits: readonly string[]): IRValueType {
+  return traits.length > 0 ? `uiHandle<${traits.join(',')}>` : 'uiHandle';
 }
 
 /** 函数入参 / 函数返回值 / 事件参数的声明项 */
@@ -270,6 +297,8 @@ export interface IRComment {
 
 /** 一张图（主图或函数子图） */
 export interface IRGraph {
+  /** 图种类（v3：UI/元素/预制体恰有一张 event 图，其余为 function；逻辑资产省略） */
+  kind?: 'event' | 'function';
   /** 节点实例列表 */
   nodes: IRNode[];
   /** 连线列表 */
@@ -458,8 +487,8 @@ export interface UIAsset {
   version: 2 | 3;
   /** 资产名（默认与文件名一致） */
   name: string;
-  /** v3：场景 / 预制体（缺省 scene） */
-  kind?: 'scene' | 'prefab';
+  /** v3：场景 / 预制体（缺省 scene）；元素资产在 UI 编辑器内复用同构视图 */
+  kind?: 'scene' | 'prefab' | 'element';
   /** v3：本资产应用的样式表引用（§3.8；M11 解析） */
   styles?: string[];
   /** v3：内嵌蓝图图集合（§3.1；M10 接入） */

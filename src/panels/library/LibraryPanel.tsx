@@ -1,14 +1,21 @@
 /**
- * 资源库面板（v3 T11.5 最小版）
+ * 资源库面板（v3 T11.5）
  *
- * 两页签（内置库 | 项目库）× 三类（元素/样式/函数）+ 条目详情/新建/重命名/删除。
+ * 两页签（内置库 | 项目库）× 三类（元素/样式/函数）+ 条目详情/引用数/最近修改/新建/重命名/删除。
  * 内置库走 /api/library/*（T11.4）；项目库直接读项目文件目录（ui/elements、ui/styles、
- * library/functions）。导出/导入按钮随 T11.6（服务端端点已具备）。
+ * library/functions）。导出（多选 zip）/导入（跳过/覆盖/并存改名）已接入。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { openAssetPanel } from '@/shell/dock/assetPanelModel'
+import { useSelectionStore } from '@/shell/selection/store'
 import { createLibraryEntry, deleteLibraryEntry, listLibraryEntries, renameLibraryEntry, watchLibrary } from './api'
+import {
+  cascadeElementRename,
+  cascadeFunctionRename,
+  cascadeStyleRename,
+  countProjectReferences,
+} from '@/ui-editor/cascadeProject'
 
 type Scope = 'builtin' | 'project'
 type Kind = 'elements' | 'styles' | 'functions'
@@ -89,6 +96,9 @@ export function LibraryPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState('')
+  const [importPolicy, setImportPolicy] = useState<'skip' | 'overwrite' | 'rename'>('skip')
+  const [checked, setChecked] = useState<Set<string>>(new Set())
+  const [refCount, setRefCount] = useState<number | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async (): Promise<void> => {
@@ -126,6 +136,34 @@ export function LibraryPanel() {
     void load()
   }, [load])
 
+  /* v3 T8.2：资源库条目选择 → 统一检视器条目信息 */
+  useEffect(() => {
+    if (!selected) return
+    useSelectionStore.getState().publish({
+      source: 'library',
+      scope,
+      kind: selected.kind === 'elements' ? 'element' : selected.kind === 'styles' ? 'style' : 'function',
+      name: selected.name,
+      path: selected.path,
+    })
+  }, [selected, scope])
+
+  /* 引用数（扫描当前项目 UI/元素/函数资产；项目未打开时显示 —） */
+  useEffect(() => {
+    setRefCount(null)
+    if (!selected || !project) return
+    let alive = true
+    const kind = selected.kind === 'elements' ? 'element' : selected.kind === 'styles' ? 'style' : 'function'
+    void countProjectReferences(project.path, kind, selected.path.startsWith('@library/') ? selected.path : kind === 'function' ? selected.name : selected.path)
+      .then((n) => {
+        if (alive) setRefCount(n)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [selected?.path, project?.path])
+
   useEffect(() => watchLibrary(() => void load()), [load])
 
   const onCreate = async (): Promise<void> => {
@@ -135,13 +173,24 @@ export function LibraryPanel() {
     try {
       if (scope === 'builtin') {
         await createLibraryEntry(kind, n, shellOf(kind, n))
+        // D4：内置条目创建后直接进入同款编辑器（元素=UI 编辑器 / 样式=样式编辑器 / 函数=函数编辑器）
+        openAssetPanel(
+          kind === 'elements' ? 'element' : kind === 'styles' ? 'style' : 'function',
+          `@library/${kind}/${n}`,
+        )
       } else if (project) {
         const file = `${PROJECT_DIR[kind]}/${n}${kind === 'elements' ? '.elem.json' : kind === 'styles' ? '.uss.json' : '.fn.json'}`
-        await fetch('/api/file', {
+        const r = await fetch('/api/file', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: `${project.path}/${file}`, content: shellOf(kind, n) }),
         })
+        const j = (await r.json()) as { ok?: boolean; message?: string }
+        if (!j.ok) throw new Error(j.message ?? '新建失败')
+        openAssetPanel(
+          kind === 'elements' ? 'element' : kind === 'styles' ? 'style' : 'function',
+          file,
+        )
       }
       setName('')
       await load()
@@ -153,12 +202,41 @@ export function LibraryPanel() {
   }
 
   const onRename = async (): Promise<void> => {
-    if (!selected || selected.path.startsWith('@library/') === false) return
-    const to = window.prompt(`重命名「${selected.name}」为：`, selected.name)
+    if (!selected) return
+    const to = window.prompt(`重命名「${selected.name}」为：`, selected.name)?.trim()
     if (!to || to === selected.name) return
     setBusy(true)
     try {
-      await renameLibraryEntry(selected.kind, selected.name, to.trim())
+      const builtin = selected.path.startsWith('@library/')
+      if (builtin) {
+        await renameLibraryEntry(selected.kind, selected.name, to)
+      } else if (project) {
+        const suffix = selected.kind === 'elements' ? '.elem.json' : selected.kind === 'styles' ? '.uss.json' : '.fn.json'
+        const dir = PROJECT_DIR[selected.kind]
+        const from = `${project.path}/${selected.path}`
+        const toPath = `${project.path}/${dir}/${to}${suffix}`
+        const r = await fetch('/api/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from, to: toPath }),
+        })
+        const j = (await r.json()) as { ok?: boolean; message?: string }
+        if (!j.ok) throw new Error(j.message ?? '重命名失败')
+      }
+      // v3 T13.1：改名级联当前项目引用
+      if (project) {
+        const suffix = selected.kind === 'elements' ? '.elem.json' : selected.kind === 'styles' ? '.uss.json' : '.fn.json'
+        const dir = PROJECT_DIR[selected.kind]
+        const oldPath = builtin
+          ? `@library/${selected.kind}/${selected.name}`
+          : selected.path
+        const newPath = builtin
+          ? `@library/${selected.kind}/${to}`
+          : `${dir}/${to}${suffix}`
+        if (selected.kind === 'elements') await cascadeElementRename(project.path, oldPath, newPath)
+        else if (selected.kind === 'styles') await cascadeStyleRename(project.path, oldPath, newPath)
+        else await cascadeFunctionRename(project.path, selected.name, to)
+      }
       setSelected(null)
       await load()
     } catch (e) {
@@ -188,31 +266,31 @@ export function LibraryPanel() {
 
   const onOpen = (): void => {
     if (!selected) return
-    if (selected.path.startsWith('@library/') && selected.kind === 'styles') {
-      window.alert('样式表编辑器随 T11.5 完整版接入；元素/函数可直接打开。')
-      return
-    }
     if (selected.kind === 'elements') openAssetPanel('element', selected.path)
-    else if (selected.kind === 'styles') window.alert('样式表编辑器随 T11.5 完整版接入。')
+    else if (selected.kind === 'styles') openAssetPanel('style', selected.path)
     else openAssetPanel('function', selected.path)
   }
 
   const onExport = async (): Promise<void> => {
-    if (!selected || !selected.path.startsWith('@library/')) {
-      setError('请选择内置库条目后导出（项目库请直接复制文件）')
+    const targets =
+      checked.size > 0 ? entries.filter((e) => checked.has(e.path)) : selected ? [selected] : []
+    if (targets.length === 0 || targets.some((e) => !e.path.startsWith('@library/'))) {
+      setError('请勾选内置库条目后导出（项目库请直接复制文件）')
       return
     }
     try {
-      const r = await fetch(
-        `/api/library/export?kind=${encodeURIComponent(selected.kind)}&name=${encodeURIComponent(selected.name)}&format=zip`,
-      )
-      if (!r.ok) throw new Error(`导出失败：HTTP ${r.status}`)
-      const blob = await r.blob()
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = `${selected.kind}-${selected.name}.zip`
-      a.click()
-      URL.revokeObjectURL(a.href)
+      for (const e of targets) {
+        const r = await fetch(
+          `/api/library/export?kind=${encodeURIComponent(e.kind)}&name=${encodeURIComponent(e.name)}&format=zip`,
+        )
+        if (!r.ok) throw new Error(`导出失败：HTTP ${r.status}`)
+        const blob = await r.blob()
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `${e.kind}-${e.name}.zip`
+        a.click()
+        URL.revokeObjectURL(a.href)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
@@ -227,7 +305,7 @@ export function LibraryPanel() {
       const r = await fetch('/api/library/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ zipBase64, policy: 'skip' }),
+        body: JSON.stringify({ zipBase64, policy: importPolicy }),
       })
       const j = (await r.json()) as { ok?: boolean; message?: string; imported?: number; skipped?: number }
       if (!j.ok) throw new Error(j.message ?? '导入失败')
@@ -263,7 +341,18 @@ export function LibraryPanel() {
         <button type="button" className="library-btn" onClick={() => void onExport()} title="导出所选内置库条目（依赖闭包 zip）">
           导出
         </button>
-        <button type="button" className="library-btn" onClick={() => importRef.current?.click()} title="导入库 zip（冲突跳过）">
+        <select
+          className="library-input"
+          value={importPolicy}
+          aria-label="导入冲突策略"
+          title="导入冲突策略"
+          onChange={(e) => setImportPolicy(e.target.value as typeof importPolicy)}
+        >
+          <option value="skip">冲突跳过</option>
+          <option value="overwrite">冲突覆盖</option>
+          <option value="rename">并存改名</option>
+        </select>
+        <button type="button" className="library-btn" onClick={() => importRef.current?.click()} title="导入库 zip">
           导入
         </button>
         <input
@@ -308,6 +397,22 @@ export function LibraryPanel() {
                 onClick={() => setSelected(e)}
                 onDoubleClick={onOpen}
               >
+                <input
+                  type="checkbox"
+                  className="library-row-check"
+                  checked={checked.has(e.path)}
+                  title="勾选后导出（多选）"
+                  onClick={(ev) => ev.stopPropagation()}
+                  onChange={(ev) => {
+                    const on = ev.target.checked
+                    setChecked((prev) => {
+                      const next = new Set(prev)
+                      if (on) next.add(e.path)
+                      else next.delete(e.path)
+                      return next
+                    })
+                  }}
+                />
                 <span className="library-row-name">{e.name}</span>
                 <span className="library-row-meta">
                   {e.kind === 'elements' ? 'EL' : e.kind === 'styles' ? 'ST' : 'FN'}
@@ -321,15 +426,21 @@ export function LibraryPanel() {
             <>
               <div className="library-detail-title">{selected.name}</div>
               <div className="library-detail-path">{selected.path}</div>
+              {selected.mtime ? (
+                <div className="library-detail-path" title="最近修改">
+                  最近修改：{selected.mtime}
+                </div>
+              ) : null}
+              <div className="library-detail-path" title="当前项目中的引用次数">
+                引用数：{refCount === null ? '—' : refCount}
+              </div>
               <div className="library-detail-actions">
                 <button type="button" className="library-btn" onClick={onOpen}>
                   打开
                 </button>
-                {selected.path.startsWith('@library/') ? (
-                  <button type="button" className="library-btn" onClick={() => void onRename()} disabled={busy}>
-                    重命名
-                  </button>
-                ) : null}
+                <button type="button" className="library-btn" onClick={() => void onRename()} disabled={busy}>
+                  重命名
+                </button>
                 <button type="button" className="library-btn danger" onClick={() => void onDelete()} disabled={busy}>
                   删除
                 </button>

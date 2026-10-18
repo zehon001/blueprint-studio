@@ -19,10 +19,16 @@ export interface UIAssetValidationInput {
   styleClasses: ReadonlySet<string>
   /** 项目内元素路径（ui/elements/*.elem.json） */
   projectElements?: Iterable<string>
+  /** 项目内样式表路径（ui/styles/*.uss.json） */
+  projectStyles?: Iterable<string>
+  /** 项目内预制体路径（ui/prefabs/*.ui.json） */
+  projectPrefabs?: Iterable<string>
   /** 内置库清单（离线时省略 -> 跳过 ref-library-missing） */
   library?: LibraryManifestLite
   /** 可解析的项目/全局函数名（省略则跳过作用于项目/全局的 ref-function-missing） */
   externalFunctions?: Iterable<string>
+  /** 校验上下文：内置库资产不得引用项目资产（PLAN §7.3） */
+  scope?: 'project' | 'library'
 }
 
 function issue(
@@ -37,17 +43,23 @@ function issue(
 export function validateUIAssetRefs(input: UIAssetValidationInput): ValidationIssue[] {
   const { asset, styleClasses } = input
   const projectElements = input.projectElements ? new Set(input.projectElements) : null
+  const projectStyles = input.projectStyles ? new Set(input.projectStyles) : null
+  const projectPrefabs = input.projectPrefabs ? new Set(input.projectPrefabs) : null
   const libElements = input.library?.elements ? new Set(input.library.elements) : null
   const libStyles = input.library?.styles ? new Set(input.library.styles) : null
   const out: ValidationIssue[] = []
 
-  // 资产 styles 引用：@library/styles/<name> 缺失；项目相对路径由装载层处理
+  // 资产 styles 引用：@library 缺失 / 项目样式表文件不存在
   for (const ref of asset.styles ?? []) {
     if (ref.startsWith('@library/styles/')) {
       const name = ref.slice('@library/styles/'.length)
       if (libStyles && !libStyles.has(name)) {
         out.push(issue('ref-library-missing', `样式表引用的内置库条目不存在：${name}`))
       }
+    } else if (input.scope === 'library') {
+      out.push(issue('ref-element-boundary', `内置资产不得引用项目样式表：${ref}`))
+    } else if (projectStyles && !projectStyles.has(ref)) {
+      out.push(issue('ref-style-missing', `样式表文件不存在：${ref}`))
     }
   }
 
@@ -71,9 +83,30 @@ export function validateUIAssetRefs(input: UIAssetValidationInput): ValidationIs
             }),
           )
         }
+      } else if (input.scope === 'library') {
+        out.push(
+          issue('ref-element-boundary', `内置元素不得引用项目元素：${node.element}`, {
+            nodeId: node.id,
+          }),
+        )
       } else if (projectElements && !projectElements.has(node.element)) {
         out.push(
           issue('ref-element-boundary', `节点「${node.name}」引用的项目元素不存在：${node.element}`, {
+            nodeId: node.id,
+          }),
+        )
+      }
+    }
+    if (node.prefab) {
+      if (input.scope === 'library') {
+        out.push(
+          issue('ref-element-boundary', `内置资产不得引用项目预制体：${node.prefab}`, {
+            nodeId: node.id,
+          }),
+        )
+      } else if (projectPrefabs && !projectPrefabs.has(node.prefab)) {
+        out.push(
+          issue('ref-element-boundary', `节点「${node.name}」引用的预制体不存在：${node.prefab}`, {
             nodeId: node.id,
           }),
         )
@@ -108,23 +141,68 @@ export function validateUIAssetRefs(input: UIAssetValidationInput): ValidationIs
       if (node.type === 'flow.call') {
         const target = String(node.params?.function ?? node.params?.graph ?? '')
         const scope = String(node.params?.scope ?? 'auto')
-        if (target && scope === 'blueprint' && !asset.graphs?.[target]) {
+        if (target) {
+          const inBlueprint = !!asset.graphs?.[target]
+          if (scope === 'blueprint' && !inBlueprint) {
+            out.push(
+              issue('ref-function-missing', `蓝图函数引用不存在：${target}`, {
+                nodeId: node.id,
+                graphName,
+              }),
+            )
+          } else if (scope === 'auto' && !inBlueprint) {
+            // auto：蓝图 → 项目 → 全局；离线时不误报项目/全局
+            if (external && !external.has(target)) {
+              out.push(
+                issue('ref-function-missing', `函数引用不存在（蓝图/项目/全局）：${target}`, {
+                  nodeId: node.id,
+                  graphName,
+                }),
+              )
+            }
+          } else if (
+            (scope === 'project' || scope === 'global') &&
+            external &&
+            !external.has(target)
+          ) {
+            out.push(
+              issue('ref-function-missing', `${scope === 'project' ? '全项目' : '全局'}函数引用不存在：${target}`, {
+                nodeId: node.id,
+                graphName,
+              }),
+            )
+          }
+        }
+      }
+      // 节点选择器：ui.get 的 target 参数 + 所有 UI 访问器未连线的 name 引脚
+      if (node.type === 'ui.get') {
+        const target = String(node.params?.target ?? '')
+        if (target && !names.has(target)) {
           out.push(
-            issue('ref-function-missing', `蓝图函数引用不存在：${target}`, {
-              nodeId: node.id,
-              graphName,
-            }),
-          )
-        } else if (target && (scope === 'project' || scope === 'global') && external && !external.has(target)) {
-          out.push(
-            issue('ref-function-missing', `${scope === 'project' ? '全项目' : '全局'}函数引用不存在：${target}`, {
+            issue('ref-node-missing', `ui.get 目标节点不存在：${target}`, {
               nodeId: node.id,
               graphName,
             }),
           )
         }
       }
-      if (node.type === 'ui.get' || node.type === 'ui.getProp' || node.type === 'ui.setProp') {
+      if (
+        ['ui.getValue', 'ui.setValue', 'ui.setText', 'ui.setVisible', 'ui.listSetItems', 'ui.setTitle'].includes(
+          node.type,
+        )
+      ) {
+        const namePin = String(node.pinDefaults?.name ?? '')
+        const wired = (graph.edges ?? []).some((e) => e.kind === 'data' && e.to.node === node.id && e.to.pin === 'name')
+        if (namePin && !wired && !names.has(namePin)) {
+          out.push(
+            issue('ref-node-missing', `${node.type} 引用的节点不存在：${namePin}`, {
+              nodeId: node.id,
+              graphName,
+            }),
+          )
+        }
+      }
+      if (node.type === 'ui.getProp' || node.type === 'ui.setProp') {
         const target = String(node.params?.nodeName ?? node.pinDefaults?.name ?? '')
         if (target && !names.has(target)) {
           out.push(

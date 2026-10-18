@@ -46,7 +46,11 @@ import {
 import type { FlowEdge, FlowNode } from '../view/model';
 import { useBlueprintStore, type BlueprintSelection } from '../store/blueprint-store';
 import { isConnectionShapeValid, resolvePinRef } from './logic';
-import type { Vec2 } from '../../ir/types';
+import type { UINode, Vec2 } from '../../ir/types';
+import { getSceneTreeDomain } from '@/ui-editor/store';
+import { getUISchema } from '@/ui-editor/schema';
+import { getCachedElement } from '@/ui-editor/element';
+import { getCachedPrefab } from '@/ui-editor/prefab';
 
 /** 菜单定位 / 连线结束的事件来源（原生与 React 合成事件统一取坐标） */
 type PointerEventLike = MouseEvent | ReactMouseEvent | TouchEvent;
@@ -116,6 +120,16 @@ export interface CanvasInteractionApis {
 /**
  * 画布交互钩子（T2.2）。Ctrl+S 保存经 keymap 重绑定（BlueprintEditorPanel 负责）。
  */
+/** UI 节点 traits（元素用 ElementAsset.traits；预制体用根类型 schema traits） */
+function traitsOfUiNode(node: UINode): string[] {
+  if (node.element) return [...(getCachedElement(node.element)?.traits ?? [])];
+  if (node.prefab) {
+    const root = getCachedPrefab(node.prefab)?.root;
+    return root ? [...(getUISchema(root.type)?.traits ?? [])] : [];
+  }
+  return [...(getUISchema(node.type)?.traits ?? [])];
+}
+
 export function useCanvasInteractions(): CanvasInteractionApis {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const rfStore = useStoreApi();
@@ -338,6 +352,23 @@ export function useCanvasInteractions(): CanvasInteractionApis {
           ? resolvePinRef(st.specs, graph.nodes, fromHandle.nodeId, fromHandle.id ?? '', dir)
           : null;
         if (!from) return;
+        // v3 T12.4：ui.get 输出的 UiHandle 按 target 节点的实际 trait 过滤兼容菜单
+        const sourceNode = graph?.nodes.find((n) => n.id === fromHandle.nodeId);
+        if (sourceNode?.type === 'ui.get' && dir === 'out') {
+          const targetName = String(sourceNode.params?.target ?? '');
+          const uiRoot = getSceneTreeDomain().asset?.root;
+          const findByName = (n: UINode): UINode | null => {
+            if (n.name === targetName) return n;
+            for (const c of n.children ?? []) {
+              const hit = findByName(c);
+              if (hit) return hit;
+            }
+            return null;
+          };
+          const targetNode = uiRoot ? findByName(uiRoot) : null;
+          const traits = targetNode ? traitsOfUiNode(targetNode) : [];
+          if (traits.length > 0) from.traits = traits;
+        }
         st.openMenu({
           kind: 'pin',
           screen: point,

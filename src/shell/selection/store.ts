@@ -18,7 +18,14 @@ export type SelectionDescriptor =
       edgeIds: string[]
     }
   | { source: 'file'; path: string; name: string; kind: 'file' | 'dir'; ext: string }
-  | { source: 'library'; scope: 'builtin' | 'project'; kind: 'element' | 'style' | 'function'; name: string }
+  | {
+      source: 'library'
+      scope: 'builtin' | 'project'
+      kind: 'element' | 'style' | 'function'
+      name: string
+      /** 库条目引用路径（@library/... 或项目相对路径） */
+      path?: string
+    }
 
 interface SelectionState {
   selection: SelectionDescriptor | null

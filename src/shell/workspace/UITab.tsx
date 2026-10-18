@@ -5,17 +5,21 @@
  * Ctrl+S（file.save 重绑定）→ saveUIAsset() → 清脏；脏标记监听 scene-tree 域命令。
  * 切走 tab 时 close()（域状态替换语义，重开安全——见 ui-editor/store.ts 注释）。
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { UIEditorPanel } from '@/ui-editor'
 import { BlueprintEditorPanel } from '@/blueprint'
 import { useBlueprintStore } from '@/blueprint/store/blueprint-store'
+import { onUIBlueprintRequest, requestUIBlueprint } from './uiBlueprintBridge'
+import { ValidationBar } from '@/blueprint/interaction/ValidationBar'
+import type { ValidationIssue } from '@/ir/validate'
+import { validateOpenUIAsset } from '@/ui-editor/validateOpen'
 import { SceneTreePanel } from '@/panels/scene-tree/SceneTreePanel'
 import { ElementLibraryPanel, StyleLibraryPanel } from '@/panels/library'
-import { runUICommand, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
+import { getSceneTreeDomain, runUICommand, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
 import { applyEmbeddedBlueprint, embeddedBlueprintOf } from '@/ui-editor/embedded'
 import type { IRAsset, UIAsset } from '@/ir/types'
 import { peekUndo, subscribeReplay, useEditorStore } from '@/shell/commands'
-import { registerShortcut, unregisterShortcut } from '@/shell/keymap/registry'
+import { registerSaveHandler } from './saveRegistry'
 import { useWorkspaceStore, tabIdOf } from '@/shell/workspace-store'
 import { useDockStore } from '@/shell/dock/store'
 import { assetPanelId } from '@/shell/dock/assetPanelModel'
@@ -24,13 +28,24 @@ import { useSelectionStore } from '@/shell/selection/store'
 // 这里显式引入树/右键菜单样式（否则选中底色、拖拽落区、行高全部失效）。
 import '@/panels/file-system/menu.css'
 import '@/panels/scene-tree/styles.css'
+// 设计模式也使用蓝图校验条（引用完整性 v3）
+import '@/blueprint/interaction/interaction.css'
 
-export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: string }) {
+export function UITab({
+  assetPath,
+  panelId,
+  kind = 'ui',
+}: {
+  assetPath: string
+  panelId?: string
+  kind?: 'ui' | 'element'
+}) {
   const project = useWorkspaceStore((s) => s.currentProject)
   const projectPath = project?.path ?? null
-  const tabId = tabIdOf('ui', assetPath)
+  const tabId = tabIdOf(kind, assetPath)
   const markDirty = useWorkspaceStore((s) => s.markDirty)
   const clearDirty = useWorkspaceStore((s) => s.clearDirty)
+  const dirty = useWorkspaceStore((s) => s.openTabs.find((t) => t.id === tabId)?.dirty ?? false)
   const status = useUIEditorStore((s) => (s.assetPath === assetPath ? s.status : 'idle'))
   const message = useUIEditorStore((s) => (s.assetPath === assetPath ? s.message : ''))
   const projectPathState = useUIEditorStore((s) => s.projectPath)
@@ -47,18 +62,45 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
   const [leftTab, setLeftTab] = useState<'tree' | 'elements' | 'styles'>('tree')
   /** v3 T10.2：设计 / 内嵌蓝图双模式 */
   const [mode, setMode] = useState<'design' | 'blueprint'>('design')
+  /** v3 T13.1：引用完整性校验结果（设计/蓝图共用） */
+  const [issues, setIssues] = useState<ValidationIssue[] | null>(null)
   const asset = useSceneTreeDomain().asset
   /** 蓝图视图（按资产引用缓存，避免每次渲染重置蓝图 store） */
   const blueprintView = useMemo(() => (asset ? embeddedBlueprintOf(asset) : null), [asset])
 
-  /** 内嵌蓝图保存：写回 UI 资产（整资产一次落盘）+ 清脏 */
-  const saveEmbedded = (ir: IRAsset): void => {
+  /** v3 T13.1：打开/保存/编辑后收集跨文件引用校验 */
+  const runValidation = useCallback(async (): Promise<ValidationIssue[]> => {
+    const a = getSceneTreeDomain().asset
+    if (!a) return []
+    const result = await validateOpenUIAsset({
+      projectPath,
+      asset: a,
+      assetPath,
+      styleSheets: useUIEditorStore.getState().styleSheets,
+    })
+    setIssues(result.issues)
+    return result.issues
+  }, [projectPath, assetPath])
+
+  /** 设计模式保存：先校验（错误阻止保存），再落盘 + 清脏 */
+  const saveDesign = useCallback(async (): Promise<boolean> => {
+    const found = await runValidation()
+    if (found.some((i) => i.severity === 'error')) return false
+    const ok = await saveUIAsset()
+    if (ok) clearDirty(tabId)
+    return ok
+  }, [runValidation, saveUIAsset, clearDirty, tabId])
+
+  /** 内嵌蓝图保存：写回 UI 资产（整资产一次落盘）+ 引用校验 + 清脏 */
+  const saveEmbedded = async (ir: IRAsset): Promise<boolean> => {
     runUICommand('编辑内嵌蓝图', (draft) => {
       applyEmbeddedBlueprint(draft as UIAsset, ir)
     })
-    void saveUIAsset().then((ok) => {
-      if (ok) clearDirty(tabId)
-    })
+    const found = await runValidation()
+    if (found.some((i) => i.severity === 'error')) return false
+    const ok = await saveUIAsset()
+    if (ok) clearDirty(tabId)
+    return ok
   }
 
   /**
@@ -116,6 +158,53 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
     [clearSelection, uid],
   )
 
+  /* v3：检视器/事件面板「跳转」→ 切蓝图模式、打开事件图并选中事件入口节点 */
+  useEffect(
+    () =>
+      onUIBlueprintRequest((detail) => {
+        if (detail.assetPath && detail.assetPath !== assetPath) return
+        setMode('blueprint')
+        window.setTimeout(() => {
+          const st = useBlueprintStore.getState()
+          const graphName = detail.graph ?? st.asset?.entry ?? 'event'
+          if (st.asset?.graphs[graphName]) st.switchGraph(graphName)
+          const graph = st.asset?.graphs[graphName]
+          if (!graph) return
+          const eventName = detail.eventName
+          const hit =
+            (detail.nodeId ? graph.nodes.find((n) => n.id === detail.nodeId) : null) ??
+            (eventName
+              ? graph.nodes.find(
+                  (n) =>
+                    n.type === 'event.custom' &&
+                    (String(n.params?.eventName ?? '') === eventName ||
+                      String(n.comment ?? '').includes(eventName)),
+                )
+              : null)
+          if (hit) st.setSelection({ nodeIds: [hit.id], edgeIds: [] })
+        }, 60)
+      }),
+    [assetPath],
+  )
+
+  /* v3 T13.1：载入/编辑后自动校验（300ms 防抖，命令栈变化触发） */
+  useEffect(() => {
+    if (status !== 'ready') return
+    void runValidation()
+    let timer: number | null = null
+    let lastLen = useEditorStore.getState().undoStack.length
+    const unsub = useEditorStore.subscribe((s) => {
+      if (s.undoStack.length === lastLen) return
+      lastLen = s.undoStack.length
+      if (timer !== null) window.clearTimeout(timer)
+      timer = window.setTimeout(() => void runValidation(), 300)
+    })
+    return () => {
+      unsub()
+      if (timer !== null) window.clearTimeout(timer)
+    }
+  }, [status, runValidation])
+
   /* 打开/切换资产（projectPath 与 store 现值不一致或资产不同才重载） */
   useEffect(() => {
     if (!projectPath) return
@@ -158,26 +247,11 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
     }
   }, [tabId, markDirty])
 
-  /* Ctrl+S → 保存资产（重绑定 file.save，卸载恢复默认空实现） */
+  /* Ctrl+S → 活动面板保存分发（设计模式由本面板处理；蓝图模式注册 BlueprintEditorPanel 的处理函数） */
   useEffect(() => {
-    const reg = registerShortcut(
-      {
-        id: 'file.save',
-        label: '保存',
-        keys: 'Ctrl+S',
-        handler: () => {
-          void saveUIAsset().then((ok) => {
-            if (ok) clearDirty(tabId)
-          })
-        },
-      },
-      { force: true },
-    )
-    return () => {
-      unregisterShortcut('file.save')
-      void reg
-    }
-  }, [tabId, saveUIAsset, clearDirty])
+    if (mode !== 'design') return
+    return registerSaveHandler(uid, saveDesign)
+  }, [mode, saveDesign, uid])
 
   if (status === 'loading') return <div className="workspace-tab-loading">加载中…</div>
   if (status === 'error') return <div className="workspace-tab-loading workspace-tab-error">{message || '加载失败'}</div>
@@ -188,6 +262,14 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
       </div>
     )
   }
+  const onIssueJump = (issue: ValidationIssue): void => {
+    if (issue.graphName && issue.nodeId) {
+      requestUIBlueprint({ assetPath, graph: issue.graphName, nodeId: issue.nodeId })
+      return
+    }
+    if (issue.nodeId) useUIEditorStore.getState().setSelection([issue.nodeId])
+  }
+
   return (
     <div className="ui-editor-shell">
       <div className="ui-editor-modebar" role="tablist" aria-label="编辑器模式">
@@ -219,6 +301,7 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
               assetPath={assetPath}
               onSave={(ir) => saveEmbedded(ir)}
               className="ui-editor-blueprint"
+              panelId={uid}
             />
           ) : (
             <div className="dock-panel-placeholder">加载内嵌蓝图…</div>
@@ -262,6 +345,15 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
           </>
         )}
       </div>
+      {mode === 'design' ? (
+        <ValidationBar
+          issues={issues}
+          dirty={dirty}
+          graphName="event"
+          onJump={onIssueJump}
+          onSave={() => void saveDesign()}
+        />
+      ) : null}
     </div>
   )
 }

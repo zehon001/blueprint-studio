@@ -476,4 +476,5 @@ F5 运行：与模板蓝图等价——列表显示解析后的日志行，控�
 - **函数三档**：`flow.call` 支持 `function` + `scope(auto|blueprint|project|global)`；运行期加载项目 `library/functions/*.fn.json` 或内置库函数并注入执行；资产内函数进入右键搜索「函数」分组。
 - **节点增强**：`ui.getProp` / `ui.setProp` / `ui.setText`；`ui.setValue/listSetItems/setTitle` 声明 traits；`var.get/set` 变量名为下拉选择器。
 - **校验**：新增引用完整性码 `ref-node-missing / ref-variable-missing / ref-function-missing / ref-style-missing / ref-library-missing / ref-element-boundary`（`validateUIAssetRefs`）。
-- **仍待完成**（见 TASKBOARD）：函数编辑器 UI、项目/全局函数检索、UiHandle 类型族/PinDrag 过滤、ui.get 子节点选择器、反射「设计器」右键分组、改名级联与校验入口接线、log-analyzer v3 模板、v2 拒载收口、roundtrip/e2e v3 全量重写、TA.4 人工勾验。
+- **v3.1 修复批次（2026-10-18）**：样式有效值/来源高亮与样式表编辑、元素实例自定义属性/提升变量/traits/自定义事件转发、元素/预制体实例类图运行时、函数作用域选择与签名/动态引脚、UiHandle/trait 过滤、反射「设计器」、引用完整性校验接入保存链路与改名级联、v2 项目/预制体/元素/样式/函数版本门禁、文件系统元素/样式/函数入口、内置元素/样式编辑器、库即时生效与导入冲突三策略。全量 1043 测试绿、typecheck 0、build 绿。
+- **仍待人工**：TA.4 视觉勾验（`tests/visual/CHECKLIST-v3.md` 的实机截图复核）、浅色主题/高 DPI、Playwright 浏览器层运行视图 e2e（现有 e2e 为 API 层）。

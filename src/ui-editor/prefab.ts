@@ -20,6 +20,8 @@
  *       （失败不再重试，占位显示中文错误；重试只能经 clearPrefabCache —— 打开/刷新）。
  */
 import type { UIAsset, UINode } from '../ir/types'
+import { stripDefaultProps } from './styles'
+import { prefixSubtreeIds } from './scopedIds'
 
 /* ============================================================
  * 常量与路径工具
@@ -149,10 +151,11 @@ export function expandPrefabNode(
   }
   const asset = resolver(path);
   if (!asset) {
+    const reason = getPrefabFailure(path);
     return {
-      node: placeholderNode(instance, `预制体加载中…（${path}）`),
-      error: `预制体未加载：${path}`,
-      missing: true,
+      node: placeholderNode(instance, reason ? `${reason}（${path}）` : `预制体加载中…（${path}）`),
+      error: reason ?? `预制体未加载：${path}`,
+      missing: !reason,
     };
   }
   const prefabRoot = asset.root;
@@ -178,6 +181,8 @@ export function expandPrefabNode(
   node.children = prefabRoot.children.map((c) => {
     const r = expandPrefabNode(c, resolver, nextChain);
     if (r.error && !childError) childError = r.error;
+    // 实例内部 id 作用域化（多实例/事件路由唯一）
+    prefixSubtreeIds(r.node, instance.id);
     return r.node;
   });
   expandedNodes.add(node); // 展开产物标记：reconcile 下层经 isPrefabExpanded 跳过二次展开
@@ -309,6 +314,7 @@ const cache = new Map<string, UIAsset>()
 const inflight = new Map<string, Promise<UIAsset | null>>()
 /** 拉取失败集合：渲染路径不再重试（避免「占位→刷新→再失败」循环）；clearPrefabCache 重置 */
 const failed = new Set<string>()
+const failureMessages = new Map<string, string>()
 
 let loaderContext: PrefabLoaderContext | null = null
 
@@ -322,6 +328,12 @@ export function clearPrefabCache(): void {
   cache.clear()
   inflight.clear()
   failed.clear()
+  failureMessages.clear()
+}
+
+/** 预制体加载失败原因（版本不兼容等；未知返回 undefined） */
+export function getPrefabFailure(path: string): string | undefined {
+  return failureMessages.get(path)
 }
 
 /** 读缓存（同步；未命中 null） */
@@ -351,8 +363,17 @@ async function fetchPrefabAsset(path: string): Promise<UIAsset | null> {
     if (!json.ok || typeof json.content !== 'string') return null;
     const raw = JSON.parse(json.content) as Partial<UIAsset>;
     // v3 门禁（T13.2）：预制体资产同样只接受 version 3
-  if (!raw || raw.version !== 3 || !raw.root) return null;
-    return raw as UIAsset;
+    if (!raw || raw.version !== 3 || !raw.root) {
+      failureMessages.set(
+        path,
+        raw && raw.version !== 3
+          ? `预制体版本不兼容：${String(raw.version)}（v3 仅支持 version 3）`
+          : '预制体资产缺少 root',
+      )
+      return null;
+    }
+    // v3 T11.1：去掉物化的默认 props（样式类优先）
+    return { ...(raw as UIAsset), root: stripDefaultProps(raw.root as UINode) };
   } catch {
     return null;
   }

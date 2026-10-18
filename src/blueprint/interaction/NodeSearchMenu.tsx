@@ -184,6 +184,12 @@ export function NodeSearchMenu({
                     </span>
                     <span className="bp-menu-item-sub">
                       {item.entry.pin ? `${spec.id} → ${item.entry.pin.id}` : spec.id}
+                      {item.entry.badge ? (
+                        <span className="bp-menu-badge">{item.entry.badge}</span>
+                      ) : null}
+                      {item.entry.note ? (
+                        <span className="bp-menu-note">{item.entry.note}</span>
+                      ) : null}
                     </span>
                   </span>
                 </button>

@@ -172,8 +172,16 @@ export default function ProjectManager() {
     })
   }
 
-  /** 打开项目 → 进入主编辑器 */
+  /** 打开项目 → 进入主编辑器（v3 门禁：engineVersion 主版本必须 ≥ 3） */
   function openProject(name: string, folder: string): void {
+    const summary = projects?.find((p) => p.path.toLowerCase() === folder.toLowerCase())
+    const major = summary?.engineVersion ? Number.parseInt(summary.engineVersion.split('.')[0] ?? '', 10) : NaN
+    if (Number.isFinite(major) && major < 3) {
+      window.alert(
+        `v3 不兼容 v2 项目：当前项目引擎版本为 ${summary?.engineVersion}。\n请用 v3 模板新建项目，或迁移工程后重试。`,
+      )
+      return
+    }
     touchRecent(name, folder)
     window.location.href = '/editor.html?project=' + encodeURIComponent(folder)
   }

@@ -7,6 +7,9 @@
  * 与 ADR-009 预制体机制同构：预取缓存、循环检测、缺失占位、补拉刷新。
  */
 import type { ElementAsset, UINode } from '@/ir/types'
+import { applyClassStyles, mergeStyledNode, stripDefaultProps, type StyleSheet } from './styles'
+import { loadStyleSheets } from './styleLoad'
+import { prefixSubtreeIds } from './scopedIds'
 
 export const ELEMENT_PLACEHOLDER_TYPE = '__element_placeholder'
 export const ELEMENT_PLACEHOLDER_TEXT = '__element_placeholder_text'
@@ -20,35 +23,71 @@ export interface ElementLoaderContext {
 let loaderContext: ElementLoaderContext | null = null
 const cache = new Map<string, ElementAsset>()
 const pending = new Map<string, Promise<ElementAsset | null>>()
+const failures = new Map<string, string>()
+/** 元素资产自带样式表（按路径；元素边界内生效，宿主样式不穿透） */
+const styleCache = new Map<string, StyleSheet[]>()
+/** 元素内部节点（展开产物）——渲染器据此跳过宿主样式合并 */
+const internalNodes = new WeakSet<UINode>()
+
+/** 元素内部节点判定（渲染器用；展开产物是一次性对象） */
+export function isElementInternalNode(node: UINode): boolean {
+  return internalNodes.has(node)
+}
+
+/** 元素资产自带样式表（未加载返回空数组） */
+export function getElementStyleSheets(path: string): readonly StyleSheet[] {
+  return styleCache.get(path) ?? []
+}
 
 export function setElementLoaderContext(ctx: ElementLoaderContext | null): void {
   loaderContext = ctx
 }
 
+/** 直接写入缓存（测试 / 保存后本地立即可用；不经过网络） */
+export function primeElementCache(path: string, asset: ElementAsset): void {
+  cache.set(path, asset)
+  failures.delete(path)
+}
+
 export function clearElementCache(): void {
   cache.clear()
   pending.clear()
+  styleCache.clear()
+  failures.clear()
+}
+
+/** 元素加载失败原因（版本不兼容 / 解析错误；未加载/加载中返回 undefined） */
+export function getElementFailure(path: string): string | undefined {
+  return failures.get(path)
 }
 
 export function getCachedElement(path: string): ElementAsset | undefined {
   return cache.get(path)
 }
 
-/** 元素引用 → 读取地址（项目内相对 / @library 暂不支持读取，返回 null） */
+/** 元素引用 → 读取地址（项目内相对 / @library 走资源库服务） */
 function elementUrl(path: string): string | null {
-  if (path.startsWith('@library/')) return null
+  if (path.startsWith('@library/elements/')) {
+    const name = path.slice('@library/elements/'.length)
+    return `/api/library/read?kind=elements&name=${encodeURIComponent(name)}`
+  }
   const ctx = loaderContext
   if (!ctx) return null
   return `/api/file?path=${encodeURIComponent(`${ctx.projectPath}/${path}`)}`
 }
 
-/** 解析元素 JSON（宽松：kind 必须 element；root 必须对象） */
+/** 解析元素 JSON（kind 必须 element；version 必须 3；root 必须对象） */
 export function parseElementAsset(text: string, path: string): ElementAsset {
   const raw = JSON.parse(text) as Partial<ElementAsset>
   if (!raw || typeof raw !== 'object') throw new Error(`元素资产格式错误：${path} 根节点不是对象`)
   if (raw.kind !== 'element') throw new Error(`元素资产 kind 无效：${path}`)
+  if (raw.version !== 3) {
+    throw new Error(`元素资产版本不识别：${String(raw.version)}（v3 仅支持 version 3）`)
+  }
   if (!raw.root || typeof raw.root !== 'object') throw new Error(`元素资产缺少 root：${path}`)
-  return raw as ElementAsset
+  const asset = raw as ElementAsset
+  // v3 T11.1：去掉物化的默认 props（样式类优先）
+  return { ...asset, root: stripDefaultProps(asset.root) }
 }
 
 /** 拉取一个元素（缓存 + 并发去重；失败返回 null 并缓存占位） */
@@ -67,8 +106,13 @@ export async function loadElement(path: string, fetchImpl?: typeof fetch): Promi
       if (!json.ok) return null
       const asset = parseElementAsset(String(json.content ?? ''), path)
       cache.set(path, asset)
+      const projectPath = loaderContext?.projectPath
+      if (projectPath) {
+        styleCache.set(path, await loadStyleSheets(projectPath, asset.styles, f))
+      }
       return asset
-    } catch {
+    } catch (err) {
+      failures.set(path, err instanceof Error ? err.message : String(err))
       return null
     } finally {
       pending.delete(path)
@@ -146,7 +190,11 @@ export function expandElementNode(
   }
   const asset = resolver(path)
   if (!asset) {
-    return { node: elementPlaceholder(instance, `元素未加载：${path}`), error: null }
+    const reason = getElementFailure(path)
+    return {
+      node: elementPlaceholder(instance, reason ? `${path}：${reason}` : `元素未加载：${path}`),
+      error: null,
+    }
   }
   const root = asset.root
   // 元素根自身又是元素实例 → 视为嵌套链；形成环时占位报错
@@ -158,6 +206,7 @@ export function expandElementNode(
   for (const p of asset.props ?? []) {
     if (p?.id) defaults[p.id] = p.default
   }
+  const sheets = getElementStyleSheets(path)
   const node: UINode = {
     id: instance.id,
     name: instance.name,
@@ -176,7 +225,13 @@ export function expandElementNode(
   node.children = (root.children ?? []).map((c) => {
     const r = expandElementNode(c, resolver, [...chain, path])
     if (r.error && !error) error = r.error
-    return r.node
+    // 实例内部 id 作用域化（同名内部节点/多实例事件路由唯一）
+    prefixSubtreeIds(r.node, instance.id)
+    // 元素边界：内部节点用元素资产自己的样式表解析，并标记为「宿主样式不穿透」
+    const styled = mergeStyledNode(r.node, sheets)
+    internalNodes.add(styled)
+    return styled
   })
-  return { node, error }
+  // 元素根：只应用元素自带样式类（不提前物化默认值，保留宿主样式覆盖空间）
+  return { node: applyClassStyles(node, sheets), error }
 }

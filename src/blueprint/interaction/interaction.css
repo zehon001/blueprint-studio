@@ -121,6 +121,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.bp-menu-badge {
+  margin-left: var(--space-1);
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--accent-hover);
+  font-size: 10px;
+}
+.bp-menu-note {
+  margin-left: var(--space-2);
+  color: var(--warning);
+  font-size: 10px;
+}
 
 .bp-menu-empty {
   padding: var(--space-3) var(--space-2);

@@ -31,6 +31,34 @@ export * from './types';
 /** 节点分类常量（顺序：容器 / 显示 / 输入 / 数据——树面板与添加菜单的分组顺序） */
 export const NODE_CATEGORIES = ['容器', '显示', '输入', '数据'] as const;
 
+/**
+ * v3 T12.4：23 种基础控件的对外 trait。
+ * text = 可设置文本；value = 可读写值；items = 列表/树/表格数据；
+ * 容器类不声明（元素实例可通过 ElementAsset.traits 自行声明）。
+ */
+export const UI_TYPE_TRAITS: Readonly<Record<string, readonly string[]>> = {
+  label: ['text'],
+  richText: ['text'],
+  markdown: ['text'],
+  button: ['text'],
+  checkBox: ['text', 'value'],
+  lineEdit: ['text', 'value'],
+  textArea: ['text', 'value'],
+  spinBox: ['value'],
+  slider: ['value'],
+  progressBar: ['value'],
+  list: ['items'],
+  tree: ['items'],
+  table: ['items'],
+  comboBox: ['value', 'items', 'text'],
+  optionButton: ['value', 'items', 'text'],
+};
+
+/** 按类型取 trait 列表（未声明 = 空） */
+export function uiTraitsForType(type: string): string[] {
+  return [...(UI_TYPE_TRAITS[type] ?? [])];
+}
+
 /** 全部 UI 节点 schema 注册表（PLAN §7.1 四类 23 种，顺序 = 分类顺序 → 定义顺序） */
 export const uiNodeSchemas: UINodeSchema[] = [
   ...CONTAINER_SCHEMAS,
@@ -38,6 +66,37 @@ export const uiNodeSchemas: UINodeSchema[] = [
   ...INPUT_SCHEMAS,
   ...DATA_SCHEMAS,
 ];
+for (const schema of uiNodeSchemas) {
+  if (!schema.traits) schema.traits = uiTraitsForType(schema.type);
+}
+
+/**
+ * v3 T12.6：可反射属性白名单（右键「设计器」Get/Set 条目来源）。
+ * 只暴露内容/值/数据类属性；布局/内部生命周期字段不反射。
+ */
+export const UI_REFLECT_PROPS: Readonly<Record<string, readonly string[]>> = {
+  label: ['text'],
+  richText: ['text'],
+  markdown: ['text'],
+  button: ['text'],
+  checkBox: ['text', 'checked'],
+  lineEdit: ['text', 'value', 'placeholder'],
+  textArea: ['text', 'value', 'placeholder'],
+  spinBox: ['value'],
+  slider: ['value'],
+  progressBar: ['value'],
+  list: ['items'],
+  tree: ['items'],
+  table: ['items'],
+  comboBox: ['value', 'items'],
+  optionButton: ['value', 'items'],
+};
+for (const schema of uiNodeSchemas) {
+  const reflect = UI_REFLECT_PROPS[schema.type] ?? [];
+  for (const def of schema.props) {
+    if (!def.reflect && reflect.includes(def.id)) def.reflect = true;
+  }
+}
 
 /** type → schema 映射（渲染器 / 检视器热路径查询用） */
 export const uiSchemaMap: ReadonlyMap<string, UINodeSchema> = new Map(

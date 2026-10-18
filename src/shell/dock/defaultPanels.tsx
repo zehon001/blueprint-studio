@@ -58,7 +58,8 @@ export function buildDefaultLayout(): DockNode {
         children: [
           oneTabs(PANEL_ID_FILE_SYSTEM),
           oneTabs(PANEL_ID_RUNTIME),
-          { kind: 'split', dir: 'v', sizes: [1, 1], children: [oneTabs(PANEL_ID_INSPECTOR), oneTabs(PANEL_ID_EVENTS)] },
+          // 检视器占满右列（UIToolkit 心智）；事件面板作为同组 tab，可切换
+          makeTabs([PANEL_ID_INSPECTOR, PANEL_ID_EVENTS]),
         ],
       },
       oneTabs(PANEL_ID_CONSOLE),
@@ -81,6 +82,10 @@ export function bootstrapDock(): void {
   const restored = raw ? parseLayout(raw, knownIds) : null
   useDockStore
     .getState()
-    .initDockLayout(buildDefaultLayout(), restored?.root ?? null, restored?.activePanelId ?? null)
+    .initDockLayout(
+      buildDefaultLayout(),
+      restored ? restored.root : undefined,
+      restored?.activePanelId ?? null,
+    )
   syncWorkspaceFromDock()
 }

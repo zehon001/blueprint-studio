@@ -740,7 +740,7 @@ describe('PluginManagerPanel 组件冒烟', () => {
     assert.equal(btn, undefined, '设置弹窗化后不应再有虚拟 tab 入口')
     assert.match(q('.pm-footer-hint')?.textContent ?? '', /设置 → 插件/)
     assert.equal(
-      useWorkspaceStore.getState().openTabs.some((t) => t.kind === 'plugin-manager'),
+      useWorkspaceStore.getState().openTabs.some((t) => (t.kind as string) === 'plugin-manager'),
       false,
     )
     await h.unmount()

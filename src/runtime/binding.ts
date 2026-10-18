@@ -51,6 +51,10 @@ import { updateUI } from './render/render';
 import { createRuntime, type DebugEvent, type RuntimeHandle } from './interpreter';
 import { resolveExternalFunctions } from './functions';
 import { createEventBus, runtimeEventSink, type EventBus } from './events';
+import { BUS_SOURCE_NODE_KEY } from './events/markers';
+import { getCachedElement } from '@/ui-editor/element';
+import { getCachedPrefab } from '@/ui-editor/prefab';
+import { graphOwnerBlueprint } from '@/ui-editor/embedded';
 import { DebugWsClient } from '@/shell/debug/debug-ws';
 import type { DebugClientMessage } from '@/shell/debug/protocol';
 
@@ -281,6 +285,8 @@ export function makeUiHandle(opts: UiHandleOptions): UiHandle {
       onMissing(`ui.read：绑定子树中未找到节点「${name}」（已返回 undefined）`);
       return undefined;
     }
+    // v3 反射：name 存在 UINode.name（不是 props）
+    if (attr === 'name') return node.name;
     const el = getEl(node);
     if (el) {
       switch (attr) {
@@ -319,6 +325,10 @@ export function makeUiHandle(opts: UiHandleOptions): UiHandle {
     const node = findNodeByName(scopes, name);
     if (!node) {
       onMissing(`ui.write：绑定子树中未找到节点「${name}」，写入被忽略（attr=${attr}）`);
+      return;
+    }
+    if (attr === 'name') {
+      node.name = strOf(value);
       return;
     }
     if (!node.props) node.props = {};
@@ -467,8 +477,22 @@ interface RuntimeEntry {
   rt: RuntimeHandle;
   /** 绑定子树内全部节点名（事件路由用） */
   nameSet: ReadonlySet<string>;
-  /** 控制台前缀的资产种类名（蓝图 / 脚本，T3.3 起随扩展名判定） */
+  /** 控制台前缀的资产种类名（蓝图 / 脚本 / 元素 / 预制体） */
   kindLabel: string;
+  /** 元素/预制体实例路径（`card1.save` 的事件前缀）；根图为空 */
+  instancePath?: string;
+  /** 实例声明的自定义事件（向上转发时加实例路径前缀） */
+  declaredEvents?: ReadonlySet<string>;
+}
+
+/** 图属主资产的最小形状（UIAsset / ElementAsset 共用） */
+interface GraphOwnerAsset {
+  name: string;
+  root: UINode;
+  graphs?: Record<string, import('@/ir/types').IRGraph & { kind?: 'event' | 'function' }>;
+  variables?: IRAsset['variables'];
+  events?: IRAsset['events'];
+  layout?: IRAsset['layout'];
 }
 
 export interface BindingRunnerOptions {
@@ -621,6 +645,8 @@ export class BindingRunner {
   /** 事件总线（T5.1）：loadAndStart 时确定（opts.bus 注入或自建）；环保护警告走 print 通道 */
   private bus: EventBus | null = null;
   private readonly entries: RuntimeEntry[] = [];
+  /** 有效节点 id → 最近图属主实例（元素/预制体内部事件路由） */
+  private readonly nodeOwners = new Map<string, RuntimeEntry>();
   private seq = 0;
   private stopped = false;
   /** T6.5：plugin.push 持续流订阅客户端（懒建一次；stop 时关闭） */
@@ -734,6 +760,187 @@ export class BindingRunner {
       throw new Error(`脚本解析错误（${errors.length} 处）：${detail}`);
     }
     return parsed.asset;
+  }
+
+  /**
+   * 为元素/预制体实例创建类图解释器（v3 PLAN §8.2）：
+   * - 每个实例一个 runtime（无图实例不创建，事件回落到最近祖先图属主）；
+   * - 变量初值 = 类默认值 + 实例 vars 覆盖；
+   * - 实例自定义事件（ElementAsset.events 声明）经 bus 上抛为 `<实例路径>.<事件名>`。
+   */
+  private async createInstanceRuntime(
+    kindLabel: '元素' | '预制体',
+    ownerAsset: GraphOwnerAsset,
+    ir: IRAsset,
+    instance: UINode,
+    instancePath: string,
+    idPrefix: string,
+    debugPath: string,
+    assetSpecs: ReadonlyMap<string, NodeSpec>,
+    bus: EventBus,
+  ): Promise<RuntimeEntry | null> {
+    if (this.stopped) return null;
+    const tag = `bp${this.seq++}`;
+    const fnResolved = await resolveExternalFunctions(ir, {
+      project: this.opts.project,
+      fetchImpl: this.opts.fetchImpl,
+      onPrint: (line) => this.print(line),
+    });
+    for (const err of fnResolved.errors) this.print(`[错误] ${err}`);
+    const { asset: irWithSnippets, specs } = injectSnippetRuntime(fnResolved.asset, assetSpecs as Map<string, NodeSpec>);
+    const baseSink = runtimeEventSink(tag, bus);
+    const forward = (ev: DebugEvent): void => {
+      // 实例图的对外事件一律加实例路径前缀（`card1.save` / `list1.row.clicked`），
+      // 宿主用 event.custom 以完整路径接收；嵌套转发因此也保持完整链路。
+      if (ev.kind === 'emit' && ev.message) {
+        const args =
+          ev.value && typeof ev.value === 'object' && !Array.isArray(ev.value)
+            ? (ev.value as Record<string, unknown>)
+            : undefined;
+        bus.publishFromRuntime(tag, `${instancePath}.${ev.message}`, args);
+        return;
+      }
+      baseSink(ev);
+    };
+    // 元素/预制体自身树 → 渲染后的有效 id（嵌套实例整体是一个不透明节点）
+    const idMap = new Map<string, string>();
+    idMap.set(ownerAsset.root.id, idPrefix);
+    const mapIds = (node: UINode, prefix: string, descend: boolean): void => {
+      idMap.set(node.id, `${prefix}${node.id}`);
+      if (!descend) return;
+      for (const child of node.children ?? []) {
+        const isInstance = !!(child.prefab || child.element);
+        mapIds(child, `${prefix}${node.id}::`, !isInstance);
+      }
+    };
+    for (const child of ownerAsset.root.children ?? []) {
+      mapIds(child, `${idPrefix}::`, !(child.prefab || child.element));
+    }
+    const ui = makeUiHandle({
+      // 作用域 = 元素/预制体自身树（嵌套实例内部不透明）
+      scopes: [ownerAsset.root],
+      getEl: (node) => {
+        const id = idMap.get(node.id);
+        return id
+          ? this.opts.renderHandle.el.querySelector<HTMLElement>(`[data-uid="${id}"]`)
+          : null;
+      },
+      refresh: () => updateUI(this.opts.renderHandle, this.opts.asset),
+      onMissing: (message) => this.print(`[${kindLabel}:${instancePath}] ${message}`),
+    });
+    const rt = createRuntime(irWithSnippets, specs, {
+      ui,
+      readProjectFile: (path) => this.fetchFileText(`${this.opts.project}/${path.replace(/^[\/]+/, '')}`),
+      onPrint: (...parts) =>
+        this.print(`[${kindLabel}:${instancePath}] ${parts.map((p) => strOf(p)).join(' ')}`),
+      onError: (err, graphName, nodeId) => {
+        const where = nodeId ? `（图 ${graphName} · 节点 ${nodeId}）` : `（图 ${graphName}）`;
+        this.print(`[错误] ${kindLabel} ${instancePath}${where}：${err.message}`);
+        this.opts.onError?.(err.message);
+      },
+      onDebug: composeDebugSink(forward, this.opts.debugProbe, debugPath),
+      vars: { ...varsFromIR(fnResolved.asset), ...(instance.vars ?? {}) },
+    });
+    const nameSet = collectNames([ownerAsset.root]);
+    bus.register({
+      id: tag,
+      assetPath: debugPath,
+      uiId: this.opts.uiId,
+      boundNodes: nameSet,
+      rt,
+    });
+    const entry: RuntimeEntry = {
+      tag,
+      path: debugPath,
+      ir: irWithSnippets,
+      rt,
+      nameSet,
+      kindLabel,
+      instancePath,
+    };
+    this.entries.push(entry);
+    this.print(`[绑定] 已加载${kindLabel}实例「${instancePath}」（类图「${ir.name}」）`);
+    return entry;
+  }
+
+  /**
+   * 遍历有效树，为每个元素/预制体实例建 runtime，并登记「节点 id → 最近图属主」。
+   * 无图实例不建 runtime：其内部事件回落到最近祖先图属主（含根图）。
+   */
+  private async loadInstanceRuntimes(
+    rootEntry: RuntimeEntry,
+    assetSpecs: ReadonlyMap<string, NodeSpec>,
+    bus: EventBus,
+  ): Promise<void> {
+    const rootAsset = this.opts.asset;
+    const visit = async (
+      nodes: readonly UINode[],
+      owner: RuntimeEntry,
+      pathPrefix: readonly string[],
+      idPrefix: string,
+    ): Promise<void> => {
+      for (const node of nodes) {
+        if (this.stopped) return;
+        const effectiveId = `${idPrefix}${node.id}`;
+        const instancePath = [...pathPrefix, node.name].join('.');
+        if (node.prefab) {
+          const asset = getCachedPrefab(node.prefab) as GraphOwnerAsset | undefined;
+          let childOwner = owner;
+          if (asset) {
+            const ir = graphOwnerBlueprint(asset);
+            if (ir) {
+              const entry = await this.createInstanceRuntime(
+                '预制体',
+                asset,
+                ir,
+                node,
+                instancePath,
+                effectiveId,
+                `${this.opts.debugAssetPath ?? rootAsset.name}#${instancePath}`,
+                assetSpecs,
+                bus,
+              );
+              if (entry) childOwner = entry;
+            }
+            this.nodeOwners.set(effectiveId, childOwner);
+            await visit(asset.root.children ?? [], childOwner, [...pathPrefix, node.name], `${effectiveId}::`);
+          } else {
+            this.nodeOwners.set(effectiveId, owner);
+          }
+          continue;
+        }
+        if (node.element) {
+          const asset = getCachedElement(node.element);
+          let childOwner = owner;
+          if (asset) {
+            const ir = graphOwnerBlueprint(asset);
+            if (ir) {
+              const entry = await this.createInstanceRuntime(
+                '元素',
+                asset,
+                ir,
+                node,
+                instancePath,
+                effectiveId,
+                `${this.opts.debugAssetPath ?? rootAsset.name}#${instancePath}`,
+                assetSpecs,
+                bus,
+              );
+              if (entry) childOwner = entry;
+            }
+            this.nodeOwners.set(effectiveId, childOwner);
+            await visit(asset.root.children ?? [], childOwner, [...pathPrefix, node.name], `${effectiveId}::`);
+          } else {
+            this.nodeOwners.set(effectiveId, owner);
+          }
+          continue;
+        }
+        this.nodeOwners.set(effectiveId, owner);
+        await visit(node.children ?? [], owner, pathPrefix, idPrefix);
+      }
+    };
+    await visit(rootAsset.root.children ?? [], rootEntry, [], '');
+    this.nodeOwners.set(rootAsset.root.id, rootEntry);
   }
 
   /**
@@ -858,7 +1065,17 @@ export class BindingRunner {
           boundNodes: nameSet,
           rt,
         });
-        this.entries.push({ tag, path: binding.path, ir: irWithSnippets, rt, nameSet, kindLabel });
+        const rootEntry: RuntimeEntry = {
+          tag,
+          path: binding.path,
+          ir: irWithSnippets,
+          rt,
+          nameSet,
+          kindLabel,
+        };
+        this.entries.push(rootEntry);
+        // v3 §8.2：元素/预制体实例类图解释器（仅内嵌蓝图模式）
+        if (embedded) await this.loadInstanceRuntimes(rootEntry, assetSpecs, bus);
         this.print(
           `[绑定] 已加载 ${binding.path}（${kindLabel}「${ir.name}」；绑定节点：${binding.nodes.map((n) => n.name).join('、')}）`,
         );
@@ -884,6 +1101,14 @@ export class BindingRunner {
    * 未加载 / 节点不属于任何绑定子树 → 静默丢弃（未启动 rt.emit 也按解释器语义丢弃）。
    */
   routeEvent(evt: UIRenderEvent): void {
+    // 元素/预制体实例内部节点 → 最近的图属主（含根图）
+    const owner = evt.nodeId ? this.nodeOwners.get(evt.nodeId) : undefined;
+    if (owner && this.bus) {
+      const args: Record<string, unknown> = evt.payload === undefined ? {} : { value: evt.payload };
+      args[BUS_SOURCE_NODE_KEY] = evt.nodeName;
+      this.bus.emitTo(owner.tag, evt.event, args);
+      return;
+    }
     this.bus?.routeEvent(evt);
   }
 

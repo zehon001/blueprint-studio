@@ -61,13 +61,31 @@ function GeneralSection() {
 
   useEffect(() => setDraft(libraryRoot), [libraryRoot])
 
+  const syncRoot = async (root: string): Promise<void> => {
+    try {
+      const r = await fetch('/api/library/root', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ root }),
+      })
+      const j = (await r.json()) as { ok?: boolean; message?: string; root?: string }
+      if (!j.ok) {
+        setError(`服务端拒绝该库根：${j.message ?? '未知错误'}`)
+        return
+      }
+      update({ libraryRoot: root })
+      setSaved(true)
+      window.setTimeout(() => setSaved(false), 2400)
+    } catch (err) {
+      setError(`无法连接资源库服务：${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
   const apply = (): void => {
     const message = validateLibraryRoot(draft, projectPath)
     setError(message)
     if (message) return
-    update({ libraryRoot: draft.trim() })
-    setSaved(true)
-    window.setTimeout(() => setSaved(false), 1600)
+    void syncRoot(draft.trim())
   }
 
   return (
@@ -101,17 +119,17 @@ function GeneralSection() {
             title="恢复服务端默认库路径"
             onClick={() => {
               setDraft('')
-              update({ libraryRoot: '' })
               setError(null)
+              void syncRoot('')
             }}
           >
             默认
           </button>
         </div>
         {error ? <div className="settings-error">{error}</div> : null}
-        {saved ? <div className="settings-ok">已保存（库读写将在资源库服务接入后生效）</div> : null}
+        {saved ? <div className="settings-ok">已保存并同步到资源库服务</div> : null}
         <div className="settings-hint">
-          路径为编辑器级资源库根（所有项目共用）；M8 仅做格式校验，安全根与越权拒绝由资源库服务（T11.4）接管。
+          路径为编辑器级资源库根（所有项目共用）；服务端会校验绝对路径、存在/可写且不与项目根重叠。
         </div>
       </div>
 
@@ -211,6 +229,30 @@ export function SettingsModalHost() {
         onKeyDownCapture={(e) => {
           // 弹窗内按键不触发全局快捷键（Esc 由 window 监听处理）
           if (e.key !== 'Escape') e.stopPropagation()
+          // 焦点圈闭：Tab / Shift+Tab 在弹窗内循环
+          if (e.key === 'Tab') {
+            const root = dialogRef.current
+            if (!root) return
+            const focusables = Array.from(
+              root.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+              ),
+            ).filter((el) => el.offsetParent !== null)
+            if (focusables.length === 0) {
+              e.preventDefault()
+              root.focus()
+              return
+            }
+            const first = focusables[0]!
+            const last = focusables[focusables.length - 1]!
+            if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault()
+              first.focus()
+            } else if (e.shiftKey && (document.activeElement === first || document.activeElement === root)) {
+              e.preventDefault()
+              last.focus()
+            }
+          }
         }}
       >
         <div className="settings-side">

@@ -852,6 +852,37 @@ export function collectLibraryRefs(value: unknown, depth = 0): LibraryEntryRef[]
   return []
 }
 
+/**
+ * 从资产图中收集按名调用的全局函数（flow.call { function, scope:'global' }）。
+ * §3.4 的函数引用不是路径，无法靠 collectLibraryRefs 字符串扫描；导出闭包需单独收集。
+ */
+export function collectGlobalFunctionRefs(value: unknown, depth = 0): LibraryEntryRef[] {
+  if (depth > 64) return []
+  if (Array.isArray(value)) {
+    const out: LibraryEntryRef[] = []
+    for (const item of value) out.push(...collectGlobalFunctionRefs(item, depth + 1))
+    return out
+  }
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    const out: LibraryEntryRef[] = []
+    if (obj.type === 'flow.call') {
+      const params = (obj.params ?? {}) as Record<string, unknown>
+      const fn = typeof params.function === 'string' ? params.function : ''
+      if (fn && params.scope === 'global') {
+        try {
+          out.push({ kind: 'functions', name: validateLibraryName(fn) })
+        } catch {
+          /* 非法函数名由校验器报错 */
+        }
+      }
+    }
+    for (const item of Object.values(obj)) out.push(...collectGlobalFunctionRefs(item, depth + 1))
+    return out
+  }
+  return []
+}
+
 /** 解析库文件 JSON 并收集引用（非 JSON / 损坏文件 → 无依赖，不阻断导出） */
 function collectRefsFromBuffer(buf: Buffer): LibraryEntryRef[] {
   let parsed: unknown
@@ -860,7 +891,7 @@ function collectRefsFromBuffer(buf: Buffer): LibraryEntryRef[] {
   } catch {
     return []
   }
-  return collectLibraryRefs(parsed)
+  return [...collectLibraryRefs(parsed), ...collectGlobalFunctionRefs(parsed)]
 }
 
 /**

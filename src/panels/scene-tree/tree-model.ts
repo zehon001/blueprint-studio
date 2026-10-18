@@ -201,17 +201,13 @@ export function moveUINode(root: UINode, dragId: string, targetId: string, zone:
  * 按 schema 构造新节点（defaultPropsFor 拆分规则见 schema/types.ts 头部注释）：
  * - name 取 schema 默认初值（类型名）并按 taken 去重（" (n)" 后缀）；
  * - transform.position / .size / .rotation 取公共组默认值；
- * - 其余属性进 props；未知类型返回 null。
+ * - 业务属性不再物化默认值（v3 T11.1：默认值由渲染/检视解析器兜底，
+ *   否则样式类会被默认值覆盖）；未知类型返回 null。
  */
 export function buildUINode(type: string, taken: ReadonlySet<string>, id: string = newUINodeId()): UINode | null {
   const schema = getUISchema(type);
   if (!schema) return null;
   const all = defaultPropsFor(type);
-  const props: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(all)) {
-    if (k === 'name' || k === 'position' || k === 'size' || k === 'rotation') continue;
-    props[k] = v;
-  }
   const pos = all.position as { x: number; y: number } | undefined;
   const size = all.size as { w: number; h: number } | undefined;
   return {
@@ -224,7 +220,7 @@ export function buildUINode(type: string, taken: ReadonlySet<string>, id: string
       rotation: (all.rotation as number) ?? 0,
     },
     theme: {}, // ADR-005：theme 暂不使用
-    props,
+    props: {},
     events: [],
     children: [],
   };

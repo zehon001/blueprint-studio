@@ -127,15 +127,13 @@ function DockRoot() {
           e.clientY >= rect.top &&
           e.clientY <= rect.bottom
         if (inside) {
-          const side = computeDropSide(
-            { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-            e.clientX,
-            e.clientY,
-          )
-          if (side === 'center') {
-            const groupEl = findGroupElAt(e.clientX, e.clientY)
-            if (groupEl) {
-              const g = groupEl.getBoundingClientRect()
+          const groupEl = findGroupElAt(e.clientX, e.clientY)
+          if (groupEl) {
+            const g = groupEl.getBoundingClientRect()
+            // 指针在任意 tabs 组的 tab 条上 → 合并进该组（含左右侧栏/底部控制台；
+            // 否则这些小面板永远落在整树边缘感应带里，无法作为 center 目标）。
+            const onTabBar = e.clientY <= g.top + 30 && e.clientY >= g.top
+            if (onTabBar) {
               drop = {
                 side: 'center',
                 groupId: groupEl.dataset.dockTabs ?? '',
@@ -147,8 +145,31 @@ function DockRoot() {
                 },
               }
             }
-          } else {
-            drop = { side }
+          }
+          if (!drop) {
+            const side = computeDropSide(
+              { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+              e.clientX,
+              e.clientY,
+            )
+            if (side === 'center') {
+              const targetGroup = findGroupElAt(e.clientX, e.clientY)
+              if (targetGroup) {
+                const g = targetGroup.getBoundingClientRect()
+                drop = {
+                  side: 'center',
+                  groupId: targetGroup.dataset.dockTabs ?? '',
+                  rect: {
+                    left: g.left - rect.left,
+                    top: g.top - rect.top,
+                    width: g.width,
+                    height: g.height,
+                  },
+                }
+              }
+            } else {
+              drop = { side }
+            }
           }
         }
       }

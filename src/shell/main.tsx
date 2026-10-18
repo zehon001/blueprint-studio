@@ -17,7 +17,12 @@
  */
 import '@/shell/theme/theme.css'
 import { createRoot } from 'react-dom/client'
-import { attachKeyboard, registerDefaultShortcut, registerDefaultShortcuts } from '@/shell/keymap/registry'
+import {
+  attachKeyboard,
+  registerDefaultShortcut,
+  registerDefaultShortcuts,
+  registerShortcut,
+} from '@/shell/keymap/registry'
 import { applyKeymapOverrides } from '@/shell/keymap/customize'
 import { loadKeymapOverrides } from '@/shell/keymap/persist'
 import { launchRuntimeCurrent, launchRuntimeMain } from '@/shell/runtime-launch'
@@ -27,8 +32,69 @@ import { ensureAssetPanelFromId } from '@/shell/dock/assetPanel'
 import PopoutApp from '@/shell/windows/PopoutApp'
 import { installMainBridge } from '@/shell/windows/bridge'
 import { popoutPanelIdFromLocation } from '@/shell/windows/popout'
+import { watchLibrary } from '@/panels/library/api'
+import { clearElementCache } from '@/ui-editor/element'
+import { clearPrefabCache } from '@/ui-editor/prefab'
+import { useUIEditorStore } from '@/ui-editor/store'
+import { invalidateValidationCache } from '@/ui-editor/validateOpen'
+import { useSettingsStore } from '@/shell/settings/store'
+import { useWorkspaceStore } from '@/shell/workspace-store'
+import { useDockStore } from '@/shell/dock/store'
+import { runSaveHandler } from '@/shell/workspace/saveRegistry'
+
+// v3 §7.6：库变更即时生效——失效元素/预制体缓存并刷新打开资产的样式与视口（保留草稿）
+watchLibrary(() => {
+  clearElementCache()
+  clearPrefabCache()
+  invalidateValidationCache()
+  void useUIEditorStore.getState().refreshStyleSheets()
+  useUIEditorStore.getState().bumpAssetEpoch()
+})
+
+// v3 D9：把设置里的库根同步到服务端（服务端启动时也能读到；空 = 默认根）
+const savedLibraryRoot = useSettingsStore.getState().libraryRoot
+void fetch('/api/library/root', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ root: savedLibraryRoot }),
+}).catch(() => {
+  /* 服务未启动：设置保留在 localStorage，下次启动再同步 */
+})
+
+// v3 项目门禁（直达 editor.html 也生效）：engineVersion 主版本必须 ≥ 3
+const currentProject = useWorkspaceStore.getState().currentProject
+if (currentProject) {
+  void fetch(`/api/file?path=${encodeURIComponent(`${currentProject.path}/project.json`)}`)
+    .then((r) => r.json())
+    .then((j: { ok?: boolean; content?: string }) => {
+      if (!j.ok || typeof j.content !== 'string') return
+      const pf = JSON.parse(j.content) as { engineVersion?: string }
+      const major = pf.engineVersion ? Number.parseInt(pf.engineVersion.split('.')[0] ?? '', 10) : NaN
+      if (Number.isFinite(major) && major < 3) {
+        window.alert(
+          `v3 不兼容 v2 项目：当前项目引擎版本为 ${pf.engineVersion}。\n请用 v3 模板新建项目，或迁移工程后重试。`,
+        )
+        window.location.href = '/'
+      }
+    })
+    .catch(() => {
+      /* 服务不可达：编辑器自身会提示 */
+    })
+}
 
 registerDefaultShortcuts()
+// v3：全局保存统一投递给当前激活面板（多资产 tab 同时打开时不再由最后挂载者独占）
+registerShortcut(
+  {
+    id: 'file.save',
+    label: '保存',
+    keys: 'Ctrl+S',
+    handler: () => {
+      void runSaveHandler(useDockStore.getState().activePanelId)
+    },
+  },
+  { force: true },
+)
 // 运行快捷键（T1.6）：与顶栏按钮共用 runtime-launch 的启动函数
 // （mode=main 的 ui 参数由运行窗口读 project.json.mainUI；current 由 workspace-store 拼 ui）
 // T7.1：改用 registerDefaultShortcut —— 记入回放表，设置面板「恢复默认」后 F5/F6 不丢

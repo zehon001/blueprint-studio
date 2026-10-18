@@ -218,12 +218,9 @@ export function commitAddNode(type: string, parentId: string | null, at: Vec2): 
   const newId = newUINodeId();
 
   // schema 默认属性 → UINode 拆分（公共组映射规则见 schema/types.ts 头部注释）
+  // v3 T11.1：默认值不再物化进 node.props（否则样式类永远被默认值覆盖）；
+  // 渲染器/检视器用 schema 默认值兜底。
   const all = defaultPropsFor(type);
-  const props: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(all)) {
-    if (k === 'name' || k === 'position' || k === 'size' || k === 'rotation') continue;
-    props[k] = v;
-  }
   const size = all.size as { w: number; h: number } | undefined;
   const node: UINode = {
     id: newId,
@@ -235,7 +232,7 @@ export function commitAddNode(type: string, parentId: string | null, at: Vec2): 
       rotation: (all.rotation as number) ?? 0,
     },
     theme: {}, // ADR-005：theme 暂不使用
-    props,
+    props: {},
     events: [],
     children: [],
   };

@@ -25,7 +25,7 @@ test('functionIR：.fn.json → IRAsset 单图（params/returns 提取）', () =
 })
 
 test('functionTextOf：IRAsset → .fn.json（version 3/kind/scope/签名）', () => {
-  const ir = functionIR({ name: 'fmt', params: [{ name: 'x', type: 'int' }], returns: [], graph: { nodes: [], edges: [] } }, 'fmt')
+  const ir = functionIR({ version: 3, name: 'fmt', params: [{ name: 'x', type: 'int' }], returns: [], graph: { nodes: [], edges: [] } }, 'fmt')
   const text = functionTextOf(ir, 'library/functions/fmt.fn.json', 'project')
   const raw = JSON.parse(text) as Record<string, unknown>
   assert.equal(raw.version, 3)

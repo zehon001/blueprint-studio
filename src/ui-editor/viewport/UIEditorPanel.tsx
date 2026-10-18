@@ -19,12 +19,19 @@
  *   await useUIEditorStore.getState().openUIAsset(project.path, 'ui/main.ui.json');
  *   <UIEditorPanel />
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import type { UIAsset, UINode, Vec2 } from '../../ir/types';
 import { renderUI, updateUI, type UIRenderHandle } from '../../runtime/render/render';
 import { NODE_CATEGORIES, searchUISchemas, type UINodeSchema } from '../schema';
 import { collectPrefabPaths, getCachedPrefab, prefabLabelOf, primePrefabCache } from '../prefab';
 import { findUINode, newUINodeId, useSceneTreeDomain, useUIEditorStore } from '../store';
+import {
+  CONTROL_DRAG_MIME,
+  ELEMENT_DRAG_MIME,
+  PREFAB_DRAG_MIME,
+  insertElementInstance,
+  insertPrefabInstance,
+} from '../insertElement';
 import {
   buildParentMap,
   commitAddNode,
@@ -148,6 +155,7 @@ export function UIEditorPanel() {
   const clearSelection = useUIEditorStore((s) => s.clearSelection);
   /** v3 T11.1：已应用样式表（变化时重建渲染句柄以刷新合并结果） */
   const styleSheets = useUIEditorStore((s) => s.styleSheets);
+  const assetEpoch = useUIEditorStore((s) => s.assetEpoch);
   const stylesRef = useRef(styleSheets);
 
   /* —— 视口状态 —— */
@@ -237,7 +245,7 @@ export function UIEditorPanel() {
       }
     }
     setBoxes(measure());
-  }, [asset, measure, prefabTick, styleSheets]);
+  }, [asset, measure, prefabTick, styleSheets, assetEpoch]);
 
   /* —— 卸载清理 —— */
   useEffect(
@@ -323,6 +331,25 @@ export function UIEditorPanel() {
   /** 事件 → 画布坐标 */
   const canvasOf = (e: { clientX: number; clientY: number }): Vec2 => {
     return screenToCanvas(screenOf(e), viewRef.current);
+  };
+
+  /* v3 T11.7：元素库拖入画布（基础控件 / 项目元素 / 内置元素 / 预制体） */
+  const onDropImport = (e: DragEvent): void => {
+    const a = assetRef.current;
+    if (!a) return;
+    const type = e.dataTransfer.getData(CONTROL_DRAG_MIME);
+    const element = e.dataTransfer.getData(ELEMENT_DRAG_MIME);
+    const prefab = e.dataTransfer.getData(PREFAB_DRAG_MIME);
+    if (!type && !element && !prefab) return;
+    e.preventDefault();
+    const at = canvasOf(e);
+    const nameOf = (p: string): string => {
+      const base = p.slice(p.lastIndexOf('/') + 1);
+      return base.replace(/\.(elem|ui)\.json$/i, '');
+    };
+    if (type) commitAddNode(type, a.root.id, at);
+    else if (element) insertElementInstance(element, nameOf(element), at);
+    else insertPrefabInstance(prefab, nameOf(prefab), at);
   };
 
   const onPointerMove = (e: React.PointerEvent): void => {
@@ -856,6 +883,17 @@ export function UIEditorPanel() {
         onPointerMove={onPointerMove}
         onPointerLeave={onPointerLeave}
         onContextMenu={onContextMenu}
+        onDragOver={(e) => {
+          if (
+            e.dataTransfer.types.includes(CONTROL_DRAG_MIME) ||
+            e.dataTransfer.types.includes(ELEMENT_DRAG_MIME) ||
+            e.dataTransfer.types.includes(PREFAB_DRAG_MIME)
+          ) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+          }
+        }}
+        onDrop={onDropImport}
       >
         <div
           ref={canvasRef}

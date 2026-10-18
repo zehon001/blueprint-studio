@@ -240,6 +240,8 @@ export interface BlueprintStore {
   addFunction(name: string): boolean;
   /** 删除函数图（主图不可删；级联删除全部图中引用它的 flow.call 节点及其连线） */
   removeGraph(name: string): boolean;
+  /** 函数图重命名（graphs 键 + flow.call 引用 + entry/layout 级联；命令栈可撤销） */
+  renameFunction(from: string, to: string): boolean;
   /** 新建自定义事件（重名 / 空名拒绝） */
   addEvent(def: { name: string; params?: IRParamSpec[] }): boolean;
   /** 编辑自定义事件（改名级联更新 event.custom 的 params.eventName；params 整组替换） */
@@ -1082,7 +1084,12 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
         for (const g of Object.values(draft.graphs)) {
           const dead = new Set(
             g.nodes
-              .filter((n) => n.type === 'flow.call' && n.params['graph'] === name)
+              .filter((n) => {
+                if (n.type !== 'flow.call') return false;
+                if (n.params['graph'] === name) return true;
+                const scope = String(n.params['scope'] ?? 'auto');
+                return n.params['function'] === name && (scope === 'auto' || scope === 'blueprint');
+              })
               .map((n) => n.id),
           );
           if (dead.size === 0) continue;
@@ -1090,6 +1097,38 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
           g.edges = g.edges.filter((e) => !dead.has(e.from.node) && !dead.has(e.to.node));
         }
       });
+    },
+
+    renameFunction(from, to) {
+      const { asset } = get();
+      const name = to.trim();
+      if (!asset || from === name || name === '') return false;
+      if (!asset.graphs[from]) return false;
+      if (asset.graphs[name]) {
+        get().notify('函数名已存在', 'error');
+        return false;
+      }
+      const ok = commit('函数：重命名', (draft) => {
+        draft.graphs[name] = draft.graphs[from]!;
+        delete draft.graphs[from];
+        if (draft.entry === from) draft.entry = name;
+        if (draft.layout?.[from]) {
+          draft.layout[name] = draft.layout[from]!;
+          delete draft.layout[from];
+        }
+        for (const graph of Object.values(draft.graphs)) {
+          for (const node of graph.nodes) {
+            if (node.type !== 'flow.call') continue;
+            const scope = String(node.params?.scope ?? 'auto');
+            if (node.params?.graph === from) node.params.graph = name;
+            if (node.params?.function === from && (scope === 'auto' || scope === 'blueprint')) {
+              node.params.function = name;
+            }
+          }
+        }
+      });
+      if (ok && get().graphName === from) get().switchGraph(name);
+      return ok;
     },
 
     addEvent(def) {

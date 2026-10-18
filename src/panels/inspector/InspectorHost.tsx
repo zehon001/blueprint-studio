@@ -68,7 +68,7 @@ function AssetInfo({ panelId }: { panelId: string }) {
       <InfoRow label="路径" value={ref.path} mono />
       <InfoRow label="项目" value={project?.name ?? '—'} />
       <InfoRow label="修改状态" value={tab?.dirty ? '未保存' : '已保存'} />
-      <div className="insp-info-hint">该资产类型暂无属性检视项（M11/M12 随契约补齐）。</div>
+      <div className="insp-info-hint">该资产类型暂无属性检视项。</div>
     </InfoShell>
   )
 }
@@ -81,14 +81,14 @@ export function InspectorHost() {
   /** 当前面板的有效选择（UI 内嵌蓝图共用同一个 dock 面板 id，靠 descriptor 区分模式） */
   const context = activePanelId ? selectionOfPanel(selection, activePanelId) : null
 
-  if (context?.source === 'blueprint' || ref?.kind === 'blueprint') {
+  if (context?.source === 'blueprint' || ref?.kind === 'blueprint' || ref?.kind === 'function') {
     return (
       <div className="insp-panel insp-blueprint-host">
         <Details />
       </div>
     )
   }
-  if (ref?.kind === 'ui') return <InspectorPanel />
+  if (ref?.kind === 'ui' || ref?.kind === 'element') return <InspectorPanel />
   if (activePanelId === 'file-system') {
     const file = selectionOfPanel(selection, activePanelId)
     if (file?.source === 'file') {
@@ -102,11 +102,21 @@ export function InspectorHost() {
   }
   if (activePanelId === 'library') {
     const lib = selectionOfPanel(selection, activePanelId)
+    if (lib?.source === 'library') {
+      const kindLabel = lib.kind === 'element' ? '元素' : lib.kind === 'style' ? '样式表' : '函数'
+      return (
+        <InfoShell title={lib.name} badge={kindLabel}>
+          <InfoRow label="名称" value={lib.name} />
+          <InfoRow label="类型" value={kindLabel} />
+          <InfoRow label="来源" value={lib.scope === 'builtin' ? '内置库' : '项目库'} />
+          {lib.path ? <InfoRow label="路径" value={lib.path} mono /> : null}
+          <div className="insp-info-hint">在资源库面板中双击条目可打开编辑器。</div>
+        </InfoShell>
+      )
+    }
     return (
-      <InfoShell title="资源库" badge="M11">
-        <div className="insp-info-hint">
-          {lib?.source === 'library' ? `条目：${lib.name}（${lib.kind}）` : '资源库条目详情将在 M11 接入。'}
-        </div>
+      <InfoShell title="资源库">
+        <div className="insp-info-hint">在资源库面板中选择条目以查看信息。</div>
       </InfoShell>
     )
   }

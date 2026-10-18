@@ -82,8 +82,10 @@ export const useDockStore = create<DockState>()((set, get) => {
     defaultRoot: null,
     activePanelId: null,
 
-    initDockLayout: (defaultRoot, persisted = null, persistedActive = null) => {
-      const root = persisted ?? defaultRoot
+    initDockLayout: (defaultRoot, persisted, persistedActive = null) => {
+      // persisted === null = 用户上次关闭了全部面板（尊重空布局）；
+      // undefined = 无持久化布局（首次启动 / v2 布局）→ 默认布局。
+      const root = persisted === undefined ? defaultRoot : persisted
       const active =
         persistedActive !== null && findTabsByPanel(root, persistedActive) !== null
           ? persistedActive

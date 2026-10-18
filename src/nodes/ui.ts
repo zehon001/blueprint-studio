@@ -79,7 +79,7 @@ export const setText = defineNode({
   traits: ['text'],
   inputs: [
     execIn(),
-    dataIn('name', 'string', '节点名', ''),
+    dataIn('name', 'uiHandle<text>', '节点', ''),
     { id: 'value', type: 'any', label: '文本', defaultValue: '' },
   ],
   outputs: [execOut()],
@@ -99,7 +99,7 @@ export const setValue = defineNode({
   traits: ['value'],
   inputs: [
     execIn(),
-    dataIn('name', 'string', '节点名', ''),
+    dataIn('name', 'uiHandle<value>', '节点', ''),
     { id: 'value', type: 'any', label: '值', defaultValue: null },
     selectIn('attr', ATTR_VALUE, '属性', 'text'),
   ],
@@ -139,7 +139,7 @@ export const listSetItems = defineNode({
   traits: ['items'],
   inputs: [
     execIn(),
-    dataIn('name', 'string', '列表名', ''),
+    dataIn('name', 'uiHandle<items>', '列表', ''),
     { id: 'items', type: 'any[]', label: '列表项', defaultValue: null },
   ],
   outputs: [execOut()],
@@ -160,7 +160,7 @@ export const setTitle = defineNode({
   traits: ['text'],
   inputs: [
     execIn(),
-    dataIn('name', 'string', '节点名', ''),
+    dataIn('name', 'uiHandle<text>', '节点', ''),
     { id: 'value', type: 'any', label: '文本', defaultValue: '' },
     selectIn('attr', ATTR_TITLE, '属性', 'title'),
   ],

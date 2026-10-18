@@ -23,6 +23,7 @@ import { useWorkspaceStore } from '@/shell/workspace-store'
 import { usePanels } from '@/shell/dock/registry'
 import { useDockStore } from '@/shell/dock/store'
 import { findTabsByPanel } from '@/shell/dock/tree'
+import { requestClosePanel } from '@/shell/dock/assetPanelModel'
 import { openSettings } from '@/shell/settings'
 
 /** 顶栏栈顶命令摘要选择器（tooltip 显示 label 用） */
@@ -42,7 +43,6 @@ export default function Toolbar() {
   const panels = usePanels()
   const root = useDockStore((s) => s.root)
   const openPanel = useDockStore((s) => s.openPanel)
-  const closePanel = useDockStore((s) => s.closePanel)
   const resetLayout = useDockStore((s) => s.resetLayout)
 
   const [menuOpen, setMenuOpen] = useState(false)
@@ -141,7 +141,7 @@ export default function Toolbar() {
                     className="toolbar-menu-item"
                     onClick={() => {
                       setMenuOpen(false)
-                      if (open) closePanel(p.id)
+                      if (open) requestClosePanel(p.id)
                       else openPanel(p.id, p.defaultArea)
                     }}
                     title={open ? `关闭「${p.title}」` : `打开「${p.title}」`}

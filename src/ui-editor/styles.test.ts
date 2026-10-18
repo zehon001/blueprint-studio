@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { UINode } from '@/ir/types'
-import { mergeStyleSheets, mergeStyledNode, parseStyleSheet } from './styles'
+import { mergeStyleSheets, mergeStyledNode, parseStyleSheet, resolveNodeStyle } from './styles'
 
 function node(partial: Partial<UINode> = {}): UINode {
   return {
@@ -52,10 +52,38 @@ test('mergeStyledNode：跨表按 styles 数组顺序，后表覆盖前表', () 
   assert.equal(out.props.only, 1)
 })
 
-test('mergeStyledNode：无 classes / 无命中 → 原引用返回', () => {
+test('v3 三层优先级：schema 默认 < 样式类 < 内联（含来源）', () => {
+  const sheet = parseStyleSheet(
+    '{"version":1,"classes":{"title":{"props":{"text":"来自样式类"}},"compact":{"layout":{"grow":1}}}}',
+  )
+  // 无内联：样式类覆盖 schema 默认
+  const styled = mergeStyledNode(node({ classes: ['title', 'compact'] }), [sheet])
+  assert.equal(styled.props.text, '来自样式类')
+  assert.equal(styled.layout?.grow, 1)
+  // 内联覆盖样式类
+  const inline = mergeStyledNode(node({ classes: ['title'], props: { text: '内联' } }), [sheet])
+  assert.equal(inline.props.text, '内联')
+  // 无类：默认值
+  const plain = mergeStyledNode(node(), [sheet])
+  assert.equal(plain.props.text, '按钮')
+  // 来源信息（检视器有效值/高亮依据）
+  const r = resolveNodeStyle(node({ classes: ['title'] }), [sheet])
+  assert.equal(r.sources.text?.kind, 'class')
+  assert.equal(r.sources.text?.className, 'title')
+  assert.deepEqual(
+    r.classes.map((c) => c.className),
+    ['title'],
+  )
+})
+
+test('mergeStyledNode：无 classes 也补 schema 默认值（v3 默认值不物化）', () => {
   const n = node()
-  assert.equal(mergeStyledNode(n, []), n)
-  assert.equal(mergeStyledNode(n, [parseStyleSheet('{"version":1,"classes":{}}')]), n)
+  const out = mergeStyledNode(n, [])
+  assert.notEqual(out, n, '返回新节点（补默认值）')
+  assert.equal(out.props.text, '按钮', 'button.text 默认值由解析器补')
+  assert.deepEqual(n.props, {}, '原节点不被修改')
+  // 样式表无命中：仍返回默认值解析结果（不改变节点身份语义）
   const miss = node({ classes: ['ghost'] })
-  assert.equal(mergeStyledNode(miss, [parseStyleSheet('{"version":1,"classes":{"x":{}}}')]), miss)
+  const missOut = mergeStyledNode(miss, [parseStyleSheet('{"version":1,"classes":{"x":{}}}')])
+  assert.equal(missOut.props.text, '按钮')
 })

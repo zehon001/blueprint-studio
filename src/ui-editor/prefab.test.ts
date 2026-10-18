@@ -162,7 +162,7 @@ describe('expandPrefabNode 合并语义', () => {
     assert.deepEqual(n.props, { spacing: 8, text: '实例覆盖', keepMe: 'prefab 值' }, '浅覆盖：覆盖键写实例值，其余回落预制体')
     assert.deepEqual(n.theme, { tone: 'prefab' })
     assert.equal(n.children.length, 1, 'children 以预制体为准，实例自身 children 忽略')
-    assert.equal(n.children[0]!.id, 'p_lbl')
+    assert.equal(n.children[0]!.id, 'inst1::p_lbl', '实例内部 id 作用域化（多实例唯一）')
     assert.equal(n.children[0]!.props.text, '来自预制体')
     assert.equal(n.prefab, 'ui/prefabs/row.ui.json', '展开节点保留溯源字段（data-prefab 用）')
     // 纯函数：不改实例与预制体本体

@@ -80,6 +80,65 @@ test('图内引用：var/flow.call/ui.get 缺失 → 对应 error 码', () => {
   assert.equal(issues.some((i) => i.code === 'ref-variable-missing' && i.nodeId === 'ok'), false)
 })
 
+test('v3：auto 函数就近解析 / ui.get target / accessor name / 项目样式与预制体', () => {
+  const a: UIAsset = {
+    ...asset,
+    styles: ['ui/styles/missing.uss.json'],
+    root: node({
+      id: 'root',
+      children: [
+        node({ id: 'a', name: 'target' }),
+        node({ id: 'p', name: 'pf', prefab: 'ui/prefabs/missing.ui.json' }),
+      ],
+    }),
+    graphs: {
+      event: {
+        nodes: [
+          { id: 'auto-miss', type: 'flow.call', params: { function: 'nope' }, pinDefaults: {}, position: { x: 0, y: 0 } },
+          { id: 'auto-hit', type: 'flow.call', params: { function: 'okFn' }, pinDefaults: {}, position: { x: 0, y: 0 } },
+          { id: 'bp-hit', type: 'flow.call', params: { function: 'localFn' }, pinDefaults: {}, position: { x: 0, y: 0 } },
+          { id: 'get-target', type: 'ui.get', params: { target: 'ghost' }, pinDefaults: {}, position: { x: 0, y: 0 } },
+          { id: 'set-name', type: 'ui.setText', params: {}, pinDefaults: { name: 'ghost2' }, position: { x: 0, y: 0 } },
+        ],
+        edges: [],
+      },
+      localFn: { kind: 'function', nodes: [], edges: [] },
+    },
+  }
+  const issues = validateUIAssetRefs({
+    asset: a,
+    styleClasses: new Set(),
+    projectStyles: new Set<string>(),
+    projectPrefabs: new Set<string>(),
+    externalFunctions: new Set(['okFn']),
+  })
+  assert.ok(issues.some((i) => i.code === 'ref-function-missing' && i.nodeId === 'auto-miss'))
+  assert.equal(issues.some((i) => i.code === 'ref-function-missing' && i.nodeId === 'auto-hit'), false)
+  assert.equal(issues.some((i) => i.code === 'ref-function-missing' && i.nodeId === 'bp-hit'), false)
+  assert.ok(issues.some((i) => i.code === 'ref-node-missing' && i.nodeId === 'get-target'))
+  assert.ok(issues.some((i) => i.code === 'ref-node-missing' && i.nodeId === 'set-name'))
+  assert.ok(issues.some((i) => i.code === 'ref-style-missing' && /missing\.uss/.test(i.message)))
+  assert.ok(issues.some((i) => i.code === 'ref-element-boundary' && i.nodeId === 'p'))
+})
+
+test('内置库资产引用项目资源 → ref-element-boundary', () => {
+  const libAsset: UIAsset = {
+    ...asset,
+    styles: ['ui/styles/app.uss.json'],
+    root: node({
+      id: 'root',
+      children: [node({ id: 'e', element: 'ui/elements/local.elem.json' })],
+    }),
+  }
+  const issues = validateUIAssetRefs({
+    asset: libAsset,
+    styleClasses: new Set(),
+    scope: 'library',
+  })
+  assert.ok(issues.some((i) => i.code === 'ref-element-boundary' && /内置元素/.test(i.message)))
+  assert.ok(issues.some((i) => i.code === 'ref-element-boundary' && /内置资产不得引用项目样式表/.test(i.message)))
+})
+
 test('ref-element-boundary：项目元素路径不在项目元素清单', () => {
   const issues = validateUIAssetRefs({
     asset,

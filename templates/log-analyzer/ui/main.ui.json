@@ -71,6 +71,35 @@
         "children": []
       },
       {
+        "id": "ui_stat",
+        "name": "stat",
+        "type": "__element",
+        "element": "ui/elements/StatCard.elem.json",
+        "layout": {
+          "grow": 0,
+          "size": {
+            "w": 160,
+            "h": 64
+          }
+        },
+        "transform": {
+          "position": {
+            "x": 0,
+            "y": 32
+          },
+          "size": {
+            "w": 160,
+            "h": 64
+          },
+          "rotation": 0
+        },
+        "theme": {},
+        "props": {
+          "value": "42"
+        },
+        "children": []
+      },
+      {
         "id": "ui_list",
         "name": "list",
         "type": "list",

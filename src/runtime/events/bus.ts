@@ -75,6 +75,8 @@ export interface BusRuntimeRegistration {
   uiId?: string;
   /** 绑定的 UI 节点名集合（routeEvent / target='node' 的路由依据） */
   boundNodes?: ReadonlySet<string>;
+  /** 绑定的有效节点 id 集合（元素/预制体实例内部节点路由；优先于名字） */
+  boundNodeIds?: ReadonlySet<string>;
   /** 解释器运行句柄（总线经 rt.emit 投递，执行仍走该实例的串行事件队列） */
   rt: RuntimeHandle;
 }
@@ -132,6 +134,8 @@ interface Publication {
   target: RouteTarget;
   /** target='node' 的目标节点名（UI 事件 = 源节点名；插件 / 系统事件经 opts.node 指定） */
   nodeName?: string;
+  /** target='node' 的目标节点 id（元素/预制体实例内部节点；优先于 nodeName） */
+  nodeId?: string;
   /** target='ui' 的显式 UI 实例 id（系统 / 插件事件用；自定义事件取源实例的 uiId） */
   uiId?: string;
   /** 传播链跳数（0 = 全新链） */
@@ -209,7 +213,13 @@ export class EventBus {
    * 节点名不属于任何绑定 / 事件名空 → 静默丢弃。
    * 参数形状与 renderUI 的 UIRenderEvent 兼容（nodeName / event / payload，nodeType 忽略）。
    */
-  routeEvent(evt: { nodeName: string; event: string; nodeType?: string; payload?: unknown }): void {
+  routeEvent(evt: {
+    nodeName: string;
+    nodeId?: string;
+    event: string;
+    nodeType?: string;
+    payload?: unknown;
+  }): void {
     const name = typeof evt.event === 'string' ? evt.event : '';
     if (!name || typeof evt.nodeName !== 'string' || evt.nodeName === '') return;
     const args: Record<string, unknown> = evt.payload === undefined ? {} : { value: evt.payload };
@@ -221,8 +231,30 @@ export class EventBus {
       source: { kind: 'ui', id: evt.nodeName },
       target: 'node',
       nodeName: evt.nodeName,
+      nodeId: evt.nodeId,
       hops: 0,
     });
+  }
+
+  /**
+   * 直接投递给指定实例（BindingRunner 的「最近图属主」路由用）。
+   * 与 deliver 相同的回执令牌/调试探针，但不经 target 过滤。
+   */
+  emitTo(runtimeId: string, name: string, args?: Record<string, unknown>): boolean {
+    const reg = this.regs.get(runtimeId);
+    if (!reg || !name) return false;
+    const token = this.mintToken();
+    this.lastDeliveryAt.set(`${runtimeId}:${name}`, Date.now());
+    reg.rt.emit(name, { ...(args ?? {}), [BUS_ECHO_KEY]: token });
+    this.probe({
+      kind: 'deliver',
+      name,
+      source: { kind: 'ui', id: runtimeId },
+      target: 'node',
+      hops: 0,
+      to: [runtimeId],
+    });
+    return true;
   }
 
   /* ---------------- ② 系统事件 ---------------- */
@@ -358,6 +390,10 @@ export class EventBus {
     const regs = [...this.regs.values()];
     switch (pub.target) {
       case 'node': {
+        if (pub.nodeId) {
+          const byId = regs.filter((r) => r.boundNodeIds?.has(pub.nodeId!) ?? false);
+          if (byId.length > 0) return byId;
+        }
         if (!pub.nodeName) return [];
         return regs.filter((r) => r.boundNodes?.has(pub.nodeName!) ?? false);
       }

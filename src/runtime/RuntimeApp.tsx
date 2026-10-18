@@ -29,7 +29,8 @@ import { DebugProbe } from './debug-probe'
 import type { UIAsset } from '../ir/types'
 import { parseUIAsset } from '../ui-editor/store'
 import { runtimeEmbeddedBlueprint } from '../ui-editor/embedded'
-import { parseStyleSheet, type StyleSheet } from '../ui-editor/styles'
+import type { StyleSheet } from '../ui-editor/styles'
+import { loadStyleSheets } from '../ui-editor/styleLoad'
 import {
   clearElementCache,
   findElementCycle,
@@ -293,16 +294,8 @@ export default function RuntimeApp(props: RuntimeAppProps) {
       await prefetchElements(asset.root)
       const elementCycle = findElementCycle(asset.root, (path) => getCachedElement(path))
       if (elementCycle) throw new Error(elementCycle)
-      // v3 T11.1：装载样式表（项目相对；@library 待资源库服务接入）
-      const styleSheets: StyleSheet[] = []
-      for (const ref of asset.styles ?? []) {
-        if (ref.startsWith('@library/')) continue
-        try {
-          styleSheets.push(parseStyleSheet(await fetchFileText(fetchImpl, `${p.project}/${ref}`)))
-        } catch {
-          /* 样式缺失不阻断运行（T13.1 校验） */
-        }
-      }
+      // v3 T11.1：装载样式表（项目相对 + @library/styles/*）
+      const styleSheets = await loadStyleSheets(p.project, asset.styles, fetchImpl)
       setApp({ params: p, phase: 'ready', message: '', uiPath, asset, styleSheets })
     } catch (err) {
       setApp({

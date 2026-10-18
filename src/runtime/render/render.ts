@@ -55,12 +55,14 @@ import { bindNode, clamp, div, num, span, str, type NodeCtx } from './common';
 import { rendererFor, type NodeRenderer } from './nodes';
 import { ensureRenderStyle } from './style';
 import { mergeStyledNode } from '../../ui-editor/styles';
-import { expandElementNode, getCachedElement, loadElement } from '../../ui-editor/element';
+import { expandElementNode, getCachedElement, isElementInternalNode, loadElement } from '../../ui-editor/element';
 
 /** 渲染事件（onEvent 的载荷；事件名与 src/ui-editor/schema 的 BuiltInEvent 一致） */
 export interface UIRenderEvent {
   /** 事件源节点名（UINode.name，ui 访问器查找键） */
   nodeName: string;
+  /** 事件源节点 id（展开后的有效 id；元素/预制体实例路由用） */
+  nodeId?: string;
   /** 事件源节点类型（UINode.type） */
   nodeType: string;
   /** 内建事件名（如 'pressed'） */
@@ -218,8 +220,13 @@ function applyTransform(el: HTMLElement, node: UINode, layout: ChildLayout): voi
   const y = t?.position?.y ?? 0;
   let w = t?.size?.w ?? 0;
   let h = t?.size?.h ?? 0;
+  // v3：外观旋转归 props.rotation（兼容 v2 transform.rotation）
   const rot =
-    typeof t?.rotation === 'number' && Number.isFinite(t.rotation) ? t.rotation : 0;
+    typeof node.props?.rotation === 'number' && Number.isFinite(node.props.rotation)
+      ? node.props.rotation
+      : typeof t?.rotation === 'number' && Number.isFinite(t.rotation)
+        ? t.rotation
+        : 0;
   const an = t?.anchors;
   const st = el.style;
   // —— 重置（防止布局语境切换后残留内联样式；right/bottom 为 T1.7 锚点新增）——
@@ -446,8 +453,11 @@ function effectiveNode(node: UINode, state: RenderState): UINode {
     }
     out = expanded.node;
   }
-  // v3 T11.1：样式类合并（class → 节点内联覆盖；无 styles 时零成本）
-  return state.opts.styles && state.opts.styles.length > 0 ? mergeStyledNode(out, state.opts.styles) : out;
+  // 元素内部节点：已按元素资产自己的样式表解析（宿主样式不穿透，PLAN §3.3）
+  if (isElementInternalNode(out)) return out;
+  // v3 T11.1：默认值 → 样式类 → 节点内联（无 styles 也要补 schema 默认值，
+  // 因为新建节点不再把默认值物化进 props）
+  return mergeStyledNode(out, state.opts.styles ?? []);
 }
 
 /* ============================================================
@@ -612,9 +622,9 @@ export function renderUI(asset: UIAsset, opts: RenderOptions): UIRenderHandle {
         // 编辑态冻结：不上报任何事件（即使测试/脚本直接 dispatchEvent 也不会触发）
         if (state.opts.mode !== 'runtime') return;
         if (payload === undefined) {
-          state.opts.onEvent?.({ nodeName: node.name, nodeType: node.type, event });
+          state.opts.onEvent?.({ nodeName: node.name, nodeId: node.id, nodeType: node.type, event });
         } else {
-          state.opts.onEvent?.({ nodeName: node.name, nodeType: node.type, event, payload });
+          state.opts.onEvent?.({ nodeName: node.name, nodeId: node.id, nodeType: node.type, event, payload });
         }
       },
     },

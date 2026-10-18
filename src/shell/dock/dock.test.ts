@@ -378,7 +378,7 @@ describe('dock store：布局动作与持久化', () => {
   it('openPanel(center) → 并入工作区所在组；openPanel(edge) → 外侧包裹', () => {
     useDockStore.getInitialState().initDockLayout(
       { kind: 'tabs', id: 'g-ws', panels: ['workspace'], active: 0 },
-      null,
+      undefined,
     )
     const s = useDockStore.getState()
     s.openPanel('inspector', 'right')
@@ -399,7 +399,7 @@ describe('dock store：布局动作与持久化', () => {
 
   it('closePanel 剪枝；resetLayout 恢复默认布局', () => {
     const def = t('workspace')
-    useDockStore.getInitialState().initDockLayout(def, null)
+    useDockStore.getInitialState().initDockLayout(def)
     const s = useDockStore.getState()
     s.openPanel('console', 'right')
     assert.ok(findTabsByPanel(useDockStore.getState().root, 'console'))
@@ -417,7 +417,7 @@ describe('dock store：布局动作与持久化', () => {
       sizes: [1, 1],
       children: [t('a'), t('b')],
     }
-    useDockStore.getInitialState().initDockLayout(def, null)
+    useDockStore.getInitialState().initDockLayout(def)
     useDockStore.getState().setSizes([], [2, 1])
     assert.deepEqual(asSplit(useDockStore.getState().root).sizes, [2, 1])
     useDockStore.getState().setSizes([5], [9, 9])
@@ -426,7 +426,7 @@ describe('dock store：布局动作与持久化', () => {
 
   it('setTabActive / activatePanelIn', () => {
     const def: DockNode = makeTabs(['a', 'b'], 0)
-    useDockStore.getInitialState().initDockLayout(def, null)
+    useDockStore.getInitialState().initDockLayout(def)
     const gid = asTabs(useDockStore.getState().root).id
     useDockStore.getState().setTabActive(gid, 1)
     assert.equal(asTabs(useDockStore.getState().root).active, 1)

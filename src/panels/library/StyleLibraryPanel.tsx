@@ -4,9 +4,9 @@
  * 展示本资产已应用样式表的类；选中节点后点类 → 挂载/移除 classes（命令栈可撤销）；
  * 「查找引用」统计全树挂该类的节点数。样式表文件的编辑/新建随资源库面板（T11.5）接入。
  */
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { runUICommand, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
-import type { UINode } from '@/ir/types'
+import type { UIAsset, UINode } from '@/ir/types'
 
 function collectClassRefs(root: UINode, className: string, out: string[] = []): string[] {
   if ((root.classes ?? []).includes(className)) out.push(root.id)
@@ -27,6 +27,27 @@ export function StyleLibraryPanel() {
   const { asset } = useSceneTreeDomain()
   const styleSheets = useUIEditorStore((s) => s.styleSheets)
   const selection = useUIEditorStore((s) => s.selection)
+  const [newRef, setNewRef] = useState('')
+
+  const addSheet = (): void => {
+    const ref = newRef.trim()
+    if (!ref || !asset) return
+    runUICommand(`样式库：应用样式表 ${ref}`, (draft) => {
+      const a = draft as UIAsset
+      a.styles = [...(a.styles ?? []), ref]
+    })
+    setNewRef('')
+    void useUIEditorStore.getState().refreshStyleSheets()
+  }
+
+  const removeSheet = (ref: string): void => {
+    if (!asset) return
+    runUICommand(`样式库：移除样式表 ${ref}`, (draft) => {
+      const a = draft as UIAsset
+      a.styles = (a.styles ?? []).filter((s) => s !== ref)
+    })
+    void useUIEditorStore.getState().refreshStyleSheets()
+  }
 
   const classes = useMemo(() => {
     const out: Array<{ name: string; sheet: number }> = []
@@ -60,19 +81,42 @@ export function StyleLibraryPanel() {
     <div className="style-library">
       <div className="element-library-group">
         <div className="element-library-title">应用样式表（{styleSheets.length}）</div>
-        {styleSheets.length === 0 ? (
-          <div className="element-library-empty">
-            本资产未声明 styles。可在 .ui.json 的 styles 数组中添加项目样式表（ui/styles/*.uss.json）。
-          </div>
+        {(asset?.styles ?? []).length === 0 ? (
+          <div className="element-library-empty">本资产未声明 styles。</div>
         ) : (
           <div className="style-library-sheets">
-            {styleSheets.map((s, i) => (
-              <div key={i} className="style-library-sheet">
-                表 {i + 1} · {Object.keys(s.classes).length} 类
+            {(asset?.styles ?? []).map((ref, i) => (
+              <div key={`${ref}-${i}`} className="style-library-sheet">
+                <span title={ref}>{ref}</span>
+                <span className="style-library-refs">
+                  {styleSheets[i] ? Object.keys(styleSheets[i]!.classes).length : 0} 类
+                </span>
+                <button
+                  type="button"
+                  className="insp-btn"
+                  title="移除该样式表引用"
+                  onClick={() => removeSheet(ref)}
+                >
+                  ×
+                </button>
               </div>
             ))}
           </div>
         )}
+        <div className="insp-flex-row" style={{ padding: '4px 0' }}>
+          <input
+            className="insp-flex-text"
+            placeholder="ui/styles/app.uss.json 或 @library/styles/base"
+            value={newRef}
+            onChange={(e) => setNewRef(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') addSheet()
+            }}
+          />
+          <button type="button" className="insp-btn" onClick={addSheet} title="应用样式表">
+            ＋
+          </button>
+        </div>
       </div>
       <div className="element-library-group">
         <div className="element-library-title">类（{classes.length}）</div>

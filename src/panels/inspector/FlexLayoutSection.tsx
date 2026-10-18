@@ -5,8 +5,9 @@
  * v2 节点首次编辑自动补 layout/container（之后渲染器走 flex 引擎）。
  */
 import { useState, type ReactNode } from 'react'
-import { findUINode, runUICommand, useSceneTreeDomain } from '@/ui-editor/store'
+import { findUINode, runUICommand, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
 import { getUISchema } from '@/ui-editor/schema'
+import { resolveNodeStyle } from '@/ui-editor/styles'
 import type { UIContainer, UILength, UINode } from '@/ir/types'
 
 /** 文本 → UILength（空/auto → auto；纯数字 → px；其余按 % 或原样） */
@@ -55,11 +56,28 @@ function TextInput(props: { value: string; onChange: (v: string) => void; title:
   )
 }
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+function Row({
+  label,
+  source,
+  children,
+}: {
+  label: string
+  source?: { kind: 'default' | 'class' | 'inline'; className?: string }
+  children: ReactNode
+}) {
+  const chip =
+    source?.kind === 'class' ? `.${source.className ?? ''}` : source?.kind === 'inline' ? '内联' : null
   return (
-    <div className="insp-flex-row">
-      <span className="insp-flex-label">{label}</span>
-      <span className="insp-flex-control">{children}</span>
+    <div className={`insp-flex-row${source?.kind === 'class' ? ' insp-row--styled' : ''}`}>
+      <span className="insp-flex-label" title={chip ? `来源：${chip}` : undefined}>
+        {label}
+      </span>
+      <span className="insp-flex-control">
+        {children}
+        {chip ? (
+          <span className={`insp-source${source?.kind === 'class' ? ' insp-source--class' : ''}`}>{chip}</span>
+        ) : null}
+      </span>
     </div>
   )
 }
@@ -67,8 +85,11 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 /** 编辑当前选中节点（单节点） */
 export function FlexLayoutSection({ node }: { node: UINode }) {
   const asset = useSceneTreeDomain().asset
-  const isContainer = !!node.container || getUISchema(node.type)?.category === '容器'
+  const styleSheets = useUIEditorStore((s) => s.styleSheets)
+  const resolved = resolveNodeStyle(node, styleSheets)
+  const isContainer = !!resolved.container || getUISchema(node.type)?.category === '容器'
   const [collapsed, setCollapsed] = useState(false)
+  const src = (key: string) => resolved.sources[key]
 
   /** 单命令写入 layout/container（每次控件改动一条，可撤销） */
   const update = (label: string, patch: (n: UINode) => void): void => {
@@ -79,8 +100,8 @@ export function FlexLayoutSection({ node }: { node: UINode }) {
     })
   }
 
-  const l = node.layout
-  const c = node.container
+  const l = resolved.layout
+  const c = resolved.container
   const pos = l?.position ?? 'relative'
 
   return (
@@ -92,11 +113,11 @@ export function FlexLayoutSection({ node }: { node: UINode }) {
         title={collapsed ? '展开' : '折叠'}
       >
         <span className="insp-caret">{collapsed ? '▸' : '▾'}</span>
-        <span className="insp-group-title">布局（flex）</span>
+        <span className="insp-group-title">布局</span>
       </button>
       {collapsed ? null : (
       <div className="insp-group-body">
-        <Row label="位置">
+        <Row label="位置" source={src('layout.position')}>
           <select
             className="insp-flex-select"
             value={pos}
@@ -113,7 +134,7 @@ export function FlexLayoutSection({ node }: { node: UINode }) {
         </Row>
         {pos === 'relative' ? (
           <>
-            <Row label="grow / shrink">
+            <Row label="grow / shrink" source={src('layout.grow')}>
               <NumberInput
                 title="flex grow"
                 min={0}
@@ -135,7 +156,7 @@ export function FlexLayoutSection({ node }: { node: UINode }) {
                 }
               />
             </Row>
-            <Row label="basis">
+            <Row label="basis" source={src('layout.basis')}>
               <TextInput
                 title="flex basis（px / % / auto）"
                 value={lengthText(l?.basis)}
@@ -148,7 +169,7 @@ export function FlexLayoutSection({ node }: { node: UINode }) {
             </Row>
           </>
         ) : (
-          <Row label="left / top">
+          <Row label="left / top" source={src('layout.left')}>
             <NumberInput
               title="left"
               value={typeof l?.left === 'number' ? l.left : 0}
@@ -169,7 +190,7 @@ export function FlexLayoutSection({ node }: { node: UINode }) {
             />
           </Row>
         )}
-        <Row label="尺寸 w / h">
+        <Row label="尺寸 w / h" source={src('layout.size')}>
           <TextInput
             title="width（px / % / auto）"
             value={lengthText(l?.size?.w)}
@@ -189,7 +210,7 @@ export function FlexLayoutSection({ node }: { node: UINode }) {
             }
           />
         </Row>
-        <Row label="margin t/r/b/l">
+        <Row label="margin t/r/b/l" source={src('layout.margin')}>
           {(['t', 'r', 'b', 'l'] as const).map((side) => (
             <NumberInput
               key={side}

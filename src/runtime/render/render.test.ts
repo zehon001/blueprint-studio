@@ -381,7 +381,7 @@ test('运行态内建事件经 onEvent 上报（事件名与 schema BuiltInEvent
   byUid<HTMLButtonElement>(h, 'b1').dispatchEvent(
     new win.MouseEvent('click', { bubbles: true }) as unknown as Event,
   );
-  assert.deepEqual(c.last(), { nodeName: 'btnGo', nodeType: 'button', event: 'pressed' });
+  assert.deepEqual(c.last(), { nodeName: 'btnGo', nodeId: 'b1', nodeType: 'button', event: 'pressed' });
 
   const input = byUid<HTMLInputElement>(h, 'l1');
   input.value = 'hello';

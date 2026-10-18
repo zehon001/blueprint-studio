@@ -116,6 +116,8 @@ export interface UINodeSchema {
   defaultChildPolicy?: 'none' | 'container';
   /** 右键搜索的模糊匹配关键词（searchUISchemas 用，可含中英文别名） */
   keywords?: string[];
+  /** v3 T12.4：控件对外 trait（text / value / items …；连线与选择器过滤用） */
+  traits?: string[];
 }
 
 /* ============================================================
@@ -239,7 +241,7 @@ export function commonProps(kind: LayoutKind, defaultSize?: Size2): PropDef[] {
       id: 'rotation',
       label: '旋转',
       type: 'number',
-      group: '布局',
+      group: '外观',
       default: 0,
       min: -360,
       max: 360,

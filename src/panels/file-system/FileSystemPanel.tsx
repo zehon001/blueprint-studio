@@ -31,7 +31,14 @@ import { useDockStore } from '@/shell/dock/store'
 import { useSelectionStore } from '@/shell/selection/store'
 import { Menu, type MenuItem } from './Menu'
 import { defaultFsApi, errorMessage, type FsApi, type HistoryEntry } from './api'
-import { applyFsEvents, findNode, sortTree, type FsChangeEvent, type FsNode } from './tree-model'
+import {
+  applyFsEvents,
+  findNode,
+  hideProjectLibrary,
+  sortTree,
+  type FsChangeEvent,
+  type FsNode,
+} from './tree-model'
 import {
   assetKindOf,
   baseName,
@@ -48,6 +55,11 @@ import {
   validateFileName,
 } from './paths'
 import { mkdirViaPlaceholder, onFsNotice, onFsRefresh, runFsCommand, type FsNoticeKind } from './commands'
+import {
+  cascadeElementRename,
+  cascadeFunctionRename,
+  cascadeStyleRename,
+} from '@/ui-editor/cascadeProject'
 import './menu.css'
 import './styles.css'
 
@@ -120,13 +132,15 @@ export interface NewAssetType {
   /** 自动补全的扩展名 */
   ext: string
   /** 新建内容模板类别 */
-  template: 'ui' | 'bp' | 'text'
+  template: 'ui' | 'bp' | 'elem' | 'uss' | 'fn' | 'text'
 }
 
-/** M8 开放的类型（元素/样式/函数随 M11 契约开放） */
+/** v3 全部资产类型（元素/样式/函数已随 M11/M12 开放） */
 export const NEW_ASSET_TYPES: readonly NewAssetType[] = [
   { id: 'scene', label: 'UI 场景（.ui.json）', dir: 'ui', ext: '.ui.json', template: 'ui' },
   { id: 'prefab', label: '预制体（.ui.json）', dir: 'ui/prefabs', ext: '.ui.json', template: 'ui' },
+  { id: 'element', label: '元素（.elem.json）', dir: 'ui/elements', ext: '.elem.json', template: 'elem' },
+  { id: 'style', label: '样式表（.uss.json）', dir: 'ui/styles', ext: '.uss.json', template: 'uss' },
   { id: 'blueprint', label: '纯逻辑蓝图（.bp.json）', dir: 'logic', ext: '.bp.json', template: 'bp' },
   { id: 'script-ts', label: '脚本（.ts）', dir: 'logic', ext: '.ts', template: 'text' },
   { id: 'script-py', label: '脚本（.py）', dir: 'logic', ext: '.py', template: 'text' },
@@ -298,8 +312,7 @@ const WATCH_DEBOUNCE_MS = 300
 function reloadOpenTabs(relAssetPath: string): void {
   const { openTabs, activeTabId } = useWorkspaceStore.getState()
   const active = openTabs.find((t) => t.id === activeTabId)
-  if (!active || active.kind === 'plugin-manager' || active.assetPath !== relAssetPath) return
-  if (active.kind !== 'ui' && active.kind !== 'blueprint' && active.kind !== 'script') return
+  if (!active || active.assetPath !== relAssetPath) return
   // v3 T8.1：资产面板才是内容宿主——关闭再打开该面板以强制重新读盘
   const panelId = assetPanelId(active.kind, active.assetPath)
   useDockStore.getState().closePanel(panelId)
@@ -362,7 +375,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     }
     try {
       const { tree: dto } = await api.readTree(projectPath)
-      const root = sortTree(dto)
+      const root = hideProjectLibrary(sortTree(dto))
       setTree(root)
       setLoadError(null)
       if (loadedProjectRef.current !== projectPath) {
@@ -413,7 +426,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
               return
             }
             const next = applyFsEvents(cur, batch)
-            if (next) setTree(next)
+            if (next) setTree(hideProjectLibrary(next))
             else void refresh() // 无法安全增量合并（整目录删除等）→ 整体重载
           }, WATCH_DEBOUNCE_MS)
         }
@@ -490,7 +503,10 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   function openFileNode(node: FsNode): void {
     const kind = assetKindOf(node.name)
     if (!kind) {
-      showToast('info', `暂不支持打开「${node.name}」（支持 .ui.json / .bp.json / .ts / .py）`)
+      showToast(
+        'info',
+        `暂不支持打开「${node.name}」（支持 .ui.json / .elem.json / .uss.json / .fn.json / .bp.json / .ts / .py）`,
+      )
       return
     }
     openAssetPanel(kind, relInProject(node.path))
@@ -538,6 +554,23 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         setRenamingPath(null)
         if (!r.moved) return // 同名 move = no-op（Windows 大小写歧义），不入栈
         runFsCommand(`重命名「${node.name}」为「${name}」`, { kind: 'rename', from: path, to })
+        // v3 T13.1：资产改名级联（元素/样式/项目函数）
+        if (project && node.type === 'file') {
+          const fromRel = relInProject(path)
+          const toRel = relInProject(to)
+          const fromLower = name.toLowerCase()
+          if (fromLower.endsWith('.elem.json')) {
+            await cascadeElementRename(project.path, fromRel, toRel)
+          } else if (fromLower.endsWith('.uss.json')) {
+            await cascadeStyleRename(project.path, fromRel, toRel)
+          } else if (fromLower.endsWith('.fn.json')) {
+            await cascadeFunctionRename(
+              project.path,
+              baseName(path).replace(/\.fn\.json$/i, ''),
+              baseName(to).replace(/\.fn\.json$/i, ''),
+            )
+          }
+        }
         setSelected((cur) => (cur === path ? to : cur))
         setExpanded((prev) => {
           // 目录重命名时同步迁移展开记录的子路径

@@ -102,9 +102,20 @@
   padding: var(--space-1) 0;
 }
 .style-library-sheet {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--text-dim);
   font-family: var(--font-mono);
+  font-size: var(--font-xs);
   padding: 2px 0;
+}
+.style-library-sheet > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .style-library-list {
   display: flex;

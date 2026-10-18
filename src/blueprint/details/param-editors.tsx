@@ -209,7 +209,14 @@ export function VariableValueEditor(props: {
   onCommit: (value: string) => void;
 }) {
   const variables = useBlueprintStore((s) => s.asset?.variables ?? []);
+  const isFunctionGraph = useBlueprintStore((s) => {
+    const a = s.asset;
+    const g = a?.graphs[s.graphName];
+    return !!g && (g.kind === 'function' || s.graphName !== a?.entry);
+  });
   const current = props.mixed || props.value === undefined ? '' : String(props.value);
+  const emptyLabel =
+    variables.length === 0 && isFunctionGraph ? '（函数图无资产变量）' : '（选择变量）';
   return (
     <select
       className={`${props.className ?? 'bp-det-select'}${props.mixed ? ' bp-det-input--mixed' : ''}`}
@@ -217,7 +224,7 @@ export function VariableValueEditor(props: {
       aria-label="变量选择器"
       onChange={(e) => props.onCommit(e.target.value)}
     >
-      <option value="">{props.mixed ? '—' : '（选择变量）'}</option>
+      <option value="">{props.mixed ? '—' : emptyLabel}</option>
       {variables.map((v) => (
         <option key={v.name} value={v.name}>
           {v.name}
@@ -240,10 +247,24 @@ export function NodeSelectorEditor(props: {
   const names: string[] = [];
   const walk = (n: NonNullable<typeof asset>['root']): void => {
     names.push(n.name);
+    // 元素/预制体实例整体可选，内部不透明（PLAN §10.2/§10.3）
+    if (n.element || n.prefab) return;
     for (const c of n.children ?? []) walk(c);
   };
   if (asset) walk(asset.root);
   const current = props.mixed || props.value === undefined ? '' : String(props.value);
+  // 独立 .bp.json / 无图属主树：退回文本输入，保证仍可手填
+  if (!asset || names.length === 0) {
+    return (
+      <input
+        className={props.className ?? 'bp-det-input'}
+        type="text"
+        value={current}
+        aria-label="子节点名"
+        onChange={(e) => props.onCommit(e.target.value)}
+      />
+    );
+  }
   return (
     <select
       className={`${props.className ?? 'bp-det-select'}${props.mixed ? ' bp-det-input--mixed' : ''}`}

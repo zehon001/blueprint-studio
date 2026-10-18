@@ -29,6 +29,8 @@ import { useBlueprintStore } from '@/blueprint/store/blueprint-store'
 import { deserializeIR } from '@/ir/validate'
 import { resolveBoundPath } from '@/runtime/binding'
 import { findUINode, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
+import { embeddedBlueprintOf } from '@/ui-editor/embedded'
+import { requestUIBlueprint } from '@/shell/workspace/uiBlueprintBridge'
 import { getUISchema } from '@/ui-editor/schema'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { Menu, type MenuItem } from '@/panels/file-system/Menu'
@@ -152,7 +154,23 @@ export function EventsPanel() {
 
   /* —— 拉取逻辑资产（节点绑定路径变化 / 手动重载时） —— */
   useEffect(() => {
-    if (!logicAssetPath || !projectPath) {
+    // v3：UI 资产的内嵌蓝图是唯一逻辑挂载方式（logicAsset 已退役）
+    if (!logicAssetPath) {
+      if (asset?.graphs || (asset?.events ?? []).length > 0) {
+        const ir = embeddedBlueprintOf(asset!)
+        setLogic({
+          path: '（本资产内嵌蓝图）',
+          lang: 'bp',
+          events: customEventRows(ir),
+          ok: true,
+          ir,
+        })
+      } else {
+        setLogic(null)
+      }
+      return
+    }
+    if (!projectPath) {
       setLogic(null)
       return
     }
@@ -208,7 +226,7 @@ export function EventsPanel() {
     return () => {
       cancelled = true
     }
-  }, [logicAssetPath, projectPath, reloadSeq])
+  }, [asset, logicAssetPath, projectPath, reloadSeq])
 
   useEffect(
     () => () => {
@@ -246,6 +264,15 @@ export function EventsPanel() {
   /* —— 双击 / 菜单「跳转或创建」的执行端 —— */
   async function activate(row: EventRowModel): Promise<void> {
     if (busy) return
+    // v3：内嵌蓝图事件 → 切蓝图模式并定位事件入口节点
+    if (logic?.path === '（本资产内嵌蓝图）') {
+      requestUIBlueprint({
+        assetPath: useUIEditorStore.getState().assetPath ?? undefined,
+        graph: 'event',
+        eventName: row.name,
+      })
+      return
+    }
     const intent = resolveDoubleClick(row, logicForIntent)
     switch (intent.kind) {
       case 'no-logic':

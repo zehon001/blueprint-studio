@@ -518,6 +518,100 @@ body.dock-dragging * {
   flex-direction: column;
   background: var(--bg-panel);
 }
+
+/* ===== v3 T11.5：样式表编辑器 ===== */
+.style-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-size: var(--font-sm);
+}
+.style-editor-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 30px;
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel-header);
+}
+.style-editor-title {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+}
+.style-editor-hint {
+  flex: 1;
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+}
+.style-editor-msg,
+.style-editor-err {
+  flex: none;
+  padding: 3px var(--space-2);
+  font-size: var(--font-xs);
+}
+.style-editor-msg {
+  color: var(--success);
+}
+.style-editor-err {
+  color: var(--error);
+}
+.style-editor-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.style-editor-list {
+  flex: none;
+  width: 220px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+.style-editor-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  border-bottom: 1px solid var(--border);
+}
+.style-editor-class {
+  display: block;
+  width: 100%;
+  padding: 4px var(--space-2);
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+.style-editor-class:hover {
+  background: var(--bg-input);
+}
+.style-editor-class.active {
+  background: var(--selection);
+}
+.style-editor-form {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+.style-editor-block {
+  align-items: flex-start;
+}
+.style-editor-block .insp-textarea {
+  flex: 1;
+  min-width: 0;
+}
 .ui-editor-workspace {
   flex: 1;
   min-width: 0;

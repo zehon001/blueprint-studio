@@ -518,7 +518,7 @@ test('命令：添加节点（schema 默认属性 / 容器目标入其子 / 叶�
   assert.equal(added.type, 'button');
   assert.equal(added.name, 'button3', '与 button/button2 去重');
   assert.deepEqual(added.transform.position, { x: 50, y: 60 });
-  assert.equal(added.props.text, '按钮', '业务属性取 schema 默认值');
+  assert.deepEqual(added.props, {}, '业务属性默认值由渲染/检视解析器补齐（样式类可覆盖）');
 
   const id2 = commands.commitAddNode('button', 'a', { x: 5, y: 6 });
   assert.ok(id2);

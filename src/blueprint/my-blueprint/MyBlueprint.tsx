@@ -180,17 +180,28 @@ function AddVariableRow(props: { existingNames: readonly string[]; onClose: () =
 }
 
 /** ＋新建函数：行内命名（成功后自动打开该函数图） */
-function AddFunctionRow(props: { existingNames: readonly string[]; onClose: () => void }) {
+function AddFunctionRow(props: {
+  existingNames: readonly string[];
+  onClose: () => void;
+  onCreateScoped?: (scope: 'project' | 'global', name: string) => boolean | Promise<boolean>;
+}) {
   const [draft, setDraft] = useState(() => nextFunctionName(props.existingNames));
-  const duplicate = nameExists(props.existingNames, draft);
+  const [scope, setScope] = useState<'blueprint' | 'project' | 'global'>('blueprint');
+  const duplicate = scope === 'blueprint' && nameExists(props.existingNames, draft);
   const confirm = (): void => {
     const st = useBlueprintStore.getState();
     const name = draft.trim();
-    if (name !== '' && st.addFunction(name)) {
-      st.switchGraph(name);
-      props.onClose();
+    if (name === '') return;
+    if (scope === 'blueprint') {
+      if (st.addFunction(name)) {
+        st.switchGraph(name);
+        props.onClose();
+      }
+      return;
     }
-    // 失败（重名）：保持输入态，store 已弹提示
+    void Promise.resolve(props.onCreateScoped?.(scope, name)).then((ok) => {
+      if (ok) props.onClose();
+    });
   };
   return (
     <div className="bp-mb-addrow">
@@ -207,6 +218,17 @@ function AddFunctionRow(props: { existingNames: readonly string[]; onClose: () =
           e.stopPropagation();
         }}
       />
+      <select
+        className="bp-mb-inline-select"
+        value={scope}
+        aria-label="函数作用域"
+        title="函数作用域：蓝图（资产内）/ 全项目 / 全局"
+        onChange={(e) => setScope(e.target.value as typeof scope)}
+      >
+        <option value="blueprint">蓝图</option>
+        <option value="project">项目</option>
+        <option value="global">全局</option>
+      </select>
       <button type="button" className="bp-mb-btn bp-mb-btn--ok" title="确认新建" disabled={duplicate || draft.trim() === ''} onClick={confirm}>
         ✓
       </button>
@@ -299,7 +321,16 @@ function AddEventForm(props: {
 /** 分节键（折叠 / 新建态用） */
 type SectionKey = 'vars' | 'fns' | 'events' | 'comments';
 
-export function MyBlueprint({ className }: { className?: string }) {
+export function MyBlueprint({
+  className,
+  onCreateScopedFunction,
+  hideFunctions = false,
+}: {
+  className?: string;
+  onCreateScopedFunction?: (scope: 'project' | 'global', name: string) => boolean | Promise<boolean>;
+  /** 函数资产编辑器：单图契约，不允许再建子图 */
+  hideFunctions?: boolean;
+}) {
   const asset = useBlueprintStore((s) => s.asset);
   const graphName = useBlueprintStore((s) => s.graphName);
   const [collapsed, setCollapsed] = useState<Record<SectionKey, boolean>>({
@@ -370,6 +401,13 @@ export function MyBlueprint({ className }: { className?: string }) {
   const functionMenu = (name: string): MenuItem[] => [
     { label: '打开函数图', onSelect: () => jumpToGraph(name) },
     { label: '插入调用到当前图', onSelect: () => void useBlueprintStore.getState().insertFunctionCall(name) },
+    {
+      label: '重命名函数…',
+      onSelect: () => {
+        const to = window.prompt(`重命名函数「${name}」为：`, name)?.trim();
+        if (to && to !== name) useBlueprintStore.getState().renameFunction(name, to);
+      },
+    },
     { separator: true },
     {
       label: '删除函数',
@@ -489,7 +527,7 @@ export function MyBlueprint({ className }: { className?: string }) {
           addTitle="新建函数"
           collapsed={collapsed.fns}
           onToggle={() => toggleSection('fns')}
-          onAdd={() => startAdd('fns')}
+          onAdd={hideFunctions ? undefined : () => startAdd('fns')}
         >
           {functionNames.map((name) => {
             const paramCount = asset.graphs[name]?.params?.length ?? 0;
@@ -507,11 +545,17 @@ export function MyBlueprint({ className }: { className?: string }) {
               </div>
             );
           })}
-          {adding === 'fns' ? (
-            <AddFunctionRow existingNames={Object.keys(asset.graphs)} onClose={closeAdd} />
+          {adding === 'fns' && !hideFunctions ? (
+            <AddFunctionRow
+              existingNames={Object.keys(asset.graphs)}
+              onClose={closeAdd}
+              onCreateScoped={onCreateScopedFunction}
+            />
           ) : null}
           {functionNames.length === 0 && adding !== 'fns' ? (
-            <div className="bp-mb-empty">暂无函数（双击主图外的图签或点 ＋ 新建）</div>
+            <div className="bp-mb-empty">
+              {hideFunctions ? '函数资产为单图（签名在统一检视器编辑）' : '暂无函数（双击主图外的图签或点 ＋ 新建）'}
+            </div>
           ) : null}
         </Section>
 

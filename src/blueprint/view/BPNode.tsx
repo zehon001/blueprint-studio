@@ -12,10 +12,13 @@
 import { memo, useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { IRNode, NodeSpec, PinSpec } from '../../ir/types';
+import type { IRNode, NodeSpec, PinSpec, UINode } from '../../ir/types';
 import { PIN_COLORS, pinColor } from '../../shell/theme/tokens';
 import type { DebugHighlightKind } from '../../shell/debug/overlay-state';
 import { useSceneTreeDomain } from '../../ui-editor/store';
+import { uiTraitsForType } from '../../ui-editor/schema';
+import { getCachedElement } from '../../ui-editor/element';
+import { getCachedPrefab } from '../../ui-editor/prefab';
 import {
   headColorFor,
   headIconFor,
@@ -140,12 +143,35 @@ const UI_NAME_PIN_TYPES = new Set([
   'ui.setTitle',
 ])
 
-function UiNodeNameDefaultEditor({ pin, value, onCommit }: EditorProps) {
+/** UI 访问器需要的 trait（无 = 不过滤） */
+const ACCESSOR_TRAIT: Readonly<Record<string, string>> = {
+  'ui.setText': 'text',
+  'ui.setTitle': 'text',
+  'ui.setValue': 'value',
+  'ui.listSetItems': 'items',
+}
+
+function traitsOfUiNode(n: UINode): string[] {
+  if (n.element) return [...(getCachedElement(n.element)?.traits ?? [])]
+  if (n.prefab) {
+    const root = getCachedPrefab(n.prefab)?.root
+    return root ? uiTraitsForType(root.type) : []
+  }
+  return uiTraitsForType(n.type)
+}
+
+function UiNodeNameDefaultEditor({
+  pin,
+  value,
+  onCommit,
+  accessorType,
+}: EditorProps & { accessorType: string }) {
   const { asset } = useSceneTreeDomain()
+  const required = ACCESSOR_TRAIT[accessorType]
   const names: string[] = []
-  const walk = (n: { name: string; children?: readonly unknown[] }): void => {
-    names.push(n.name)
-    for (const c of (n.children ?? []) as Array<{ name: string; children?: readonly unknown[] }>) walk(c)
+  const walk = (n: UINode): void => {
+    if (!required || traitsOfUiNode(n).includes(required)) names.push(n.name)
+    for (const c of n.children ?? []) walk(c)
   }
   if (asset) walk(asset.root)
   const initial = String(initialValueOf(pin, value) ?? '')
@@ -198,7 +224,14 @@ function PinDefaultEditor({ nodeId, pin, data }: { nodeId: string; pin: PinSpec;
     data.onPinDefaultChange?.(nodeId, pin.id, next);
   };
   if (pin.id === 'name' && UI_NAME_PIN_TYPES.has(data.node.type)) {
-    return <UiNodeNameDefaultEditor pin={pin} value={value} onCommit={onCommit} />;
+    return (
+      <UiNodeNameDefaultEditor
+        pin={pin}
+        value={value}
+        onCommit={onCommit}
+        accessorType={data.node.type}
+      />
+    );
   }
   switch (editorKindOf(pin)) {
     case 'bool': return <BoolDefaultEditor pin={pin} value={value} onCommit={onCommit} />;
@@ -315,12 +348,21 @@ function NodeParamsBlock({ node, spec }: { node: IRNode; spec: NodeSpec }) {
   );
 }
 
+/** 合并静态引脚与函数签名动态引脚（同 id 以静态为准） */
+function mergePins(base: readonly PinSpec[], extra: readonly PinSpec[] | undefined): PinSpec[] {
+  if (!extra || extra.length === 0) return [...base];
+  const seen = new Set(base.map((p) => p.id));
+  return [...base, ...extra.filter((p) => !seen.has(p.id))];
+}
+
 /** 常规节点：头 + 注释 + 参数行 + 引脚两列（输入左 / 输出右） */
 function RegularNodeView({ nodeId, data, selected }: { nodeId: string; data: BPNodeData; selected: boolean }) {
   const { node, spec, variant } = data;
   if (!spec) return null;
   const title = node.title ?? spec.title;
   const subtitle = nodeSubtitle(spec, data.graphName);
+  const inputPins = mergePins(spec.inputs, data.dynamicPins?.inputs);
+  const outputPins = mergePins(spec.outputs, data.dynamicPins?.outputs);
   return (
     <div className={`bp-node bp-variant-${variant}${selected ? ' bp-node--selected' : ''}${debugClassOf(data)}`}>
       <div className="bp-node-head" style={{ background: headColorFor(variant) }}>
@@ -336,12 +378,12 @@ function RegularNodeView({ nodeId, data, selected }: { nodeId: string; data: BPN
       <NodeParamsBlock node={node} spec={spec} />
       <div className="bp-node-pins">
         <div className="bp-pin-col bp-pin-col--in">
-          {spec.inputs.map((pin) => (
+          {inputPins.map((pin) => (
             <PinRow key={pin.id} nodeId={nodeId} pin={pin} dir="in" data={data} />
           ))}
         </div>
         <div className="bp-pin-col bp-pin-col--out">
-          {spec.outputs.map((pin) => (
+          {outputPins.map((pin) => (
             <PinRow key={pin.id} nodeId={nodeId} pin={pin} dir="out" data={data} />
           ))}
         </div>

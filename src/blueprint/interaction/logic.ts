@@ -211,6 +211,10 @@ export interface SpecEntry {
   spec: NodeSpec;
   /** 从输出拖出 → 推荐的输入引脚；从输入拖出 → 推荐的输出引脚 */
   pin: PinSpec | null;
+  /** v3 T12.3：作用域徽标（蓝图 / 项目 / 全局） */
+  badge?: string;
+  /** v3 T12.3：同名遮蔽提示 */
+  note?: string;
 }
 
 /**

@@ -35,6 +35,9 @@ export function functionGraphOf(text: string, name: string): IRGraph {
     throw new Error(`函数资产不是合法 JSON：${name}（${err instanceof Error ? err.message : String(err)}）`)
   }
   if (!raw || typeof raw !== 'object') throw new Error(`函数资产格式错误：${name}`)
+  if (raw.version !== 3) {
+    throw new Error(`函数资产版本不兼容：${name}（${String(raw.version)}，v3 仅支持 version 3）`)
+  }
   const g = raw.graph ?? { nodes: [], edges: [] }
   return {
     nodes: g.nodes ?? [],

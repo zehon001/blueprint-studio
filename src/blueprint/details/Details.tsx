@@ -351,7 +351,7 @@ export function Details({ className }: { className?: string }) {
               asset={asset}
               graph={graph}
               graphName={graphName}
-              isEntry={graphName === asset.entry}
+              isEntry={graphName === asset.entry && graph.kind !== 'function'}
             />
           ) : (
             <div className="bp-det-empty">未打开图</div>

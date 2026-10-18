@@ -58,10 +58,13 @@ export function RuntimePanel() {
   const autoRerun = useSettingsStore((s) => s.autoRerun)
   const saveSeq = useWorkspaceStore((s) => s.saveSeq)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const lastSaveSeq = useRef(saveSeq)
 
-  /** 保存成功自动重跑（默认开；只在已有运行目标时） */
+  /** 保存成功自动重跑（默认开；只在「新的一次保存」且已有运行目标时） */
   useEffect(() => {
-    if (!autoRerun || !target || saveSeq <= 0) return
+    if (saveSeq === lastSaveSeq.current) return
+    lastSaveSeq.current = saveSeq
+    if (!autoRerun || !target) return
     rerun()
   }, [saveSeq, autoRerun, target, rerun])
 

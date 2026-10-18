@@ -5,14 +5,22 @@
  * 点击条目 → 在根节点下追加：基础控件走 commitAddNode；元素追加 __element 实例。
  * 预制体分组与资源库全局管理（内置库/导出导入）随 T11.5/T11.6 服务接入。
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import { uiNodeSchemas, NODE_CATEGORIES } from '@/ui-editor/schema'
-import { collectNames, commitAddNode } from '@/ui-editor/viewport/commands'
-import { getSceneTreeDomain, newUINodeId, runUICommand, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
+import { commitAddNode } from '@/ui-editor/viewport/commands'
+import { getSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
+import {
+  CONTROL_DRAG_MIME,
+  ELEMENT_DRAG_MIME,
+  PREFAB_DRAG_MIME,
+  insertElementInstance,
+  insertPrefabInstance,
+} from '@/ui-editor/insertElement'
+import { listLibraryEntries, watchLibrary } from './api'
 import { useWorkspaceStore } from '@/shell/workspace-store'
-import type { UINode } from '@/ir/types'
 
 export const ELEMENT_DIR = 'ui/elements'
+const PREFAB_DIR = 'ui/prefabs'
 
 interface ElementEntry {
   name: string
@@ -30,21 +38,25 @@ function elementsOf(json: unknown, dir: string): ElementEntry[] {
   return out
 }
 
-function uniqueName(base: string, used: Set<string>): string {
-  if (!used.has(base)) return base
-  for (let i = 2; i < 1000; i++) {
-    const n = `${base}${i}`
-    if (!used.has(n)) return n
+/** 预制体条目（ui/prefabs/*.ui.json） */
+function prefabsOf(json: unknown, dir: string): ElementEntry[] {
+  const tree = (json as { tree?: { children?: Array<{ name?: string; path?: string; type?: string }> } })?.tree
+  const out: ElementEntry[] = []
+  for (const c of tree?.children ?? []) {
+    if (c.type !== 'file' || typeof c.name !== 'string' || !c.name.toLowerCase().endsWith('.ui.json')) continue
+    out.push({ name: c.name.replace(/\.ui\.json$/i, ''), path: `${dir}/${c.name}` })
   }
-  return base
+  return out
 }
 
 export function ElementLibraryPanel({ onCreated }: { onCreated?: () => void } = {}) {
   const project = useWorkspaceStore((s) => s.currentProject)
-  const { asset } = useSceneTreeDomain()
   const [elements, setElements] = useState<ElementEntry[]>([])
+  const [builtinElements, setBuiltinElements] = useState<ElementEntry[]>([])
+  const [prefabs, setPrefabs] = useState<ElementEntry[]>([])
   const [search, setSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [libTick, setLibTick] = useState(0)
 
   useEffect(() => {
     if (!project) return
@@ -58,12 +70,37 @@ export function ElementLibraryPanel({ onCreated }: { onCreated?: () => void } = 
       .catch(() => {
         if (alive) setError('元素目录读取失败')
       })
+    fetch(`/api/tree?path=${encodeURIComponent(`${project.path}/${PREFAB_DIR}`)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (alive && j?.ok) setPrefabs(prefabsOf(j, PREFAB_DIR))
+      })
+      .catch(() => {})
     return () => {
       alive = false
     }
   }, [project?.path])
 
-  const used = useMemo(() => (asset ? collectNames(asset.root) : new Set<string>()), [asset])
+  useEffect(() => {
+    let alive = true
+    listLibraryEntries('elements')
+      .then((entries) => {
+        if (alive) {
+          setBuiltinElements(
+            entries.map((e) => ({ name: e.name, path: `@library/elements/${e.name}` })),
+          )
+        }
+      })
+      .catch(() => {
+        /* 资源库服务未启动：内置元素分组为空 */
+      })
+    return () => {
+      alive = false
+    }
+  }, [libTick])
+
+  useEffect(() => watchLibrary(() => setLibTick((t) => t + 1)), [])
+
   const kw = search.trim().toLowerCase()
   const controls = useMemo(
     () =>
@@ -88,27 +125,17 @@ export function ElementLibraryPanel({ onCreated }: { onCreated?: () => void } = 
   }
 
   const addElement = (entry: ElementEntry): void => {
-    const a = getSceneTreeDomain().asset
-    if (!a) return
-    const id = newUINodeId()
-    const name = uniqueName(entry.name, used)
-    runUICommand(`元素库：添加元素 ${entry.name}`, (draft) => {
-      const root = (draft as { root: UINode }).root
-      const node: UINode = {
-        id,
-        name,
-        type: '__element',
-        element: entry.path,
-        transform: { position: { x: 0, y: 0 }, size: { w: 320, h: 120 }, rotation: 0 },
-        layout: { size: { w: 320, h: 120 } },
-        theme: {},
-        props: {},
-        children: [],
-      }
-      root.children.push(node)
-    })
-    useUIEditorStore.getState().setSelection([id])
-    onCreated?.()
+    if (insertElementInstance(entry.path, entry.name, { x: 0, y: 0 })) onCreated?.()
+  }
+
+  const addPrefab = (entry: ElementEntry): void => {
+    if (insertPrefabInstance(entry.path, entry.name, { x: 0, y: 0 })) onCreated?.()
+  }
+
+  const dragPayload = (e: DragEvent, mime: string, value: string): void => {
+    e.dataTransfer.setData(mime, value)
+    e.dataTransfer.setData('text/plain', value)
+    e.dataTransfer.effectAllowed = 'copy'
   }
 
   return (
@@ -133,7 +160,9 @@ export function ElementLibraryPanel({ onCreated }: { onCreated?: () => void } = 
                     key={s.type}
                     type="button"
                     className="element-library-item"
-                    title={`添加「${s.title}」到根节点（${s.type}）`}
+                    title={`添加「${s.title}」（可拖入画布，${s.type}）`}
+                    draggable
+                    onDragStart={(e) => dragPayload(e, CONTROL_DRAG_MIME, s.type)}
                     onClick={() => addControl(s.type)}
                   >
                     <span className="element-library-icon">{s.icon ?? '▦'}</span>
@@ -145,21 +174,22 @@ export function ElementLibraryPanel({ onCreated }: { onCreated?: () => void } = 
           )
         })}
         <div className="element-library-group">
-          <div className="element-library-title">项目元素（{elements.length}）</div>
-          {error ? <div className="element-library-empty">{error}</div> : null}
-          {elements.length === 0 ? (
-            <div className="element-library-empty">暂无元素（新建 ui/elements/*.elem.json 后出现）</div>
+          <div className="element-library-title">内置元素（{builtinElements.length}）</div>
+          {builtinElements.length === 0 ? (
+            <div className="element-library-empty">内置库暂无元素（资源库面板可新建）。</div>
           ) : (
             <div className="element-library-grid">
-              {elements.map((e) => (
+              {builtinElements.map((e) => (
                 <button
                   key={e.path}
                   type="button"
                   className="element-library-item"
-                  title={`添加元素实例：${e.path}`}
+                  title={`添加内置元素实例：${e.path}`}
+                  draggable
+                  onDragStart={(ev) => dragPayload(ev, ELEMENT_DRAG_MIME, e.path)}
                   onClick={() => addElement(e)}
                 >
-                  <span className="element-library-icon">EL</span>
+                  <span className="element-library-icon">LIB</span>
                   <span className="element-library-name">{e.name}</span>
                 </button>
               ))}
@@ -167,8 +197,53 @@ export function ElementLibraryPanel({ onCreated }: { onCreated?: () => void } = 
           )}
         </div>
         <div className="element-library-group">
-          <div className="element-library-title">预制体</div>
-          <div className="element-library-empty">预制体分组随 T11.7 完整版接入（当前可用画布右键「预制体」）。</div>
+          <div className="element-library-title">项目元素（{elements.length}）</div>
+          {error ? <div className="element-library-empty">{error}</div> : null}
+          {elements.length === 0 ? (
+            <div className="element-library-empty">暂无元素（新建 ui/elements/*.elem.json 后出现）</div>
+          ) : (
+            <div className="element-library-grid">
+              {elements
+                .filter((e) => !kw || e.name.toLowerCase().includes(kw))
+                .map((e) => (
+                  <button
+                    key={e.path}
+                    type="button"
+                    className="element-library-item"
+                    title={`添加元素实例（可拖入画布）：${e.path}`}
+                    draggable
+                    onDragStart={(ev) => dragPayload(ev, ELEMENT_DRAG_MIME, e.path)}
+                    onClick={() => addElement(e)}
+                  >
+                    <span className="element-library-icon">EL</span>
+                    <span className="element-library-name">{e.name}</span>
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+        <div className="element-library-group">
+          <div className="element-library-title">预制体（{prefabs.length}）</div>
+          {prefabs.length === 0 ? (
+            <div className="element-library-empty">暂无预制体（ui/prefabs/*.ui.json）。</div>
+          ) : (
+            <div className="element-library-grid">
+              {prefabs.map((e) => (
+                <button
+                  key={e.path}
+                  type="button"
+                  className="element-library-item"
+                  title={`添加预制体实例（可拖入画布）：${e.path}`}
+                  draggable
+                  onDragStart={(ev) => dragPayload(ev, PREFAB_DRAG_MIME, e.path)}
+                  onClick={() => addPrefab(e)}
+                >
+                  <span className="element-library-icon">PF</span>
+                  <span className="element-library-name">{e.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

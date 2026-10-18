@@ -387,9 +387,8 @@ describe('树纯函数', () => {
     assert.deepEqual(node.transform.position, { x: 0, y: 0 })
     assert.equal(node.children.length, 0)
     assert.equal(node.theme && Object.keys(node.theme).length, 0)
-    // 业务属性：button.text 来自 schema 默认值
-    const textDef = getUISchema('button')!.props.find((p) => p.id === 'text')
-    assert.equal(node.props['text'], textDef?.default)
+    // v3 T11.1：业务属性默认值不再物化（渲染/检视解析器兜底），保证样式类可覆盖
+    assert.deepEqual(node.props, {})
     // 未知类型
     assert.equal(treeModel.buildUINode('ghost', taken), null)
     // 无冲突时用 schema 初值（类型名）
@@ -557,8 +556,7 @@ describe('删除与添加', () => {
     assert.equal(node.type, 'button')
     assert.equal(node.children.length, 0)
     assert.deepEqual(node.transform.size, getUISchema('button')!.props.find((p) => p.id === 'size')!.default)
-    const textDef = getUISchema('button')!.props.find((p) => p.id === 'text')
-    assert.equal(node.props['text'], textDef?.default)
+    assert.deepEqual(node.props, {}, '业务属性默认值由渲染/检视解析器补齐')
     assert.equal(peekUndo()?.label, '树：添加节点 按钮')
     // 添加进容器
     const id2 = cmd.addUINodeCommand('button', 'box')

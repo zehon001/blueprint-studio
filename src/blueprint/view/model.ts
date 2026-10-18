@@ -13,11 +13,15 @@ import type { Edge, Node, MarkerType } from '@xyflow/react';
 import type {
   IRAsset,
   IREdge,
+  IRGraph,
   IRNode,
+  IRParamSpec,
   IRValueType,
   NodeSpec,
+  PinSpec,
   Vec2,
 } from '../../ir/types';
+import { getFunctionSignature } from './externalSignatures';
 import {
   EDGE_COLORS,
   COLORS,
@@ -58,6 +62,8 @@ export type BPNodeData = {
   degradedInputs: readonly string[];
   /** 未知节点降级：从连线还原的输出引脚 id */
   degradedOutputs: readonly string[];
+  /** v3 T12.2：函数入口/出口/调用的签名动态引脚（在 spec 静态引脚之外追加） */
+  dynamicPins?: { inputs: PinSpec[]; outputs: PinSpec[] };
   /**
    * 内联默认值变更回调（T2.2/T2.4 接 IR 命令栈；本卡先内部 state 可编辑，仅透传可选回调）。
    * TODO(T2.2/T2.4)：接命令栈后由交互层提供，实现撤销重做。
@@ -328,6 +334,57 @@ function pushDegraded(
   if (!slot[dir].includes(pinId)) slot[dir].push(pinId);
 }
 
+/** 参数声明 → 动态引脚（id = 参数名，运行时按名注入/收集） */
+function paramPin(p: IRParamSpec): PinSpec {
+  return { id: p.name, label: p.name, type: p.type };
+}
+
+/**
+ * 函数签名动态引脚（v3 T12.2）：
+ * - func.entry：当前函数图 params → 输出；
+ * - func.return：当前函数图 returns → 输入；
+ * - flow.call：目标函数签名 → 输入/输出（蓝图 → 项目 → 全局，scope 显式钉死）。
+ */
+export function dynamicPinsFor(
+  node: IRNode,
+  graph: IRGraph,
+  asset: IRAsset,
+): { inputs: PinSpec[]; outputs: PinSpec[] } | undefined {
+  if (node.type === 'func.entry') {
+    const params = graph.params ?? [];
+    return params.length > 0 ? { inputs: [], outputs: params.map(paramPin) } : undefined;
+  }
+  if (node.type === 'func.return') {
+    const returns = graph.returns ?? [];
+    return returns.length > 0 ? { inputs: returns.map(paramPin), outputs: [] } : undefined;
+  }
+  if (node.type !== 'flow.call') return undefined;
+  const target =
+    typeof node.params?.graph === 'string' && node.params.graph !== ''
+      ? node.params.graph
+      : typeof node.params?.function === 'string'
+        ? node.params.function
+        : '';
+  if (!target) return undefined;
+  const scope = typeof node.params?.scope === 'string' ? node.params.scope : 'auto';
+  let params: IRParamSpec[] = [];
+  let returns: IRParamSpec[] = [];
+  const blueprint = asset.graphs[target];
+  if (blueprint && (scope === 'auto' || scope === 'blueprint')) {
+    params = blueprint.params ?? [];
+    returns = blueprint.returns ?? [];
+  } else if (scope === 'project' || scope === 'auto' || scope === 'global') {
+    const lookup =
+      getFunctionSignature('project', target) ?? getFunctionSignature('global', target);
+    if (lookup) {
+      params = lookup.params;
+      returns = lookup.returns;
+    }
+  }
+  if (params.length === 0 && returns.length === 0) return undefined;
+  return { inputs: params.map(paramPin), outputs: returns.map(paramPin) };
+}
+
 /**
  * IR 资产的某张图 → ReactFlow 视图模型。
  * - FlowNode.data = { node, spec(未知类型为 null), graphName, variant, connectedInputs, ... }；
@@ -395,6 +452,7 @@ export function irToFlow(
         connectedInputs: connectedInputs.get(n.id) ?? EMPTY_SET,
         degradedInputs: degraded.get(n.id)?.in ?? EMPTY_ARR,
         degradedOutputs: degraded.get(n.id)?.out ?? EMPTY_ARR,
+        dynamicPins: dynamicPinsFor(n, graph, asset),
         onPinDefaultChange: opts.onPinDefaultChange,
       },
     });

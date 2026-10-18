@@ -179,6 +179,7 @@ export function BlueprintTab({ assetPath, panelId }: { assetPath: string; panelI
       assetPath={assetPath}
       onSave={save}
       className="workspace-bp-panel"
+      panelId={uid}
     />
   )
 }

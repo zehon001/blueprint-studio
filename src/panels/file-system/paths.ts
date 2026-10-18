@@ -46,10 +46,13 @@ export function extOf(name: string): string {
 }
 
 /** 双击打开的资产类型（PLAN §6.2；.ui.json 优先于裸 .json 判定） */
-export type AssetOpenKind = 'ui' | 'blueprint' | 'script'
+export type AssetOpenKind = 'ui' | 'blueprint' | 'script' | 'element' | 'style' | 'function'
 
 export function assetKindOf(fileName: string): AssetOpenKind | null {
   const lower = fileName.toLowerCase()
+  if (lower.endsWith('.elem.json')) return 'element'
+  if (lower.endsWith('.uss.json')) return 'style'
+  if (lower.endsWith('.fn.json')) return 'function'
   if (lower.endsWith('.ui.json')) return 'ui'
   if (lower.endsWith('.bp.json')) return 'blueprint'
   if (lower.endsWith('.ts') || lower.endsWith('.py')) return 'script'
@@ -119,11 +122,14 @@ export function extLabelOf(fileName: string): string {
   }
 }
 
-/** 新建文件模板类别：.ui.json / .bp.json 用确定性模板，其余为空文本 */
-export type NewFileTemplate = 'ui' | 'bp' | 'text'
+/** 新建文件模板类别：v3 资产用确定性骨架，其余为空文本 */
+export type NewFileTemplate = 'ui' | 'bp' | 'elem' | 'uss' | 'fn' | 'text'
 
 export function newFileTemplateOf(fileName: string): NewFileTemplate {
   const lower = fileName.toLowerCase()
+  if (lower.endsWith('.elem.json')) return 'elem'
+  if (lower.endsWith('.uss.json')) return 'uss'
+  if (lower.endsWith('.fn.json')) return 'fn'
   if (lower.endsWith('.ui.json')) return 'ui'
   if (lower.endsWith('.bp.json')) return 'bp'
   return 'text'
@@ -180,11 +186,65 @@ export function bpAssetTemplate(name: string): string {
   return `${JSON.stringify(asset, null, 2)}\n`
 }
 
-/** 按文件名决定新建文件内容：.ui.json / .bp.json 用模板，其余空文本（经 PUT /api/file 写入） */
+/** 新建元素资产骨架（v3 ElementAsset；自定义属性/traits/事件由元素设置编辑） */
+export function elementAssetTemplate(name: string): string {
+  const asset = {
+    version: 3,
+    kind: 'element',
+    name,
+    props: [],
+    traits: [],
+    styles: [],
+    root: {
+      id: 'element_root',
+      name: 'root',
+      type: 'vbox',
+      layout: { position: 'relative', size: { w: 320, h: 160 } },
+      container: { direction: 'column', gap: 4, padding: { t: 8, r: 8, b: 8, l: 8 } },
+      transform: { position: { x: 0, y: 0 }, size: { w: 320, h: 160 }, rotation: 0 },
+      theme: {},
+      props: {},
+      children: [],
+    },
+    graphs: { event: { kind: 'event', nodes: [], edges: [], comments: [] } },
+    layout: {},
+    variables: [],
+    events: [],
+  }
+  return `${JSON.stringify(asset, null, 2)}\n`
+}
+
+/** 新建样式表骨架 */
+export function styleAssetTemplate(name: string): string {
+  return `${JSON.stringify({ version: 1, classes: { [name]: { props: {} } } }, null, 2)}\n`
+}
+
+/** 新建函数资产骨架（项目/全局由创建入口决定 scope；这里给 project 默认） */
+export function functionAssetTemplate(name: string, scope: 'project' | 'global' = 'project'): string {
+  return `${JSON.stringify(
+    {
+      version: 3,
+      kind: 'function',
+      scope,
+      name,
+      params: [],
+      returns: [],
+      graph: { nodes: [], edges: [] },
+    },
+    null,
+    2,
+  )}\n`
+}
+
+/** 按文件名决定新建文件内容：v3 资产用模板，其余空文本（经 PUT /api/file 写入） */
 export function contentForNewFile(fileName: string): string {
   const kind = newFileTemplateOf(fileName)
-  if (kind === 'ui') return uiAssetTemplate(assetStemOf(fileName))
-  if (kind === 'bp') return bpAssetTemplate(assetStemOf(fileName))
+  const name = assetStemOf(fileName)
+  if (kind === 'ui') return uiAssetTemplate(name)
+  if (kind === 'bp') return bpAssetTemplate(name)
+  if (kind === 'elem') return elementAssetTemplate(name)
+  if (kind === 'uss') return styleAssetTemplate(name)
+  if (kind === 'fn') return functionAssetTemplate(name)
   return ''
 }
 
