@@ -590,6 +590,13 @@ export function renderUI(asset: UIAsset, opts: RenderOptions): UIRenderHandle {
     rootEl.classList.add('bps-ui-root--edit');
     rootEl.style.pointerEvents = 'none'; // 内联兜底：宿主样式缺失也能冻结鼠标交互
     rootEl.setAttribute('inert', ''); // 冻结焦点与辅助访问（支持 inert 的环境生效）
+    // v3 根常声明 width/height:100%；编辑画布是无限画布，没有可百分比的父尺寸。
+    // 用根 transform 尺寸作为「画板」显式尺寸，避免根塌缩成 padding 大小。
+    const size = asset.root?.transform?.size;
+    if (size && Number.isFinite(size.w) && Number.isFinite(size.h) && size.w > 0 && size.h > 0) {
+      rootEl.style.width = `${size.w}px`;
+      rootEl.style.height = `${size.h}px`;
+    }
   }
   ensureRenderStyle(doc);
 

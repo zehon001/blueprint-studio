@@ -149,6 +149,7 @@ M13：T13.1 ← T11.6+T12.9    T13.2(T9.1) ─ T13.4(T11.6/T8.5)    T13.3(T13.1)
 
 ## 6. 进度纪要（PM 维护，倒序追加）
 
+- **2026-10-18 · 体验 BUG 修复（5 项）**：① UI tab 内嵌树未引入 scene-tree CSS（选中底色/拖拽落区失效）→ UITab 显式引入；② 根节点画布不可选（点根只开框选且松手清除）→ 单击选根/Shift 框选兼容；③ 点检视器被当成激活面板→清空内容 → inspector 页不参与 activePanelId 竞争；④ 元素库创建无反馈 → 自动选中新节点并切回 UI 树；⑤ 多 UI tab 共享 store 切换卡加载/丢草稿 → 激活时按路径重开 + 内存草稿恢复。另修编辑画板根 100% 尺寸塌缩（用 transform 尺寸作画板）。GUI 五项复验通过，全量 1041 绿。
 - **2026-10-18 · 最终交付**：`IR_VERSION=3`（读 2/3、写 3），T10.6 收口；看板全部卡无「待办/部分完成」；生产构建 8790 实测打开 logcat v3 UI（设计模式/树/画布/变量/事件）；全量 **1041 绿**、typecheck 0、build 绿。
 - **2026-10-18 · 全部卡收口**：T12.4 trait 元数据 + PinDrag 交集过滤；T12.5 `uiHandle` 类型 + 选择器；T12.7 反射/文本节点 codegen（ui.read/ui.write）与 KNOWN 清单；全量 **1041 绿**、typecheck 0、build 绿。看板已无「待办/部分完成」卡，剩余仅人工视觉复核。
 - **2026-10-18 · M12/M13 收尾**：函数编辑器（.fn.json ⇄ IRAsset，项目/内置库读写）+ 项目/全局函数检索；反射「设计器」分组（schema `reflect` 标记 + UI 树实时 Get/Set）；`ui.get` 子节点选择器；log-analyzer 模板升 v3（flex + 内嵌事件图，去 logicAsset）；新增 v3 资产 roundtrip 4 组；修复 `useSceneTreeDomain` 空快照无限渲染（sync 测试回归）；全量 **1035 绿**。

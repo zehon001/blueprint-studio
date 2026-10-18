@@ -19,6 +19,10 @@ import { useWorkspaceStore, tabIdOf } from '@/shell/workspace-store'
 import { useDockStore } from '@/shell/dock/store'
 import { assetPanelId } from '@/shell/dock/assetPanelModel'
 import { useSelectionStore } from '@/shell/selection/store'
+// BUG1：UI tab 直接内嵌 SceneTreePanel，入口 index.ts 的 CSS 不会执行；
+// 这里显式引入树/右键菜单样式（否则选中底色、拖拽落区、行高全部失效）。
+import '@/panels/file-system/menu.css'
+import '@/panels/scene-tree/styles.css'
 
 export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: string }) {
   const project = useWorkspaceStore((s) => s.currentProject)
@@ -78,6 +82,16 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
       if (useUIEditorStore.getState().assetPath === assetPath) useUIEditorStore.getState().close()
     }
   }, [projectPath, assetPath])
+
+  /* BUG5：多个 UI tab 共享同一 editor store。切回本 tab 时若共享资产已被别的
+   * tab 替换，重新载入本资产（否则隐藏 tab 永远停在「加载中」/显示别人的资产）。 */
+  const storeAssetPath = useUIEditorStore((s) => s.assetPath)
+  useEffect(() => {
+    if (!projectPath || activePanelId !== uid) return
+    if (storeAssetPath === assetPath) return
+    if (projectPathState !== projectPath) useUIEditorStore.getState().close()
+    void openUIAsset(projectPath, assetPath)
+  }, [activePanelId, uid, storeAssetPath, assetPath, projectPath, projectPathState, openUIAsset])
 
   /* 脏标记：scene-tree 域命令 / undo / redo */
   useEffect(() => {
@@ -190,7 +204,7 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
                 {leftTab === 'tree' ? (
                   <SceneTreePanel />
                 ) : leftTab === 'elements' ? (
-                  <ElementLibraryPanel />
+                  <ElementLibraryPanel onCreated={() => setLeftTab('tree')} />
                 ) : (
                   <StyleLibraryPanel />
                 )}

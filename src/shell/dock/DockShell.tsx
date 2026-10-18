@@ -497,7 +497,11 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
               key={panelId}
               className="dock-tab-page"
               style={{ display: i === activeIdx ? undefined : 'none' }}
-              onPointerDownCapture={() => focusPanel(panelId)}
+              onPointerDownCapture={() => {
+                // 检视器自身不参与「激活面板」竞争：点它不应把 activePanelId 从
+                // 正在检视的 UI/蓝图/文件切走（否则内容立即变「未激活」）
+                if (panelId !== 'inspector') focusPanel(panelId)
+              }}
             >
               {popped ? (
                 <PopoutPlaceholder panelId={panelId} />

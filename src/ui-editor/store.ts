@@ -96,6 +96,12 @@ export function parseUIAsset(text: string): UIAsset {
   return raw as UIAsset
 }
 
+/**
+ * BUG5：多 UI tab 共享一个 scene-tree 域。切走时把当前资产留在内存草稿里，
+ * 切回同一路径直接恢复（保留未保存编辑，避免重载磁盘内容覆盖）。保存成功后清草稿。
+ */
+const assetDrafts = new Map<string, { asset: UIAsset; styleSheets: StyleSheet[] }>()
+
 export const useUIEditorStore = create<UIEditorState>()((set, get) => ({
   projectPath: null,
   assetPath: null,
@@ -106,25 +112,41 @@ export const useUIEditorStore = create<UIEditorState>()((set, get) => ({
 
   openUIAsset: async (projectPath, assetPath) => {
     ensureDomain()
+    const prev = get()
+    // 切走前留草稿（同路径重载 / 首次打开不缓存）
+    if (prev.projectPath === projectPath && prev.assetPath && prev.assetPath !== assetPath) {
+      const prevAsset = getSceneTreeDomain().asset
+      if (prevAsset) assetDrafts.set(prev.assetPath, { asset: prevAsset, styleSheets: prev.styleSheets })
+    }
+    if (prev.projectPath !== null && prev.projectPath !== projectPath) assetDrafts.clear()
     set({ projectPath, assetPath, status: 'loading', message: '', selection: [] })
     try {
-      const r = await fetch(`/api/file?path=${encodeURIComponent(`${projectPath}/${assetPath}`)}`)
-      const json = (await r.json()) as { ok: boolean; content?: string; message?: string }
-      if (!json.ok) {
-        set({ status: 'error', message: json.message ?? '加载失败' })
-        return
-      }
-      const asset = parseUIAsset(String(json.content ?? ''))
-      // v3 T11.1：装载 asset.styles 声明的样式表（项目相对路径；@library/* 待 T11.4 服务接入）
-      const styleSheets: StyleSheet[] = []
-      for (const ref of asset.styles ?? []) {
-        if (ref.startsWith('@library/')) continue
-        try {
-          const sr = await fetch(`/api/file?path=${encodeURIComponent(`${projectPath}/${ref}`)}`)
-          const sj = (await sr.json()) as { ok: boolean; content?: string }
-          if (sj.ok) styleSheets.push(parseStyleSheet(String(sj.content ?? '')))
-        } catch {
-          /* 样式缺失不阻断打开（校验器在 T13.1 报 ref-style-missing） */
+      let asset: UIAsset
+      let styleSheets: StyleSheet[]
+      const cached = assetDrafts.get(assetPath)
+      if (cached) {
+        asset = cached.asset
+        styleSheets = cached.styleSheets
+        assetDrafts.delete(assetPath)
+      } else {
+        const r = await fetch(`/api/file?path=${encodeURIComponent(`${projectPath}/${assetPath}`)}`)
+        const json = (await r.json()) as { ok: boolean; content?: string; message?: string }
+        if (!json.ok) {
+          set({ status: 'error', message: json.message ?? '加载失败' })
+          return
+        }
+        asset = parseUIAsset(String(json.content ?? ''))
+        // v3 T11.1：装载 asset.styles 声明的样式表（项目相对路径；@library/* 待 T11.4 服务接入）
+        styleSheets = []
+        for (const ref of asset.styles ?? []) {
+          if (ref.startsWith('@library/')) continue
+          try {
+            const sr = await fetch(`/api/file?path=${encodeURIComponent(`${projectPath}/${ref}`)}`)
+            const sj = (await sr.json()) as { ok: boolean; content?: string }
+            if (sj.ok) styleSheets.push(parseStyleSheet(String(sj.content ?? '')))
+          } catch {
+            /* 样式缺失不阻断打开（校验器在 T13.1 报 ref-style-missing） */
+          }
         }
       }
       // ADR-009（T7.3）：打开资产即重建预制体缓存并预取树内全部预制体（含嵌套）——
@@ -164,6 +186,7 @@ export const useUIEditorStore = create<UIEditorState>()((set, get) => ({
         set({ message: `保存失败：${json.message ?? ''}` })
         return false
       }
+      assetDrafts.delete(assetPath)
       return true
     } catch (err) {
       set({ message: `保存失败：${String(err)}` })

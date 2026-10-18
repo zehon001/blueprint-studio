@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { uiNodeSchemas, NODE_CATEGORIES } from '@/ui-editor/schema'
 import { collectNames, commitAddNode } from '@/ui-editor/viewport/commands'
-import { getSceneTreeDomain, newUINodeId, runUICommand, useSceneTreeDomain } from '@/ui-editor/store'
+import { getSceneTreeDomain, newUINodeId, runUICommand, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import type { UINode } from '@/ir/types'
 
@@ -39,7 +39,7 @@ function uniqueName(base: string, used: Set<string>): string {
   return base
 }
 
-export function ElementLibraryPanel() {
+export function ElementLibraryPanel({ onCreated }: { onCreated?: () => void } = {}) {
   const project = useWorkspaceStore((s) => s.currentProject)
   const { asset } = useSceneTreeDomain()
   const [elements, setElements] = useState<ElementEntry[]>([])
@@ -80,7 +80,11 @@ export function ElementLibraryPanel() {
   const addControl = (type: string): void => {
     const a = getSceneTreeDomain().asset
     if (!a) return
-    commitAddNode(type, a.root.id, { x: 0, y: 0 })
+    const id = commitAddNode(type, a.root.id, { x: 0, y: 0 })
+    if (id) {
+      useUIEditorStore.getState().setSelection([id])
+      onCreated?.()
+    }
   }
 
   const addElement = (entry: ElementEntry): void => {
@@ -103,6 +107,8 @@ export function ElementLibraryPanel() {
       }
       root.children.push(node)
     })
+    useUIEditorStore.getState().setSelection([id])
+    onCreated?.()
   }
 
   return (

@@ -443,7 +443,7 @@ export function UIEditorPanel() {
   };
 
   /** 开始框选（空白处左键拖；Shift 框选加选；命中根节点也走框选——根不可拖体移动） */
-  const startMarqueeDrag = (start: Vec2, additive: boolean): void => {
+  const startMarqueeDrag = (start: Vec2, additive: boolean, keepOnClick = false): void => {
     const ac = new AbortController();
     dragRef.current = { kind: 'marquee', ac };
     setDragKind('marquee');
@@ -467,7 +467,8 @@ export function UIEditorPanel() {
       setDragKind(null);
       setMarquee(null);
       if (!gesture.active || !gesture.rect) {
-        if (!additive) clearSelection();
+        // 根节点区域按下后原地松开 = 选中根（不能派发 clearSelection 把刚设的选中清掉）
+        if (!additive && !keepOnClick) clearSelection();
         return;
       }
       const live = measure();
@@ -505,6 +506,11 @@ export function UIEditorPanel() {
     const live = measure();
     const hit = hitTest(pt, live);
     if (hit) {
+      // Alt+点击：直接选中最外层根（根被内容铺满时的快捷方式）
+      if (e.altKey) {
+        setSelection([assetRef.current.root.id]);
+        return;
+      }
       if (e.ctrlKey || e.metaKey) {
         // Ctrl+点击：加选 / 减选（不启动拖动）
         const sel = selectionRef.current;
@@ -512,7 +518,9 @@ export function UIEditorPanel() {
         return;
       }
       if (hit === assetRef.current.root.id) {
-        startMarqueeDrag(pt, e.shiftKey); // 点在根节点体上拖拽 = 框选（根移动走微调/对齐）
+        // BUG2：根节点也要能在画布中单击选中；按下后仍允许拖出框选（未移动 = 选中根）
+        if (!e.shiftKey && !selectionRef.current.includes(hit)) setSelection([hit]);
+        startMarqueeDrag(pt, e.shiftKey, true);
         return;
       }
       const sel = selectionRef.current;
@@ -521,7 +529,7 @@ export function UIEditorPanel() {
       startMoveDrag(pt, live, ids);
       return;
     }
-    startMarqueeDrag(pt, e.shiftKey); // 空白处按下：候选框选
+    startMarqueeDrag(pt, e.shiftKey); // 空白处按下：候选框选；原地松开清除选择
   };
 
   const onContextMenu = (e: React.MouseEvent): void => {
