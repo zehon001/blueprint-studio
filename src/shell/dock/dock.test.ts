@@ -546,8 +546,10 @@ describe('workspace store：项目上下文与资产 tabs', () => {
     const id = ws.useWorkspaceStore.getState().openTabs[0].id
     ws.useWorkspaceStore.getState().markDirty(id)
     assert.equal(ws.useWorkspaceStore.getState().openTabs[0].dirty, true)
+    const before = ws.useWorkspaceStore.getState().saveSeq
     ws.useWorkspaceStore.getState().clearDirty(id)
     assert.equal(ws.useWorkspaceStore.getState().openTabs[0].dirty, false)
+    assert.equal(ws.useWorkspaceStore.getState().saveSeq, before + 1, '保存成功序号自增（T8.5 自动重跑）')
   })
 
   it('closeProject 清空项目与 tabs', () => {

@@ -11,8 +11,11 @@ import { useUIEditorStore } from '@/ui-editor/store'
 import { peekUndo, subscribeReplay, useEditorStore } from '@/shell/commands'
 import { registerShortcut, unregisterShortcut } from '@/shell/keymap/registry'
 import { useWorkspaceStore, tabIdOf } from '@/shell/workspace-store'
+import { useDockStore } from '@/shell/dock/store'
+import { assetPanelId } from '@/shell/dock/assetPanelModel'
+import { useSelectionStore } from '@/shell/selection/store'
 
-export function UITab({ assetPath }: { assetPath: string }) {
+export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: string }) {
   const project = useWorkspaceStore((s) => s.currentProject)
   const projectPath = project?.path ?? null
   const tabId = tabIdOf('ui', assetPath)
@@ -23,6 +26,23 @@ export function UITab({ assetPath }: { assetPath: string }) {
   const projectPathState = useUIEditorStore((s) => s.projectPath)
   const openUIAsset = useUIEditorStore((s) => s.openUIAsset)
   const saveUIAsset = useUIEditorStore((s) => s.saveUIAsset)
+  const uid = panelId ?? assetPanelId('ui', assetPath)
+  const activePanelId = useDockStore((s) => s.activePanelId)
+  const selection = useUIEditorStore((s) => s.selection)
+  const publishSelection = useSelectionStore((s) => s.publish)
+  const clearSelection = useSelectionStore((s) => s.clear)
+
+  /* v3 T8.2：统一选择协议——本面板激活且就绪时发布 UI 选中节点 */
+  useEffect(() => {
+    if (status !== 'ready' || activePanelId !== uid) return
+    publishSelection({ source: 'ui', panelId: uid, assetPath, nodeIds: selection })
+  }, [status, activePanelId, uid, assetPath, selection, publishSelection])
+  useEffect(
+    () => () => {
+      clearSelection('ui', uid)
+    },
+    [clearSelection, uid],
+  )
 
   /* 打开/切换资产（projectPath 与 store 现值不一致或资产不同才重载） */
   useEffect(() => {

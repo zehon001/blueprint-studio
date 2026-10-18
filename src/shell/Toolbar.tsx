@@ -79,7 +79,7 @@ export default function Toolbar() {
           type="button"
           className="toolbar-btn"
           onClick={() => launchRuntimeMain()}
-          title="运行主 UI（F5）—— 独立窗口，ui 取 project.json.mainUI"
+          title="运行主 UI（F5）—— 内置运行视图（可拆出独立窗口），ui 取 project.json.mainUI"
         >
           ▶ 运行(F5)
         </button>
@@ -87,7 +87,7 @@ export default function Toolbar() {
           type="button"
           className="toolbar-btn"
           onClick={() => launchRuntimeCurrent()}
-          title="运行当前 UI（F6）—— 独立窗口运行激活的 .ui.json 资产"
+          title="运行当前 UI（F6）—— 内置运行视图运行激活的 .ui.json 资产"
         >
           ▶ 运行当前(F6)
         </button>

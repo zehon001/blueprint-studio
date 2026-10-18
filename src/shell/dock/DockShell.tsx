@@ -384,6 +384,7 @@ function TabContextMenu({
 /** tabs 组：页签条（拖动=移动面板 / 点击=激活）+ 操作区（拆出窗口 ⊞ / 合回 ⊟ / 关闭）+ 页面体 */
 function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: string | null }) {
   const setTabActive = useDockStore((s) => s.setTabActive)
+  const focusPanel = useDockStore((s) => s.focusPanel)
   const beginDrag = useContext(DragContext)
   const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
 
@@ -496,6 +497,7 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
               key={panelId}
               className="dock-tab-page"
               style={{ display: i === activeIdx ? undefined : 'none' }}
+              onPointerDownCapture={() => focusPanel(panelId)}
             >
               {popped ? (
                 <PopoutPlaceholder panelId={panelId} />

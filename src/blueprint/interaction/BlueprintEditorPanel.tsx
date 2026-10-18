@@ -26,10 +26,9 @@ import { NODE_CATEGORIES } from '../../nodes';
 import { BPGraphCanvas, headVariantFor, nodeSizeFor } from '../view';
 import type { FlowEdge, FlowNode } from '../view';
 import { useBlueprintStore, EMPTY_SELECTION } from '../store/blueprint-store';
-// T2.3 结构面板（左栏 + 顶部图签）与 T2.4 蓝图检视器（右栏）
+// T2.3 结构面板（左栏 + 顶部图签）；v3 T8.2：Details 迁入统一检视器，编辑器变两栏
 import { MyBlueprint } from '../my-blueprint/MyBlueprint';
 import { GraphTabs } from '../my-blueprint/GraphTabs';
-import { Details } from '../details/Details';
 // T2.7 注释框（图层 + 右键菜单 + 选中 id 换算）
 import {
   CommentContextMenu,
@@ -509,10 +508,7 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
             ) : null}
           </div>
         </div>
-        {/* 右栏：Details 蓝图检视器（T2.4） */}
-        <aside className="bp-editor-side bp-editor-side--details">
-          <Details />
-        </aside>
+        {/* v3 T8.2：检视器在 dock「检视器」面板（统一检视器），此处不再有右栏 */}
       </div>
     </div>
   );

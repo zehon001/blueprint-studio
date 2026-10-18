@@ -28,6 +28,7 @@ import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, ReactN
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { assetPanelId, openAssetPanel } from '@/shell/dock/assetPanelModel'
 import { useDockStore } from '@/shell/dock/store'
+import { useSelectionStore } from '@/shell/selection/store'
 import { Menu, type MenuItem } from './Menu'
 import { defaultFsApi, errorMessage, type FsApi, type HistoryEntry } from './api'
 import { applyFsEvents, findNode, sortTree, type FsChangeEvent, type FsNode } from './tree-model'
@@ -314,6 +315,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [selected, setSelected] = useState<string | null>(null)
+  const publishSelection = useSelectionStore((s) => s.publish)
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -472,6 +474,18 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       return next
     })
   }, [])
+
+  /** 选中文件/目录：同步本面板选中态 + 发布统一选择（T8.2 检视器文件信息） */
+  function selectNode(node: FsNode): void {
+    setSelected(node.path)
+    publishSelection({
+      source: 'file',
+      path: node.path,
+      name: node.name,
+      kind: node.type,
+      ext: node.ext,
+    })
+  }
 
   function openFileNode(node: FsNode): void {
     const kind = assetKindOf(node.name)
@@ -853,12 +867,12 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
             className={`fs-row${selected === node.path ? ' selected' : ''}${dropTarget ? ' dragover' : ''}`}
             style={{ paddingLeft: `calc(var(--space-2) + ${depth} * var(--space-5))` }}
             title={node.path}
-            onClick={() => setSelected(node.path)}
+            onClick={() => selectNode(node)}
             onDoubleClick={() => toggleExpand(node.path)}
             onContextMenu={(e) => {
               e.preventDefault()
               e.stopPropagation()
-              setSelected(node.path)
+              selectNode(node)
               openMenuAt(e, dirMenuItems(node))
             }}
             onDragOver={(e) => {
@@ -900,12 +914,12 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         className={`fs-row${selected === node.path ? ' selected' : ''}`}
         style={{ paddingLeft: `calc(var(--space-2) + ${depth} * var(--space-5))` }}
         title={node.path}
-        onClick={() => setSelected(node.path)}
+        onClick={() => selectNode(node)}
         onDoubleClick={() => openFileNode(node)}
         onContextMenu={(e) => {
           e.preventDefault()
           e.stopPropagation()
-          setSelected(node.path)
+          selectNode(node)
           openMenuAt(e, fileMenuItems(node))
         }}
       >

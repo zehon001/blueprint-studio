@@ -60,6 +60,8 @@ interface WorkspaceState {
   closeTab: (id: string) => void
   /** 激活 tab（id 不存在时忽略） */
   setActive: (id: string) => void
+  /** 保存成功序号（每次 clearDirty 自增；内置运行视图自动重跑订阅它） */
+  saveSeq: number
   /** 标脏（编辑动作发生时调用） */
   markDirty: (id: string) => void
   /** 清脏（保存成功后调用） */
@@ -75,6 +77,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   currentProject: projectFromLocation(),
   openTabs: NO_TABS,
   activeTabId: null,
+  saveSeq: 0,
 
   openAsset: ({ kind, assetPath, title }) => {
     const id = tabIdOf(kind, assetPath)
@@ -102,7 +105,10 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
     set((s) => ({ openTabs: s.openTabs.map((t) => (t.id === id ? { ...t, dirty: true } : t)) })),
 
   clearDirty: (id) =>
-    set((s) => ({ openTabs: s.openTabs.map((t) => (t.id === id ? { ...t, dirty: false } : t)) })),
+    set((s) => ({
+      openTabs: s.openTabs.map((t) => (t.id === id ? { ...t, dirty: false } : t)),
+      saveSeq: s.saveSeq + 1,
+    })),
 
-  closeProject: () => set({ currentProject: null, openTabs: [], activeTabId: null }),
+  closeProject: () => set({ currentProject: null, openTabs: [], activeTabId: null, saveSeq: 0 }),
 }))

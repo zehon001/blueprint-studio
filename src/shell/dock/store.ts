@@ -49,6 +49,8 @@ interface DockState {
   activatePanel: (panelId: string, defaultArea: DockArea) => void
   /** 拖放落点应用（DockShell 松手时调用） */
   movePanelTo: (panelId: string, target: DropTarget) => void
+  /** 仅切换全局聚焦面板（点击面板内容时用；不改布局结构） */
+  focusPanel: (panelId: string) => void
   /** 设置 tabs 组激活页 */
   setTabActive: (groupId: string, index: number) => void
   /** 分隔条拖动：按路径整体替换目标 split 的 sizes */
@@ -121,6 +123,14 @@ export const useDockStore = create<DockState>()((set, get) => {
 
     movePanelTo: (panelId, target) => {
       commit(movePanel(get().root, panelId, target), panelId)
+    },
+
+    focusPanel: (panelId) => {
+      const { root, activePanelId } = get()
+      if (activePanelId === panelId) return
+      if (findTabsByPanel(root, panelId) === null) return
+      saveLayout(root, panelId)
+      set({ activePanelId: panelId })
     },
 
     setTabActive: (groupId, index) => {

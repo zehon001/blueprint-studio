@@ -35,9 +35,9 @@ function AssetPanelHost({ panelId }: { panelId: string }) {
   if (!ref) return <div className="dock-panel-placeholder">未知资产面板：{panelId}</div>
   switch (ref.kind) {
     case 'ui':
-      return <UITab assetPath={ref.path} />
+      return <UITab assetPath={ref.path} panelId={panelId} />
     case 'blueprint':
-      return <BlueprintTab assetPath={ref.path} />
+      return <BlueprintTab assetPath={ref.path} panelId={panelId} />
     case 'script':
       return <ScriptTab assetPath={ref.path} />
     default:

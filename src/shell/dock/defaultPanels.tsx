@@ -13,7 +13,7 @@
  * 并入中央组；运行视图 `runtime` 作为中央初始页（F5 前的空态）。
  */
 import { parseLayout, readLayoutRaw } from './persist'
-import { listPanels, registerPanel } from './registry'
+import { listPanels } from './registry'
 import { useDockStore } from './store'
 import { makeTabs, type DockNode } from './tree'
 import { registerFileSystemPanel } from '@/panels/file-system'
@@ -21,6 +21,7 @@ import { registerSceneTreePanel } from '@/panels/scene-tree'
 import { registerInspectorPanel } from '@/panels/inspector'
 import { registerEventsPanel } from '@/panels/events'
 import { registerConsolePanel } from '@/panels/console'
+import { registerRuntimePanel } from '@/panels/runtime'
 import { ensureAssetPanelsInLayout, syncWorkspaceFromDock } from './assetPanel'
 
 /* 内置面板 id（跨卡契约：替换实现时保持 id 不变） */
@@ -31,28 +32,13 @@ export const PANEL_ID_INSPECTOR = 'inspector'
 export const PANEL_ID_EVENTS = 'events'
 export const PANEL_ID_CONSOLE = 'console'
 
-/** 运行视图占位（T8.5 接入 iframe；先保证默认布局有中央面板） */
-function RuntimePanelPlaceholder() {
-  return (
-    <div className="dock-panel-placeholder">
-      <div className="dock-panel-placeholder-title">运行视图</div>
-      <div>按 F5 运行主 UI（或 F6 运行当前 UI），运行视图将在此标签内打开。</div>
-    </div>
-  )
-}
-
 /* 面板注册（模块副作用；每面板一行） */
 registerFileSystemPanel() // T0.7 文件系统（id: 'file-system'）
 registerSceneTreePanel() // T1.4 UI 树（id: 'scene-tree'；T9.4 内嵌进 UI 编辑器后移除）
 registerInspectorPanel() // T1.5 / T8.2 统一检视器（id: 'inspector'）
 registerEventsPanel() // T5.2 事件面板（id: 'events'）
 registerConsolePanel() // T1.6 控制台（id: 'console'）
-registerPanel({
-  id: PANEL_ID_RUNTIME,
-  title: '运行',
-  component: RuntimePanelPlaceholder,
-  defaultArea: 'center',
-}) // T8.5 替换为 iframe 运行面板
+registerRuntimePanel() // T8.5 内置运行视图（iframe + embed；id: 'runtime'）
 
 /** 单面板 tabs 组 */
 function oneTabs(panelId: string): DockNode {

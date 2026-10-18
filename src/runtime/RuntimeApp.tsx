@@ -43,6 +43,10 @@ export interface RuntimeParams {
   project: string
   ui: string | null
   mode: RuntimeMode
+  /** 内置运行视图模式（隐藏顶栏/页内控制台 UI；v3 T8.5） */
+  embed?: boolean
+  /** 重跑 nonce（仅缓存失效用） */
+  run?: number
 }
 
 /** 加载状态机阶段 */
@@ -60,7 +64,15 @@ export function parseRuntimeParams(search: string): RuntimeParams | null {
   const modeRaw = q.get('mode')
   const mode: RuntimeMode = modeRaw === 'current' ? 'current' : 'main'
   const uiRaw = q.get('ui')
-  return { project, ui: uiRaw && uiRaw.trim() !== '' ? uiRaw : null, mode }
+  const runRaw = q.get('run')
+  const run = runRaw !== null && /^\d+$/.test(runRaw) ? Number(runRaw) : undefined
+  return {
+    project,
+    ui: uiRaw && uiRaw.trim() !== '' ? uiRaw : null,
+    mode,
+    ...(q.get('embed') === '1' ? { embed: true } : {}),
+    ...(run !== undefined ? { run } : {}),
+  }
 }
 
 /**
@@ -301,6 +313,27 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     })
   }, [app.params])
 
+  // v3 T8.5：embed 模式下焦点在 iframe 内时，把 F5/F6/Ctrl+S 转发给父窗口执行
+  const embed = app.params?.embed === true
+  useEffect(() => {
+    if (!embed || typeof window === 'undefined') return
+    const onKey = (e: KeyboardEvent): void => {
+      let key: string | null = null
+      if (e.key === 'F5') key = 'F5'
+      else if (e.key === 'F6') key = 'F6'
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') key = 'Ctrl+S'
+      if (!key) return
+      e.preventDefault()
+      try {
+        window.parent.postMessage({ type: 'bps-runtime-key', key }, '*')
+      } catch {
+        /* 跨窗口不可用：忽略，父窗快捷键仍可用 */
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [embed])
+
   // 就绪后渲染 + 绑定运行：renderUI 是编辑态/运行态共用的渲染唯一真源；
   // 内建事件 → props.onEvent（调试替身 / 缺省 console）+ BindingRunner（路由到蓝图 runtime）；
   // runner 异步加载 .bp.json 并 start()，单个蓝图失败只记控制台不阻断渲染。
@@ -362,7 +395,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
   const canRetry = app.params !== null
 
   return (
-    <div className="runtime-root">
+    <div className={`runtime-root${embed ? ' runtime-root--embed' : ''}`}>
       {app.phase === 'error' ? (
         <div className="runtime-error" role="alert">
           <div className="runtime-error-title">运行失败</div>
@@ -373,16 +406,18 @@ export default function RuntimeApp(props: RuntimeAppProps) {
         </div>
       ) : (
         <>
-          <div className="runtime-topbar">
-            <span className="runtime-topbar-item">项目：{app.params?.project ?? '—'}</span>
-            <span className="runtime-topbar-item">资产：{uiName}</span>
-            <span className="runtime-topbar-item">模式：{modeLabel}</span>
-            <span className="runtime-topbar-spacer" />
-            <button type="button" className="runtime-btn" onClick={retry} disabled={!canRetry}>
-              刷新
-            </button>
-          </div>
-          {app.phase === 'ready' ? (
+          {!embed ? (
+            <div className="runtime-topbar">
+              <span className="runtime-topbar-item">项目：{app.params?.project ?? '—'}</span>
+              <span className="runtime-topbar-item">资产：{uiName}</span>
+              <span className="runtime-topbar-item">模式：{modeLabel}</span>
+              <span className="runtime-topbar-spacer" />
+              <button type="button" className="runtime-btn" onClick={retry} disabled={!canRetry}>
+                刷新
+              </button>
+            </div>
+          ) : null}
+          {!embed && app.phase === 'ready' ? (
             <div className="runtime-console">
               <button
                 type="button"
