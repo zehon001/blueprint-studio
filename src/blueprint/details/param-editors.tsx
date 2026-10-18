@@ -11,6 +11,8 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import type { ParamOption, ParamSpec, PinSpec } from '../../ir/types';
+import { useBlueprintStore } from '../store/blueprint-store';
+import { useSceneTreeDomain } from '../../ui-editor/store';
 import {
   displayValue,
   paramEditorKindOf,
@@ -199,6 +201,66 @@ export function ColorValueEditor(props: {
   );
 }
 
+/** 变量选择器（v3 T12.8）：下拉列出本资产变量（提升标记 ★） */
+export function VariableValueEditor(props: {
+  value: unknown;
+  mixed?: boolean;
+  className?: string;
+  onCommit: (value: string) => void;
+}) {
+  const variables = useBlueprintStore((s) => s.asset?.variables ?? []);
+  const current = props.mixed || props.value === undefined ? '' : String(props.value);
+  return (
+    <select
+      className={`${props.className ?? 'bp-det-select'}${props.mixed ? ' bp-det-input--mixed' : ''}`}
+      value={current}
+      aria-label="变量选择器"
+      onChange={(e) => props.onCommit(e.target.value)}
+    >
+      <option value="">{props.mixed ? '—' : '（选择变量）'}</option>
+      {variables.map((v) => (
+        <option key={v.name} value={v.name}>
+          {v.name}
+          {v.type ? ` : ${v.type}` : ''}
+          {v.exposed ? ' ★' : ''}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** 子节点选择器（v3 T12.5）：列出当前 UI 资产树内节点 name（图属主自身树） */
+export function NodeSelectorEditor(props: {
+  value: unknown;
+  mixed?: boolean;
+  className?: string;
+  onCommit: (value: string) => void;
+}) {
+  const { asset } = useSceneTreeDomain();
+  const names: string[] = [];
+  const walk = (n: NonNullable<typeof asset>['root']): void => {
+    names.push(n.name);
+    for (const c of n.children ?? []) walk(c);
+  };
+  if (asset) walk(asset.root);
+  const current = props.mixed || props.value === undefined ? '' : String(props.value);
+  return (
+    <select
+      className={`${props.className ?? 'bp-det-select'}${props.mixed ? ' bp-det-input--mixed' : ''}`}
+      value={current}
+      aria-label="子节点选择器"
+      onChange={(e) => props.onCommit(e.target.value)}
+    >
+      <option value="">{props.mixed ? '—' : '（选择节点）'}</option>
+      {names.map((name) => (
+        <option key={name} value={name}>
+          {name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** 按控件种类分发（ParamSpec / PinSpec 共用的值编辑入口） */
 export function ValueEditor(props: {
   kind: EditorKind;
@@ -232,6 +294,10 @@ export function ValueEditor(props: {
       );
     case 'color':
       return <ColorValueEditor value={props.value} mixed={props.mixed} onCommit={props.onCommit} />;
+    case 'variable':
+      return <VariableValueEditor value={props.value} mixed={props.mixed} onCommit={props.onCommit} />;
+    case 'nodeSelector':
+      return <NodeSelectorEditor value={props.value} mixed={props.mixed} onCommit={props.onCommit} />;
     default:
       return (
         <TextValueEditor

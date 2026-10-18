@@ -5,6 +5,9 @@
  *  - REST：/api/projects（列表/新建）· /api/tree · /api/file（GET/PUT/DELETE）·
  *          /api/move · /api/import · /api/history（T7.4 快照列表）/api/history/restore（恢复）·
  *          /api/watch（SSE）· /api/health
+ *  - 资源库（T11.4/T11.6，实现见 ./library.ts；独立安全根 BP_LIBRARY_ROOT）：
+ *          /api/library/list · read · write · delete · rename · history · restore ·
+ *          export（zip / json）· import（zip / zipBase64）· watch（SSE，PLAN §7.6）
  *  - TS 转译（T3.3）：/api/transpile（esbuild type-strip + (path, 内容哈希) LRU 缓存）
  *  - 插件注册表（T6.1）：/api/plugins（三源合并清单）· /api/plugins/:id（单清单详情）
  *  - 静态托管 dist/（多入口：/ · /editor.html · /runtime.html；SPA fallback 仅对已知入口）
@@ -23,6 +26,7 @@ import path from 'node:path'
 import { WebSocketServer } from 'ws'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import * as fsApi from './fs'
+import * as libraryApi from './library'
 import * as pluginsApi from './plugins/registry'
 import * as executorApi from './plugins/executor'
 import * as transpileApi from './transpile'
@@ -30,6 +34,9 @@ import { WsDebugHub } from './ws'
 
 const PORT = Number(process.env.PORT || 8790)
 const PROJECTS_ROOT = fsApi.ensureProjectsRoot()
+// T11.4/T11.6：资源库独立安全根（默认 %USERPROFILE%\.blueprint-studio\library，BP_LIBRARY_ROOT 覆盖）。
+// 启动即校验存在/可写/不与项目根重叠；每次库操作内部会再校验（PLAN §3.5）。
+const LIBRARY_ROOT = libraryApi.ensureLibraryRoot()
 const DIST_DIR = path.join(fsApi.repoRoot(), 'dist')
 const BODY_LIMIT_BYTES = 20 * 1024 * 1024
 const STARTED_AT = Date.now()
@@ -95,21 +102,67 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.end(body)
 }
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+/** 读取请求体原始字节（上传 zip 用；沿用 20MB 上限） */
+async function readRawBody(req: IncomingMessage, limit = BODY_LIMIT_BYTES): Promise<Buffer> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {
     size += (chunk as Buffer).length
-    if (size > BODY_LIMIT_BYTES) throw new fsApi.FsError(413, '请求体过大（>20MB）')
+    if (size > limit) throw new fsApi.FsError(413, '请求体过大（>20MB）')
     chunks.push(chunk as Buffer)
   }
-  const text = Buffer.concat(chunks).toString('utf8')
+  return Buffer.concat(chunks)
+}
+
+async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const text = (await readRawBody(req)).toString('utf8')
   if (!text.trim()) return {}
   try {
     return JSON.parse(text) as Record<string, unknown>
   } catch {
     throw new fsApi.FsError(400, '请求体不是合法 JSON')
   }
+}
+
+/** 二进制响应（zip 导出）：JSON 契约不适用，错误仍走 { ok:false, message } */
+function sendZip(res: ServerResponse, filename: string, zip: Buffer, manifest: unknown): void {
+  const headers: Record<string, string | number> = {
+    'Content-Type': 'application/zip',
+    'Content-Length': zip.length,
+    'Content-Disposition': `attachment; filename="${filename}"`,
+    'Access-Control-Expose-Headers': 'Content-Disposition, X-Library-Manifest',
+    'Cache-Control': 'no-store',
+  }
+  // 供客户端不落盘即读 manifest（URL 编码，避免非 ASCII 头非法）；
+  // 条目很多时该头可能超过常见 8KB 头限制，此时省略（manifest 仍在包内）。
+  const encodedManifest = encodeURIComponent(JSON.stringify(manifest))
+  if (encodedManifest.length <= 8000) headers['X-Library-Manifest'] = encodedManifest
+  res.writeHead(200, headers)
+  res.end(zip)
+}
+
+/** 导入的 zipBase64 解码（严格校验，避免 Buffer.from 静默忽略非法字符） */
+function decodeZipBase64(raw: unknown): Buffer {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new fsApi.FsError(400, '导入需要 zip：Content-Type: application/zip 请求体，或 JSON { zipBase64 }')
+  }
+  const text = raw.replace(/\s+/g, '')
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(text)) {
+    throw new fsApi.FsError(400, 'zipBase64 不是合法的 base64')
+  }
+  // 容忍省略 padding 的 base64（部分客户端 btoa 替代实现会去掉尾部 =）
+  const padded = text + '='.repeat((4 - (text.length % 4)) % 4)
+  if (padded.length % 4 !== 0) throw new fsApi.FsError(400, 'zipBase64 长度非法')
+  const buf = Buffer.from(padded, 'base64')
+  if (buf.length < 22) throw new fsApi.FsError(400, 'zipBase64 内容过短（不是合法 zip）')
+  return buf
+}
+
+/** 压缩包默认文件名（时间戳到秒，避免客户端同名覆盖） */
+function zipFilename(): string {
+  const d = new Date()
+  const p2 = (n: number): string => String(n).padStart(2, '0')
+  return `blueprint-library-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}.zip`
 }
 
 /* ============================================================
@@ -220,6 +273,137 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       const body = await readJson(req)
       const result = fsApi.importProjectFolder(PROJECTS_ROOT, body.sourcePath, body.name)
       sendJson(res, 201, result)
+      return
+    }
+
+    /* ---------- T11.4 / T11.6 资源库（独立安全根；实现见 ./library.ts） ----------
+     * 全部 CRUD 走同一套参数/错误契约：成功 { ok:true, ... }、失败 { ok:false, message }；
+     * 路径越界 / 非法名 / 跨类型由 library.ts 抛 FsError（400/403/404/409/413/500）。
+     * 库变更经 /api/library/watch（SSE）广播 { kind, name, action }（PLAN §7.6）。
+     */
+    if (pathname === '/api/library/list' && req.method === 'GET') {
+      const kind = url.searchParams.get('kind') ?? ''
+      sendJson(res, 200, {
+        ok: true,
+        kind: libraryApi.normalizeLibraryKind(kind),
+        entries: libraryApi.listLibrary(kind),
+      })
+      return
+    }
+
+    if (pathname === '/api/library/read' && req.method === 'GET') {
+      sendJson(
+        res,
+        200,
+        libraryApi.readLibraryEntry(url.searchParams.get('kind') ?? '', url.searchParams.get('name') ?? ''),
+      )
+      return
+    }
+
+    if (pathname === '/api/library/write' && (req.method === 'PUT' || req.method === 'POST')) {
+      const body = await readJson(req)
+      sendJson(res, 200, libraryApi.writeLibraryEntry(body.kind, body.name, body.content))
+      return
+    }
+
+    if (pathname === '/api/library/delete' && (req.method === 'DELETE' || req.method === 'POST')) {
+      let kind = url.searchParams.get('kind')
+      let name = url.searchParams.get('name')
+      if (req.method === 'POST' && (!kind || !name)) {
+        const body = await readJson(req)
+        kind = kind ?? (typeof body.kind === 'string' ? body.kind : null)
+        name = name ?? (typeof body.name === 'string' ? body.name : null)
+      }
+      sendJson(res, 200, libraryApi.deleteLibraryEntry(kind ?? '', name ?? ''))
+      return
+    }
+
+    if (pathname === '/api/library/rename' && req.method === 'POST') {
+      const body = await readJson(req)
+      const from = body.from ?? body.name
+      sendJson(
+        res,
+        200,
+        libraryApi.renameLibraryEntry(body.kind, from, body.to, { overwrite: body.overwrite === true }),
+      )
+      return
+    }
+
+    if (pathname === '/api/library/history' && req.method === 'GET') {
+      sendJson(
+        res,
+        200,
+        libraryApi.listLibraryHistory(
+          url.searchParams.get('kind') ?? '',
+          url.searchParams.get('name') ?? '',
+        ),
+      )
+      return
+    }
+
+    if (pathname === '/api/library/restore' && req.method === 'POST') {
+      const body = await readJson(req)
+      sendJson(res, 200, libraryApi.restoreLibraryHistory(body.kind, body.name, body.ts))
+      return
+    }
+
+    // 导出：默认 zip 二进制（manifest.json 在包内 + X-Library-Manifest 头）；
+    // format=json 返回 { ok:true, manifest, missing, files:[{ ..., contentBase64 }] } 供调试/测试。
+    if (pathname === '/api/library/export' && (req.method === 'GET' || req.method === 'POST')) {
+      const body = req.method === 'POST' ? await readJson(req) : {}
+      const qKind = url.searchParams.get('kind')
+      const qName = url.searchParams.get('name')
+      let entries: unknown = body.entries
+      if (entries === undefined && (qKind || qName)) {
+        if (!qKind || !qName) throw new fsApi.FsError(400, 'export 的 kind 与 name 必须同时提供')
+        entries = [{ kind: qKind, name: qName }]
+      }
+      const depsParam = url.searchParams.get('deps')
+      const includeDependencies =
+        body.includeDependencies === undefined ? depsParam !== '0' : body.includeDependencies
+      const format = String(body.format ?? url.searchParams.get('format') ?? 'zip')
+      if (format === 'json') {
+        const bundle = libraryApi.exportLibraryBundle({ entries, includeDependencies })
+        sendJson(res, 200, {
+          ok: true,
+          manifest: bundle.manifest,
+          missing: bundle.missing,
+          files: bundle.files.map((f) => ({
+            kind: f.kind,
+            name: f.name,
+            path: f.path,
+            size: f.size,
+            sha256: f.sha256,
+            contentBase64: f.content.toString('base64'),
+          })),
+        })
+        return
+      }
+      if (format !== 'zip') throw new fsApi.FsError(400, 'format 必须为 zip | json')
+      const result = libraryApi.exportLibraryZip({ entries, includeDependencies })
+      sendZip(res, zipFilename(), result.zip, result.manifest)
+      return
+    }
+
+    // 导入：Content-Type: application/zip（原始 zip）或 JSON { zipBase64, policy? }；
+    // 冲突策略可放 query ?policy= 或 body.policy（skip | overwrite | rename，缺省 skip）。
+    if (pathname === '/api/library/import' && req.method === 'POST') {
+      const contentType = String(req.headers['content-type'] ?? '').toLowerCase()
+      let policy: unknown = url.searchParams.get('policy') ?? undefined
+      let zip: Buffer
+      if (contentType.includes('application/zip') || contentType.includes('application/octet-stream')) {
+        zip = await readRawBody(req)
+      } else {
+        const body = await readJson(req)
+        if (policy === undefined) policy = body.policy
+        zip = decodeZipBase64(body.zipBase64 ?? body.zip)
+      }
+      sendJson(res, 200, libraryApi.importLibraryZip(zip, { policy }))
+      return
+    }
+
+    if (pathname === '/api/library/watch' && req.method === 'GET') {
+      handleLibraryWatch(req, res)
       return
     }
 
@@ -335,6 +519,33 @@ function handleWatch(req: IncomingMessage, res: ServerResponse, relPath: string)
   })
 }
 
+/**
+ * T11.4 / PLAN §7.6 资源库变更 SSE：库文件保存/删除/改名后广播 { kind, name, action }。
+ * 先 ensureLibraryRoot（失败在写响应头前抛 FsError → 统一 JSON 错误），再发 hello，
+ * 订阅 librarySubscribers；断线即退订（客户端降级为「下次打开生效」，不阻塞编辑）。
+ */
+function handleLibraryWatch(req: IncomingMessage, res: ServerResponse): void {
+  libraryApi.ensureLibraryRoot(LIBRARY_ROOT)
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+  })
+  res.write('retry: 3000\n\n')
+  res.write(`data: ${JSON.stringify({ ok: true, hello: true, libraryRoot: LIBRARY_ROOT })}\n\n`)
+  const unsubscribe = libraryApi.onLibraryChange((event) => {
+    if (!res.writableEnded) res.write(`data: ${JSON.stringify({ ok: true, events: [event] })}\n\n`)
+  })
+  const ping = setInterval(() => {
+    if (!res.writableEnded) res.write(': ping\n\n')
+  }, 25000)
+  req.on('close', () => {
+    clearInterval(ping)
+    unsubscribe()
+    if (!res.writableEnded) res.end()
+  })
+}
+
 /* ============================================================
  * 静态托管（dist/，多入口）
  * ============================================================ */
@@ -405,6 +616,7 @@ server.on('upgrade', (req, socket, head) => {
 server.listen(PORT, () => {
   console.log(`[server] Blueprint Studio v2 后端已启动: http://localhost:${PORT}`)
   console.log(`[server] 项目安全根: ${PROJECTS_ROOT}`)
+  console.log(`[server] 资源库根: ${LIBRARY_ROOT}（独立安全根，T11.4；SSE /api/library/watch）`)
   console.log(`[server] 静态目录: ${DIST_DIR}（入口 / · /editor.html · /runtime.html）`)
   console.log(`[server] WebSocket: ws://localhost:${PORT}/ws（调试观察协议 debug.v1，T5.4）`)
 })

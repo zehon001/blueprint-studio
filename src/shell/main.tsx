@@ -23,6 +23,7 @@ import { loadKeymapOverrides } from '@/shell/keymap/persist'
 import { launchRuntimeCurrent, launchRuntimeMain } from '@/shell/runtime-launch'
 import { bootstrapDock } from '@/shell/dock/defaultPanels'
 import DockShell from '@/shell/dock/DockShell'
+import { ensureAssetPanelFromId } from '@/shell/dock/assetPanel'
 import PopoutApp from '@/shell/windows/PopoutApp'
 import { installMainBridge } from '@/shell/windows/bridge'
 import { popoutPanelIdFromLocation } from '@/shell/windows/popout'
@@ -50,6 +51,8 @@ const popoutPanelId = popoutPanelIdFromLocation()
 
 if (popoutPanelId) {
   // 弹窗模式：只渲染该面板，状态经 BroadcastChannel 与主窗保持一致（T0.4）
+  // v3 T8.1：资产面板是动态注册的，弹窗页按 ?panel=asset:… 重建同一注册项
+  ensureAssetPanelFromId(popoutPanelId)
   createRoot(document.getElementById('root')!).render(<PopoutApp panelId={popoutPanelId} />)
 } else {
   // 主窗模式

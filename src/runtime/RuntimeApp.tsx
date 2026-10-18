@@ -28,6 +28,15 @@ import { BindingRunner } from './binding'
 import { DebugProbe } from './debug-probe'
 import type { UIAsset } from '../ir/types'
 import { parseUIAsset } from '../ui-editor/store'
+import { runtimeEmbeddedBlueprint } from '../ui-editor/embedded'
+import { parseStyleSheet, type StyleSheet } from '../ui-editor/styles'
+import {
+  clearElementCache,
+  findElementCycle,
+  getCachedElement,
+  prefetchElements,
+  setElementLoaderContext,
+} from '../ui-editor/element'
 import {
   clearPrefabCache,
   findPrefabCycle,
@@ -43,6 +52,10 @@ export interface RuntimeParams {
   project: string
   ui: string | null
   mode: RuntimeMode
+  /** 内置运行视图模式（隐藏顶栏/页内控制台 UI；v3 T8.5） */
+  embed?: boolean
+  /** 重跑 nonce（仅缓存失效用） */
+  run?: number
 }
 
 /** 加载状态机阶段 */
@@ -60,7 +73,15 @@ export function parseRuntimeParams(search: string): RuntimeParams | null {
   const modeRaw = q.get('mode')
   const mode: RuntimeMode = modeRaw === 'current' ? 'current' : 'main'
   const uiRaw = q.get('ui')
-  return { project, ui: uiRaw && uiRaw.trim() !== '' ? uiRaw : null, mode }
+  const runRaw = q.get('run')
+  const run = runRaw !== null && /^\d+$/.test(runRaw) ? Number(runRaw) : undefined
+  return {
+    project,
+    ui: uiRaw && uiRaw.trim() !== '' ? uiRaw : null,
+    mode,
+    ...(q.get('embed') === '1' ? { embed: true } : {}),
+    ...(run !== undefined ? { run } : {}),
+  }
 }
 
 /**
@@ -126,6 +147,8 @@ interface RuntimeAppState {
   uiPath: string | null
   /** 就绪资产（phase=ready 时交给 renderUI） */
   asset: UIAsset | null
+  /** v3 T11.1：资产应用的样式表 */
+  styleSheets: StyleSheet[]
 }
 
 export interface RuntimeAppProps {
@@ -143,8 +166,8 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     const raw = props.params ?? parseRuntimeParams(typeof location === 'undefined' ? '' : location.search)
     const v = validateRuntimeParams(raw)
     return v.ok
-      ? { params: v.params, phase: 'loading' as const, message: '', uiPath: v.params.ui, asset: null }
-      : { params: null, phase: 'error' as const, message: v.message, uiPath: null, asset: null }
+      ? { params: v.params, phase: 'loading' as const, message: '', uiPath: v.params.ui, asset: null, styleSheets: [] }
+      : { params: null, phase: 'error' as const, message: v.message, uiPath: null, asset: null, styleSheets: [] }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅取首次 props（窗口参数静态）
   }, [])
   const [app, setApp] = useState<RuntimeAppState>(initial)
@@ -242,7 +265,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     handleRef.current?.destroy()
     handleRef.current = null
     setConsoleLines([])
-    setApp({ params: p, phase: 'loading', message: '', uiPath: p.ui, asset: null })
+    setApp({ params: p, phase: 'loading', message: '', uiPath: p.ui, asset: null, styleSheets: [] })
     const fetchImpl = propsRef.current.fetchImpl ?? fetch
     try {
       let uiPath = p.ui
@@ -264,7 +287,23 @@ export default function RuntimeApp(props: RuntimeAppProps) {
       await prefetchPrefabs(asset.root)
       const cycle = findPrefabCycle(asset.root, (path) => getCachedPrefab(path))
       if (cycle) throw new Error(cycle)
-      setApp({ params: p, phase: 'ready', message: '', uiPath, asset })
+      // v3 T11.2：元素实例预取 + 循环检测
+      setElementLoaderContext({ projectPath: p.project, fetchImpl })
+      clearElementCache()
+      await prefetchElements(asset.root)
+      const elementCycle = findElementCycle(asset.root, (path) => getCachedElement(path))
+      if (elementCycle) throw new Error(elementCycle)
+      // v3 T11.1：装载样式表（项目相对；@library 待资源库服务接入）
+      const styleSheets: StyleSheet[] = []
+      for (const ref of asset.styles ?? []) {
+        if (ref.startsWith('@library/')) continue
+        try {
+          styleSheets.push(parseStyleSheet(await fetchFileText(fetchImpl, `${p.project}/${ref}`)))
+        } catch {
+          /* 样式缺失不阻断运行（T13.1 校验） */
+        }
+      }
+      setApp({ params: p, phase: 'ready', message: '', uiPath, asset, styleSheets })
     } catch (err) {
       setApp({
         params: p,
@@ -272,6 +311,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
         message: err instanceof Error ? err.message : String(err),
         uiPath: null,
         asset: null,
+        styleSheets: [],
       })
     }
   }, [])
@@ -301,6 +341,27 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     })
   }, [app.params])
 
+  // v3 T8.5：embed 模式下焦点在 iframe 内时，把 F5/F6/Ctrl+S 转发给父窗口执行
+  const embed = app.params?.embed === true
+  useEffect(() => {
+    if (!embed || typeof window === 'undefined') return
+    const onKey = (e: KeyboardEvent): void => {
+      let key: string | null = null
+      if (e.key === 'F5') key = 'F5'
+      else if (e.key === 'F6') key = 'F6'
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') key = 'Ctrl+S'
+      if (!key) return
+      e.preventDefault()
+      try {
+        window.parent.postMessage({ type: 'bps-runtime-key', key }, '*')
+      } catch {
+        /* 跨窗口不可用：忽略，父窗快捷键仍可用 */
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [embed])
+
   // 就绪后渲染 + 绑定运行：renderUI 是编辑态/运行态共用的渲染唯一真源；
   // 内建事件 → props.onEvent（调试替身 / 缺省 console）+ BindingRunner（路由到蓝图 runtime）；
   // runner 异步加载 .bp.json 并 start()，单个蓝图失败只记控制台不阻断渲染。
@@ -311,6 +372,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     let localHandle: UIRenderHandle | null = null
     localHandle = renderUI(app.asset, {
       mode: 'runtime',
+      styles: app.styleSheets,
       onEvent: (evt) => {
         ;(propsRef.current.onEvent ?? defaultOnEvent)(evt)
         runnerRef.current?.routeEvent(evt)
@@ -332,6 +394,8 @@ export default function RuntimeApp(props: RuntimeAppProps) {
       const runner = new BindingRunner({
         project,
         asset: app.asset,
+        embedded: runtimeEmbeddedBlueprint(app.asset) ?? undefined,
+        debugAssetPath: app.uiPath ?? undefined,
         renderHandle: handle,
         fetchImpl: propsRef.current.fetchImpl ?? fetch,
         onPrint: appendConsole,
@@ -351,7 +415,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
       probeRef.current?.stop()
       probeRef.current = null
     }
-  }, [app.phase, app.asset, appendConsole])
+  }, [app.phase, app.asset, app.styleSheets, appendConsole])
 
   const retry = useCallback((): void => {
     if (app.params) void load(app.params)
@@ -362,7 +426,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
   const canRetry = app.params !== null
 
   return (
-    <div className="runtime-root">
+    <div className={`runtime-root${embed ? ' runtime-root--embed' : ''}`}>
       {app.phase === 'error' ? (
         <div className="runtime-error" role="alert">
           <div className="runtime-error-title">运行失败</div>
@@ -373,16 +437,18 @@ export default function RuntimeApp(props: RuntimeAppProps) {
         </div>
       ) : (
         <>
-          <div className="runtime-topbar">
-            <span className="runtime-topbar-item">项目：{app.params?.project ?? '—'}</span>
-            <span className="runtime-topbar-item">资产：{uiName}</span>
-            <span className="runtime-topbar-item">模式：{modeLabel}</span>
-            <span className="runtime-topbar-spacer" />
-            <button type="button" className="runtime-btn" onClick={retry} disabled={!canRetry}>
-              刷新
-            </button>
-          </div>
-          {app.phase === 'ready' ? (
+          {!embed ? (
+            <div className="runtime-topbar">
+              <span className="runtime-topbar-item">项目：{app.params?.project ?? '—'}</span>
+              <span className="runtime-topbar-item">资产：{uiName}</span>
+              <span className="runtime-topbar-item">模式：{modeLabel}</span>
+              <span className="runtime-topbar-spacer" />
+              <button type="button" className="runtime-btn" onClick={retry} disabled={!canRetry}>
+                刷新
+              </button>
+            </div>
+          ) : null}
+          {!embed && app.phase === 'ready' ? (
             <div className="runtime-console">
               <button
                 type="button"

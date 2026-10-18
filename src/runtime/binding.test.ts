@@ -551,7 +551,7 @@ describe('空蓝图模板（emptyBlueprintAsset）', () => {
   test('deserializeIR 通过：entry=bind 主图含 event.start，各表为空', () => {
     const bp = emptyBlueprintAsset('解析器')
     const ir = deserializeIR(JSON.stringify(bp))
-    assert.equal(ir.version, 2)
+    assert.equal(ir.version, 3)
     assert.equal(ir.name, '解析器')
     assert.equal(ir.entry, 'bind')
     assert.equal(ir.graphs['bind']!.nodes.length, 1)

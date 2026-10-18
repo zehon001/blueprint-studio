@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "classes": {
+    "app-root": {
+      "container": {
+        "direction": "column",
+        "gap": 4,
+        "padding": {
+          "t": 8,
+          "r": 8,
+          "b": 8,
+          "l": 8
+        }
+      }
+    },
+    "title": {
+      "props": {
+        "text": "日志分析"
+      }
+    }
+  }
+}

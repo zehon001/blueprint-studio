@@ -32,7 +32,8 @@ import {
   commitDelete,
   commitDuplicate,
   commitMoves,
-  isFreeParentType,
+  isNodeFreelyPositionable,
+  readNodePosition,
   resolveAddParent,
   type NodeMove,
 } from './commands';
@@ -145,6 +146,9 @@ export function UIEditorPanel() {
   const setSelection = useUIEditorStore((s) => s.setSelection);
   const addSelection = useUIEditorStore((s) => s.addSelection);
   const clearSelection = useUIEditorStore((s) => s.clearSelection);
+  /** v3 T11.1：已应用样式表（变化时重建渲染句柄以刷新合并结果） */
+  const styleSheets = useUIEditorStore((s) => s.styleSheets);
+  const stylesRef = useRef(styleSheets);
 
   /* —— 视口状态 —— */
   const [view, setView] = useState<ViewTransform>({ x: 0, y: 0, scale: 1 });
@@ -207,10 +211,20 @@ export function UIEditorPanel() {
       setBoxes([]);
       return;
     }
+    // 样式表变化 → 重建句柄（RenderOptions 不可变，updateUI 不会重新读样式）
+    if (handleRef.current && stylesRef.current !== styleSheets) {
+      handleRef.current.destroy();
+      handleRef.current = null;
+      stylesRef.current = styleSheets;
+    }
     if (!handleRef.current) {
       // onPrefabLoad（ADR-009）：渲染期补拉成功的占位刷新——bump prefabTick 让本 effect
       // 重跑（updateUI 增量更新；回调存于渲染 state，updateUI 沿用同一回调）。
-      const h = renderUI(asset, { mode: 'edit', onPrefabLoad: () => setPrefabTick((t) => t + 1) });
+      const h = renderUI(asset, {
+        mode: 'edit',
+        onPrefabLoad: () => setPrefabTick((t) => t + 1),
+        styles: styleSheets,
+      });
       handleRef.current = h;
       canvas.insertBefore(h.el, canvas.firstChild); // 渲染层在下，overlay 在上
     } else {
@@ -223,7 +237,7 @@ export function UIEditorPanel() {
       }
     }
     setBoxes(measure());
-  }, [asset, measure, prefabTick]);
+  }, [asset, measure, prefabTick, styleSheets]);
 
   /* —— 卸载清理 —— */
   useEffect(
@@ -282,7 +296,8 @@ export function UIEditorPanel() {
     return selection.filter((id) => {
       const parent = pmap.get(id);
       if (parent === undefined) return false;
-      return isFreeParentType(parent ? parent.type : null);
+      const node = findUINode(asset.root, id);
+      return node ? isNodeFreelyPositionable(node, parent) : false;
     });
   }, [asset, selection]);
 
@@ -357,7 +372,8 @@ export function UIEditorPanel() {
     for (const id of ids) {
       const parent = pmap.get(id);
       if (parent === undefined) continue;
-      if (isFreeParentType(parent ? parent.type : null)) movableIds.push(id);
+      const node = findUINode(assetNow.root, id);
+      if (node && isNodeFreelyPositionable(node, parent)) movableIds.push(id);
       else flowCount++;
     }
     const boxOf = new Map(liveBoxes.map((b) => [b.id, b.rect]));
@@ -367,7 +383,7 @@ export function UIEditorPanel() {
       const node = findUINode(assetNow.root, id);
       const el = canvas.querySelector<HTMLElement>(`[data-uid="${id}"]`);
       if (!box || !node || !el) return [];
-      return [{ id, el, box, startPos: { x: node.transform.position.x, y: node.transform.position.y } }];
+      return [{ id, el, box, startPos: readNodePosition(node) }];
     });
     if (items.length === 0 && flowCount === 0) return;
 
@@ -427,7 +443,7 @@ export function UIEditorPanel() {
   };
 
   /** 开始框选（空白处左键拖；Shift 框选加选；命中根节点也走框选——根不可拖体移动） */
-  const startMarqueeDrag = (start: Vec2, additive: boolean): void => {
+  const startMarqueeDrag = (start: Vec2, additive: boolean, keepOnClick = false): void => {
     const ac = new AbortController();
     dragRef.current = { kind: 'marquee', ac };
     setDragKind('marquee');
@@ -451,7 +467,8 @@ export function UIEditorPanel() {
       setDragKind(null);
       setMarquee(null);
       if (!gesture.active || !gesture.rect) {
-        if (!additive) clearSelection();
+        // 根节点区域按下后原地松开 = 选中根（不能派发 clearSelection 把刚设的选中清掉）
+        if (!additive && !keepOnClick) clearSelection();
         return;
       }
       const live = measure();
@@ -489,6 +506,11 @@ export function UIEditorPanel() {
     const live = measure();
     const hit = hitTest(pt, live);
     if (hit) {
+      // Alt+点击：直接选中最外层根（根被内容铺满时的快捷方式）
+      if (e.altKey) {
+        setSelection([assetRef.current.root.id]);
+        return;
+      }
       if (e.ctrlKey || e.metaKey) {
         // Ctrl+点击：加选 / 减选（不启动拖动）
         const sel = selectionRef.current;
@@ -496,7 +518,9 @@ export function UIEditorPanel() {
         return;
       }
       if (hit === assetRef.current.root.id) {
-        startMarqueeDrag(pt, e.shiftKey); // 点在根节点体上拖拽 = 框选（根移动走微调/对齐）
+        // BUG2：根节点也要能在画布中单击选中；按下后仍允许拖出框选（未移动 = 选中根）
+        if (!e.shiftKey && !selectionRef.current.includes(hit)) setSelection([hit]);
+        startMarqueeDrag(pt, e.shiftKey, true);
         return;
       }
       const sel = selectionRef.current;
@@ -505,7 +529,7 @@ export function UIEditorPanel() {
       startMoveDrag(pt, live, ids);
       return;
     }
-    startMarqueeDrag(pt, e.shiftKey); // 空白处按下：候选框选
+    startMarqueeDrag(pt, e.shiftKey); // 空白处按下：候选框选；原地松开清除选择
   };
 
   const onContextMenu = (e: React.MouseEvent): void => {
@@ -680,16 +704,13 @@ export function UIEditorPanel() {
     for (const id of selectionRef.current) {
       const parent = pmap.get(id);
       if (parent === undefined) continue;
-      if (!isFreeParentType(parent ? parent.type : null)) {
+      const node = findUINode(assetNow.root, id);
+      if (!node || !isNodeFreelyPositionable(node, parent)) {
         flowCount++;
         continue;
       }
-      const node = findUINode(assetNow.root, id);
-      if (!node) continue;
-      moves.push({
-        id,
-        position: { x: node.transform.position.x + d.x, y: node.transform.position.y + d.y },
-      });
+      const cur = readNodePosition(node);
+      moves.push({ id, position: { x: cur.x + d.x, y: cur.y + d.y } });
     }
     if (flowCount > 0) showHint(FLOW_HINT);
     if (moves.length > 0) commitMoves(moves, '视口：微调节点位置');
@@ -742,7 +763,7 @@ export function UIEditorPanel() {
       .flatMap((b) => {
         const node = findUINode(assetNow.root, b.id);
         if (!node) return [];
-        return [{ id: b.id, position: { x: node.transform.position.x, y: node.transform.position.y }, box: b.rect }];
+        return [{ id: b.id, position: readNodePosition(node), box: b.rect }];
       });
     const result = computeAlignment(entries, mode);
     if (result.size === 0) return;

@@ -21,7 +21,11 @@ import {
   baseName,
   contentForNewFile,
   dedupeName,
+  displayNameOf,
+  extensionOf,
   extLabelOf,
+  assetSuffixOf,
+  assetStemOf,
   formatBytes,
   historyTsLabel,
   joinPosix,
@@ -152,14 +156,36 @@ describe('路径工具（posix）', () => {
     assert.equal(assetKindOf('e.ui.json.bak'), null)
   })
 
-  it('extLabelOf 扩展名图标字符', () => {
+  it('extLabelOf 扩展名图标字符（v3：新增 EL/ST/FN）', () => {
     assert.equal(extLabelOf('main.ui.json'), 'UI')
     assert.equal(extLabelOf('main.bp.json'), 'BP')
+    assert.equal(extLabelOf('card.elem.json'), 'EL')
+    assert.equal(extLabelOf('base.uss.json'), 'ST')
+    assert.equal(extLabelOf('fmt.fn.json'), 'FN')
     assert.equal(extLabelOf('a.ts'), 'TS')
     assert.equal(extLabelOf('b.py'), 'PY')
     assert.equal(extLabelOf('c.json'), '{}')
     assert.equal(extLabelOf('shot.png'), 'IMG')
     assert.equal(extLabelOf('noext'), 'F')
+  })
+
+  it('v3 T8.4：资产显示主名 / 最长后缀 / 重命名保扩展', () => {
+    assert.equal(displayNameOf('main.ui.json'), 'main')
+    assert.equal(displayNameOf('MAIN.UI.JSON'), 'MAIN')
+    assert.equal(displayNameOf('card.elem.json'), 'card')
+    assert.equal(displayNameOf('base.uss.json'), 'base')
+    assert.equal(displayNameOf('fmt.fn.json'), 'fmt')
+    assert.equal(displayNameOf('a.ts'), 'a.ts') // 脚本保留完整名
+    assert.equal(displayNameOf('report.final.json'), 'report.final.json') // 未知 json 原样
+    assert.equal(displayNameOf('noext'), 'noext')
+    assert.equal(assetSuffixOf('main.ui.json'), '.ui.json')
+    assert.equal(assetSuffixOf('x.fn.json'), '.fn.json')
+    assert.equal(assetSuffixOf('x.ts'), '')
+    assert.equal(extensionOf('main.ui.json'), '.ui.json')
+    assert.equal(extensionOf('a.ts'), '.ts')
+    assert.equal(extensionOf('noext'), '')
+    assert.equal(assetStemOf('card.elem.json'), 'card')
+    assert.equal(assetStemOf('a.ts'), 'a')
   })
 
   it('dedupeName：同名加 " (n)" 后缀（大小写不敏感，双扩展名后缀在主干上）', () => {
@@ -197,12 +223,15 @@ describe('路径工具（posix）', () => {
     assert.equal(newFileTemplateOf('a.ts'), 'text')
     const ui = JSON.parse(contentForNewFile('main.ui.json')) as {
       version: number
+      kind: string
       name: string
-      root: { type: string; children: unknown[] }
+      root: { type: string; children: unknown[]; container?: { direction?: string } }
     }
-    assert.equal(ui.version, 2)
+    assert.equal(ui.version, 3)
+    assert.equal(ui.kind, 'scene')
     assert.equal(ui.name, 'main')
     assert.equal(ui.root.type, 'panel') // 单 panel 根节点
+    assert.equal(ui.root.container?.direction, 'column')
     assert.deepEqual(ui.root.children, [])
     const bp = JSON.parse(contentForNewFile('main.bp.json')) as {
       version: number
@@ -213,7 +242,7 @@ describe('路径工具（posix）', () => {
       snippets: unknown[]
       layout: Record<string, unknown>
     }
-    assert.equal(bp.version, 2)
+    assert.equal(bp.version, 3)
     assert.equal(bp.entry, 'bind')
     assert.deepEqual(Object.keys(bp.graphs), ['bind'])
     assert.deepEqual(bp.graphs.bind, { nodes: [], edges: [] })
@@ -406,7 +435,7 @@ describe('filesystem 命令日志与 undo 映射（T0.7 DoD）', () => {
     assert.ok(ui.action === 'write')
     if (ui.action === 'write') {
       const asset = JSON.parse(ui.content) as { version: number; root: { type: string } }
-      assert.equal(asset.version, 2)
+      assert.equal(asset.version, 3)
       assert.equal(asset.root.type, 'panel')
     }
 

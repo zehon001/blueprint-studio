@@ -37,15 +37,18 @@ const {
   currentProjectParam,
   launchRuntimeMain,
   launchRuntimeCurrent,
+  openRuntimeWindowExternal,
 } = await import('../shell/runtime-launch')
 const { useWorkspaceStore } = await import('../shell/workspace-store')
+const { useRuntimeStore } = await import('../panels/runtime/store')
+const { useDockStore } = await import('../shell/dock/store')
 
 /* ── 公共工具 ─────────────────────────────────────────────── */
 
 /** 最小 UI 资产（vbox > button），parseUIAsset 可直接解析 */
 function assetText(): string {
   return JSON.stringify({
-    version: 2,
+    version: 3,
     name: 'main',
     root: {
       id: 'ui_root',
@@ -123,6 +126,22 @@ test('buildRuntimeUrl：mode=current 携带 ui 资产路径（含中文与 / 均
   const q = new URLSearchParams(url.slice(url.indexOf('?') + 1))
   assert.equal(q.get('ui'), 'ui/主界面.ui.json', 'ui 参数往返无损')
   assert.equal(q.get('mode'), 'current')
+})
+
+test('buildRuntimeUrl：v3 内置运行视图 embed=1 + run nonce', () => {
+  const url = buildRuntimeUrl({ project: 'Demo', mode: 'main', embed: true, run: 7 })
+  assert.match(url, /[?&]embed=1(&|$)/)
+  assert.match(url, /[?&]run=7(&|$)/)
+  assert.equal(buildRuntimeUrl({ project: 'Demo', mode: 'main', embed: false }), '/runtime.html?project=Demo&mode=main')
+})
+
+test('parseRuntimeParams：解析 embed / run，缺省不伪造字段', () => {
+  const p = parseRuntimeParams('?project=Demo&mode=main&embed=1&run=3')
+  assert.equal(p?.embed, true)
+  assert.equal(p?.run, 3)
+  const q = parseRuntimeParams('?project=Demo&mode=main')
+  assert.equal(q?.embed, undefined)
+  assert.equal(q?.run, undefined)
 })
 
 /* ══ 2. parseMainUI：project.json → mainUI ═══════════════════ */
@@ -293,58 +312,64 @@ describe('launchRuntime（F5/F6 共用 handler）', () => {
     assert.equal(currentProjectParam(), null, '未打开项目返回 null')
   })
 
-  test('F5：拼 mode=main 且不带 ui 参数；命名窗口 bps-runtime-main + 980×720', async () => {
-    const opened: Array<{ url: string; target?: string; features?: string }> = []
-    const open: OpenWindowFn = (url, target, features) => {
-      opened.push({ url, target, features })
-      return { closed: false }
-    }
-    assert.equal(await launchRuntimeMain({ open }), true)
-    assert.equal(opened.length, 1)
-    assert.equal(opened[0]!.url, '/runtime.html?project=Demo&mode=main')
-    assert.equal(opened[0]!.target, 'bps-runtime-main')
-    assert.equal(opened[0]!.features, 'width=980,height=720')
+  test('F5：打开内置运行面板，target=main（不带 ui），nonce 自增', async () => {
+    useRuntimeStore.setState({ target: null, nonce: 0 })
+    assert.equal(await launchRuntimeMain(), true)
+    assert.deepEqual(useRuntimeStore.getState().target, { project: 'Demo', mode: 'main' })
+    assert.ok(useRuntimeStore.getState().nonce > 0)
+    assert.ok(useDockStore.getState().root, '运行面板应打开进 dock')
+    assert.equal(useDockStore.getState().activePanelId, 'runtime')
   })
 
-  test('F6：激活 tab 是 UI 资产 → 拼 ui 参数 mode=current；非 UI tab → toast「当前 tab 不是 UI」', async () => {
-    const opened: Array<{ url: string; target?: string }> = []
-    const open: OpenWindowFn = (url, target) => {
-      opened.push({ url, target })
-      return { closed: false }
-    }
-    assert.equal(await launchRuntimeCurrent({ open }), true)
-    assert.equal(opened[0]!.url, `/runtime.html?project=Demo&ui=${encodeURIComponent('ui/main.ui.json')}&mode=current`)
-    assert.equal(opened[0]!.target, 'bps-runtime-current')
+  test('F6：激活 tab 是 UI 资产 → target=current+ui；非 UI tab → toast 且不切换目标', async () => {
+    useRuntimeStore.setState({ target: null, nonce: 0 })
+    assert.equal(await launchRuntimeCurrent(), true)
+    assert.deepEqual(useRuntimeStore.getState().target, {
+      project: 'Demo',
+      ui: 'ui/main.ui.json',
+      mode: 'current',
+    })
 
+    const before = useRuntimeStore.getState().target
     useWorkspaceStore.setState({ activeTabId: 'blueprint:logic/main.bp.json' })
     const toasts: string[] = []
-    assert.equal(await launchRuntimeCurrent({ open, toast: (m) => toasts.push(m) }), false, '不打开窗口')
-    assert.equal(opened.length, 1, '未新增窗口')
+    assert.equal(await launchRuntimeCurrent({ toast: (m) => toasts.push(m) }), false, '不切换目标')
+    assert.deepEqual(useRuntimeStore.getState().target, before)
     assert.match(toasts[0] ?? '', /当前 tab 不是 UI/)
   })
 
-  test('弹窗被拦截 → pong 探测失败 → 降级 _blank；彻底失败 → toast 且返回 false', async () => {
+  test('独立运行窗口降级链（拆出按钮用）：pong 探测失败 → _blank；彻底失败 → toast', async () => {
     const targets: Array<string | undefined> = []
     const blockedThenBlank: OpenWindowFn = (_url, target) => {
       targets.push(target)
       return target === '_blank' ? { closed: false } : null // 命名弹窗被拦截
     }
-    assert.equal(await launchRuntimeMain({ open: blockedThenBlank }), true, '探测无 pong → 降级 _blank 成功')
+    assert.equal(
+      await openRuntimeWindowExternal('/runtime.html?project=Demo&mode=main', 'main', { open: blockedThenBlank }),
+      true,
+      '探测无 pong → 降级 _blank 成功',
+    )
     assert.deepEqual(targets, ['bps-runtime-main', '_blank'])
 
     targets.length = 0
     const alwaysBlocked: OpenWindowFn = () => null
     const toasts: string[] = []
-    assert.equal(await launchRuntimeMain({ open: alwaysBlocked, toast: (m) => toasts.push(m) }), false)
+    assert.equal(
+      await openRuntimeWindowExternal('/runtime.html?project=Demo&mode=main', 'main', {
+        open: alwaysBlocked,
+        toast: (m) => toasts.push(m),
+      }),
+      false,
+    )
     assert.match(toasts[0] ?? '', /拦截|无法打开运行窗口/)
   })
 
-  test('未打开项目 → toast「未打开项目」且不打开窗口', async () => {
+  test('未打开项目 → toast「未打开项目」且不打开运行面板', async () => {
     useWorkspaceStore.setState({ currentProject: null })
-    const opened: unknown[] = []
+    useRuntimeStore.setState({ target: null, nonce: 0 })
     const toasts: string[] = []
-    assert.equal(await launchRuntimeMain({ open: () => { opened.push(1); return { closed: false } }, toast: (m) => toasts.push(m) }), false)
+    assert.equal(await launchRuntimeMain({ toast: (m) => toasts.push(m) }), false)
     assert.match(toasts[0] ?? '', /未打开项目/)
-    assert.equal(opened.length, 0)
+    assert.equal(useRuntimeStore.getState().target, null)
   })
 })

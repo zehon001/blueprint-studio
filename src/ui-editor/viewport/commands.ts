@@ -39,6 +39,39 @@ export function isFreeParentType(parentType: string | null): boolean {
   return parentType === null || parentType === 'panel' || parentType === 'scrollBox';
 }
 
+/**
+ * v3 T9.3：节点是否可自由定位。
+ * - 有 layout 时以 layout.position 为准（absolute = 自由；relative = 流式被拒）；
+ * - 无 layout（v2 兼容）沿用父容器类型判定。
+ */
+export function isNodeFreelyPositionable(node: UINode, parent: UINode | null): boolean {
+  if (node.layout) return node.layout.position === 'absolute';
+  return isFreeParentType(parent?.type ?? null);
+}
+
+/** 读节点位置（v3 absolute layout 优先；否则 v2 transform） */
+export function readNodePosition(node: UINode): Vec2 {
+  const l = node.layout;
+  if (l && l.position === 'absolute') {
+    return {
+      x: typeof l.left === 'number' ? l.left : 0,
+      y: typeof l.top === 'number' ? l.top : 0,
+    };
+  }
+  return { x: node.transform.position.x, y: node.transform.position.y };
+}
+
+/** 写节点位置（v3 absolute 写 layout.left/top；否则写 transform.position） */
+export function writeNodePosition(node: UINode, pos: Vec2): void {
+  const l = node.layout;
+  if (l && l.position === 'absolute') {
+    l.left = pos.x;
+    l.top = pos.y;
+    return;
+  }
+  node.transform.position = { x: pos.x, y: pos.y };
+}
+
 /** 构建 id → 父节点映射（根节点映射为 null；未挂载资产时返回空 Map） */
 export function buildParentMap(root: UINode): Map<string, UINode | null> {
   const map = new Map<string, UINode | null>();
@@ -84,9 +117,9 @@ export function commitMoves(moves: readonly NodeMove[], label?: string): void {
     for (const m of moves) {
       const node = findUINode(root, m.id);
       if (!node) continue;
-      const cur = node.transform.position;
+      const cur = readNodePosition(node);
       if (cur.x === m.position.x && cur.y === m.position.y) continue;
-      node.transform.position = { x: m.position.x, y: m.position.y };
+      writeNodePosition(node, m.position);
     }
   });
 }

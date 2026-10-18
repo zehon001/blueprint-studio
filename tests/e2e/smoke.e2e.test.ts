@@ -236,7 +236,7 @@ test('场景① 新建项目（log-analyzer 模板）：目录结构与 project.
     const projectJson = JSON.parse(pf.json.content as string) as Record<string, unknown>
     assert.equal(projectJson.name, name)
     assert.equal(projectJson.mainUI, 'ui/main.ui.json')
-    assert.equal(projectJson.engineVersion, '0.2.0')
+    assert.equal(projectJson.engineVersion, '3.0.0')
     assert.deepEqual(projectJson.plugins, {})
   } finally {
     removeProjectDir(name)

@@ -23,6 +23,7 @@ export const DISPLAY_SCHEMAS: UINodeSchema[] = [
         type: 'string',
         group: '内容',
         default: '文本',
+        reflect: true,
         placeholder: '显示文本',
         doc: '显示的文本内容；运行时可由逻辑资产经 ui 访问器改写',
       },

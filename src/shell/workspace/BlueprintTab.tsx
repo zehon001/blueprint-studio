@@ -12,6 +12,10 @@ import { deserializeIR, serializeIR } from '@/ir/validate'
 import type { IRAsset } from '@/ir/types'
 import { peekUndo, subscribeReplay, useEditorStore } from '@/shell/commands'
 import { useWorkspaceStore, tabIdOf } from '@/shell/workspace-store'
+import { useBlueprintStore } from '@/blueprint/store/blueprint-store'
+import { useDockStore } from '@/shell/dock/store'
+import { assetPanelId } from '@/shell/dock/assetPanelModel'
+import { useSelectionStore } from '@/shell/selection/store'
 
 interface LoadState {
   status: 'loading' | 'ready' | 'missing' | 'error'
@@ -37,13 +41,37 @@ function emptyBlueprint(name: string): IRAsset {
   }
 }
 
-export function BlueprintTab({ assetPath }: { assetPath: string }) {
+export function BlueprintTab({ assetPath, panelId }: { assetPath: string; panelId?: string }) {
   const project = useWorkspaceStore((s) => s.currentProject)
   const markDirty = useWorkspaceStore((s) => s.markDirty)
   const clearDirty = useWorkspaceStore((s) => s.clearDirty)
   const tabId = tabIdOf('blueprint', assetPath)
   const [state, setState] = useState<LoadState>({ status: 'loading', asset: null, message: '' })
   const [reloadKey, setReloadKey] = useState(0)
+  /* v3 T8.2：统一选择协议——本面板激活且就绪时发布蓝图选中节点/图名 */
+  const uid = panelId ?? assetPanelId('blueprint', assetPath)
+  const activePanelId = useDockStore((s) => s.activePanelId)
+  const bpSelection = useBlueprintStore((s) => s.selection)
+  const bpGraph = useBlueprintStore((s) => s.graphName)
+  const publishSelection = useSelectionStore((s) => s.publish)
+  const clearSelection = useSelectionStore((s) => s.clear)
+  useEffect(() => {
+    if (state.status !== 'ready' || activePanelId !== uid) return
+    publishSelection({
+      source: 'blueprint',
+      panelId: uid,
+      assetPath,
+      graph: bpGraph,
+      nodeIds: bpSelection.nodeIds,
+      edgeIds: bpSelection.edgeIds,
+    })
+  }, [state.status, activePanelId, uid, assetPath, bpGraph, bpSelection, publishSelection])
+  useEffect(
+    () => () => {
+      clearSelection('blueprint', uid)
+    },
+    [clearSelection, uid],
+  )
 
   /* 加载 .bp.json */
   useEffect(() => {

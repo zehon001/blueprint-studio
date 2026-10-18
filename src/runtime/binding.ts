@@ -49,6 +49,7 @@ import {
 import type { UIRenderEvent, UIRenderHandle } from './render/render';
 import { updateUI } from './render/render';
 import { createRuntime, type DebugEvent, type RuntimeHandle } from './interpreter';
+import { resolveExternalFunctions } from './functions';
 import { createEventBus, runtimeEventSink, type EventBus } from './events';
 import { DebugWsClient } from '@/shell/debug/debug-ws';
 import type { DebugClientMessage } from '@/shell/debug/protocol';
@@ -110,7 +111,7 @@ export function collectBoundNodes(asset: UIAsset): LogicBinding[] {
  */
 export function emptyBlueprintAsset(name: string): IRAsset {
   return {
-    version: 2,
+    version: 3,
     name,
     entry: 'bind',
     graphs: {
@@ -475,6 +476,10 @@ export interface BindingRunnerOptions {
   project: string;
   /** 已渲染的 UI 资产（与 renderUI 用同一对象引用，refresh 才能增量生效） */
   asset: UIAsset;
+  /** v3 T10.3：UI 资产内嵌蓝图（给出时不再按 logicAsset 路径加载；整棵树路由到该 IR） */
+  embedded?: IRAsset;
+  /** v3 调试观察：内嵌蓝图的真实资产路径（缺省 '__embedded__'；运行窗口应传 uiPath） */
+  debugAssetPath?: string;
   /** 渲染句柄（UiHandle 直改 DOM 的查找根 + refresh 的 updateUI 凭据） */
   renderHandle: UIRenderHandle;
   /** fetch 替身（测试用；缺省全局 fetch） */
@@ -742,7 +747,11 @@ export class BindingRunner {
     // 事件总线（T5.1）：可注入共享实例（跨 UI 实例广播）；环保护警告 → 控制台 print。
     // 无论注入与否都登记到 this.bus（T6.5 plugin.push 订阅与 routeEvent 依赖该引用）
     const bus = (this.bus = this.opts.bus ?? createEventBus({ onWarn: (m) => this.print(m) }));
-    const bindings = collectBoundNodes(this.opts.asset);
+    const embedded = this.opts.embedded;
+    // v3：内嵌蓝图 = 整棵树绑定到同一个类级图；v2：按 logicAsset 路径收集
+    const bindings: LogicBinding[] = embedded
+      ? [{ path: '__embedded__', nodes: [this.opts.asset.root] }]
+      : collectBoundNodes(this.opts.asset);
     // T6.4 插件节点动态注册：运行装配——project / fetchImpl 记入动态运行时配置
     //（插件节点 run 的 HTTP 调用与 ctx 兜底共用）；插件 specs 按需拉取：仅当绑定资产
     // 中存在基线之外的节点类型（= 插件节点，含字面前缀写法）才请求 /api/plugins，
@@ -775,7 +784,7 @@ export class BindingRunner {
     };
     for (const binding of bindings) {
       if (this.stopped) return;
-      const kind = assetKindOf(binding.path);
+      const kind = embedded ? 'blueprint' : assetKindOf(binding.path);
       if (kind === 'script-py') {
         // Python 运行时本期未接入（T4.1 Pyodide）：只提示、不报错不崩溃，UI 渲染不受影响
         this.print(`[绑定] 暂不执行 ${binding.path}：Python 运行时将在 T4.1（Pyodide 集成）接入`);
@@ -783,10 +792,23 @@ export class BindingRunner {
       }
       const tag = `bp${this.seq++}`;
       try {
-        const text = await this.fetchFileText(`${this.opts.project}/${binding.path}`);
-        const ir =
-          kind === 'script-ts' ? await this.loadScriptIR(binding.path, text) : deserializeIR(text);
+        let ir: IRAsset;
+        if (embedded) {
+          ir = embedded;
+          this.print(`[绑定] 已加载内嵌蓝图「${ir.name}」：整棵 UI 树（事件路由到类级图）`);
+        } else {
+          const text = await this.fetchFileText(`${this.opts.project}/${binding.path}`);
+          ir = kind === 'script-ts' ? await this.loadScriptIR(binding.path, text) : deserializeIR(text);
+        }
         if (this.stopped) return;
+        // v3 T12.9：三档函数解析（项目库 / 内置库 → 注入图并改写 flow.call 目标）
+        const fnResolved = await resolveExternalFunctions(ir, {
+          project: this.opts.project,
+          fetchImpl: this.opts.fetchImpl,
+          onPrint: (line) => this.print(line),
+        });
+        for (const err of fnResolved.errors) this.print(`[错误] ${err}`);
+        ir = fnResolved.asset;
         // T6.4：按需并入插件节点 specs（资产含未知节点类型才拉取注册表），再注入片段 spec
         const assetBase = needsPluginSpecs(ir, base, NON_PLUGIN_RUNTIME_TYPES)
           ? await ensurePluginSpecs()
@@ -822,7 +844,11 @@ export class BindingRunner {
           },
           // 自定义事件 → 总线回灌（零侵入 T2.6 模式）：总线按 target 路由到其它实例；
           // T5.4：注入 debugProbe 时同一回调追加推入观察通道（独立小函数，不碰加载分支）
-          onDebug: composeDebugSink(runtimeEventSink(tag, bus), this.opts.debugProbe, binding.path),
+          onDebug: composeDebugSink(
+            runtimeEventSink(tag, bus),
+            this.opts.debugProbe,
+            this.opts.debugAssetPath ?? binding.path,
+          ),
           vars: varsFromIR(ir),
         });
         bus.register({

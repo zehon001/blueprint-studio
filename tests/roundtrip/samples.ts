@@ -71,6 +71,10 @@ export const KNOWN_UNMAPPED_NODE_IDS: ReadonlySet<string> = new Set([
   'system.notify',
   'system.clipboardWrite',
   'system.openUrl',
+  // v3 M12 新增（T12.6/T12.7）：运行时反射/类型化写值，脚本视图暂无映射
+  'ui.getProp',
+  'ui.setProp',
+  'ui.setText',
 ]);
 
 /* ============================================================

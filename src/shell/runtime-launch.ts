@@ -13,6 +13,7 @@
  * 本模块保持可在 node:test 下运行：除 UI 侧 toast（可注入替身）外不触碰 DOM。
  */
 import { useWorkspaceStore } from './workspace-store'
+import { useRuntimeStore } from '@/panels/runtime/store'
 import { showToast } from './windows/toast'
 
 /* ---------------- URL 契约 ---------------- */
@@ -27,6 +28,10 @@ export interface RuntimeUrlParams {
   /** UI 资产路径（项目内相对路径，如 'ui/main.ui.json'）；mode=main 可缺省 */
   ui?: string
   mode: RuntimeMode
+  /** 内置运行视图（iframe）模式：隐藏运行页顶栏/页内控制台 UI（v3 T8.5） */
+  embed?: boolean
+  /** 重跑 nonce（仅用于刷新 iframe；不参与运行语义） */
+  run?: number
 }
 
 export const RUNTIME_URL_PATH = '/runtime.html'
@@ -47,6 +52,8 @@ export function buildRuntimeUrl(params: RuntimeUrlParams): string {
   q.set('project', params.project)
   if (params.ui !== undefined && params.ui !== '') q.set('ui', params.ui)
   q.set('mode', params.mode)
+  if (params.embed) q.set('embed', '1')
+  if (params.run !== undefined) q.set('run', String(params.run))
   return `${RUNTIME_URL_PATH}?${q.toString()}`
 }
 
@@ -180,8 +187,20 @@ async function openRuntimeWindow(
 }
 
 /**
- * F5：运行主 UI。ui 参数缺省——由运行窗口读 project.json.mainUI（PLAN §12）。
- * 返回是否成功打开（含降级新标签页）；异步（拦截探测需要等待 pong）。
+ * 打开独立运行窗口（v3 T8.5「拆出独立窗口」/旧 F5/F6 行为保留给弹窗路径）。
+ * 降级链同上；测试可注入 open/toast。
+ */
+export async function openRuntimeWindowExternal(
+  url: string,
+  mode: RuntimeMode,
+  opts: RuntimeLaunchOptions = {},
+): Promise<boolean> {
+  return openRuntimeWindow(url, mode, opts)
+}
+
+/**
+ * F5：运行主 UI（v3 T8.5：打开/聚焦内置运行面板并重跑；不再直接开独立窗口）。
+ * ui 参数缺省——由运行页读 project.json.mainUI（PLAN §12）。
  */
 export async function launchRuntimeMain(opts: RuntimeLaunchOptions = {}): Promise<boolean> {
   const project = currentProjectParam()
@@ -189,13 +208,13 @@ export async function launchRuntimeMain(opts: RuntimeLaunchOptions = {}): Promis
     ;(opts.toast ?? showToast)('未打开项目，无法运行')
     return false
   }
-  return openRuntimeWindow(buildRuntimeUrl({ project, mode: 'main' }), 'main', opts)
+  useRuntimeStore.getState().openTarget({ project, mode: 'main' })
+  return true
 }
 
 /**
- * F6：运行当前 UI。激活 tab 必须是 UI 资产（kind==='ui'），否则 toast
- * 「当前 tab 不是 UI」且不打开；ui 参数 = 该 tab 的项目内相对路径。
- * 异步（拦截探测需要等待 pong）。
+ * F6：运行当前 UI（v3 T8.5：内置运行面板重跑）。激活 tab 必须是 UI 资产，
+ * 否则 toast「当前 tab 不是 UI」且不切换运行目标；ui 参数 = 该项目内相对路径。
  */
 export async function launchRuntimeCurrent(opts: RuntimeLaunchOptions = {}): Promise<boolean> {
   const toast = opts.toast ?? showToast
@@ -210,5 +229,6 @@ export async function launchRuntimeCurrent(opts: RuntimeLaunchOptions = {}): Pro
     toast('当前 tab 不是 UI，无法运行')
     return false
   }
-  return openRuntimeWindow(buildRuntimeUrl({ project, ui: tab.assetPath, mode: 'current' }), 'current', opts)
+  useRuntimeStore.getState().openTarget({ project, ui: tab.assetPath, mode: 'current' })
+  return true
 }

@@ -1,10 +1,31 @@
 {
-  "version": 2,
+  "version": 3,
+  "kind": "scene",
   "name": "main",
+  "styles": ["ui/styles/app.uss.json"],
   "root": {
     "id": "ui_root",
     "name": "root",
     "type": "vbox",
+    "classes": ["app-root"],
+    "layout": {
+      "position": "relative",
+      "size": {
+        "w": "100%",
+        "h": "100%"
+      }
+    },
+    "container": {
+      "direction": "column",
+      "gap": 4,
+      "align": "stretch",
+      "padding": {
+        "t": 8,
+        "r": 8,
+        "b": 8,
+        "l": 8
+      }
+    },
     "transform": {
       "position": {
         "x": 0,
@@ -16,17 +37,20 @@
       },
       "rotation": 0
     },
-    "theme": {
-      "padding": 8
-    },
-    "props": {
-      "spacing": 4
-    },
+    "theme": {},
+    "props": {},
     "children": [
       {
         "id": "ui_title",
         "name": "title",
         "type": "label",
+        "layout": {
+          "grow": 0,
+          "size": {
+            "w": "100%",
+            "h": 32
+          }
+        },
         "transform": {
           "position": {
             "x": 0,
@@ -50,6 +74,13 @@
         "id": "ui_list",
         "name": "list",
         "type": "list",
+        "layout": {
+          "grow": 1,
+          "size": {
+            "w": "100%",
+            "h": "auto"
+          }
+        },
         "transform": {
           "position": {
             "x": 0,
@@ -63,12 +94,157 @@
         },
         "theme": {},
         "props": {},
-        "logicAsset": "logic/main.bp.json",
-        "events": [
-          "selectionChanged"
-        ],
         "children": []
       }
     ]
-  }
+  },
+  "graphs": {
+    "event": {
+      "kind": "event",
+      "nodes": [
+        {
+          "id": "n_start",
+          "type": "event.start",
+          "params": {},
+          "pinDefaults": {},
+          "position": {
+            "x": 80,
+            "y": 200
+          },
+          "comment": "start 事件（BeginPlay 同义）：运行窗口加载 UI 后触发"
+        },
+        {
+          "id": "n_read",
+          "type": "system.readFile",
+          "params": {},
+          "pinDefaults": {
+            "path": "assets/sample.log"
+          },
+          "position": {
+            "x": 360,
+            "y": 200
+          },
+          "comment": "读取示例日志（项目内相对路径）"
+        },
+        {
+          "id": "n_parse",
+          "type": "convert.androidLogParse",
+          "params": {},
+          "pinDefaults": {},
+          "position": {
+            "x": 660,
+            "y": 220
+          },
+          "comment": "解析 Android 日志（logcat -v time / epoch 双格式）"
+        },
+        {
+          "id": "n_set",
+          "type": "ui.listSetItems",
+          "params": {},
+          "pinDefaults": {
+            "name": "list"
+          },
+          "position": {
+            "x": 960,
+            "y": 200
+          }
+        },
+        {
+          "id": "n_print",
+          "type": "system.print",
+          "params": {},
+          "pinDefaults": {
+            "value": "日志列表已更新"
+          },
+          "position": {
+            "x": 960,
+            "y": 340
+          },
+          "comment": "控制台输出解析行数"
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "from": {
+            "node": "n_start",
+            "pin": "exec"
+          },
+          "to": {
+            "node": "n_read",
+            "pin": "exec"
+          },
+          "kind": "exec"
+        },
+        {
+          "id": "e2",
+          "from": {
+            "node": "n_read",
+            "pin": "exec"
+          },
+          "to": {
+            "node": "n_set",
+            "pin": "exec"
+          },
+          "kind": "exec"
+        },
+        {
+          "id": "e3",
+          "from": {
+            "node": "n_set",
+            "pin": "exec"
+          },
+          "to": {
+            "node": "n_print",
+            "pin": "exec"
+          },
+          "kind": "exec"
+        },
+        {
+          "id": "d1",
+          "from": {
+            "node": "n_read",
+            "pin": "text"
+          },
+          "to": {
+            "node": "n_parse",
+            "pin": "lines"
+          },
+          "kind": "data"
+        },
+        {
+          "id": "d2",
+          "from": {
+            "node": "n_parse",
+            "pin": "rows"
+          },
+          "to": {
+            "node": "n_set",
+            "pin": "items"
+          },
+          "kind": "data"
+        }
+      ],
+      "comments": []
+    }
+  },
+  "layout": {
+    "event": {
+      "zoom": 1,
+      "pan": [
+        0,
+        0
+      ]
+    }
+  },
+  "variables": [
+    {
+      "name": "packageName",
+      "type": "string",
+      "default": "com.demo.app",
+      "exposed": true,
+      "category": "配置"
+    }
+  ],
+  "events": []
 }

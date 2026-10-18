@@ -725,7 +725,7 @@ describe('PluginManagerPanel 组件冒烟', () => {
     await h.unmount()
   })
 
-  it('「在编辑器中打开」：openAsset 打开 plugin-manager 虚拟 tab', async () => {
+  it('v3 T8.3：不再有「在编辑器中打开」虚拟 tab 入口，提示迁入设置弹窗', async () => {
     const state: MockState = {
       calls: freshCalls(),
       manifests: [phoneLogManifest()],
@@ -737,13 +737,12 @@ describe('PluginManagerPanel 组件冒烟', () => {
     const btn = [...dom.document.querySelectorAll('.pm-header-btn')].find((el) =>
       el.textContent?.includes('在编辑器中打开'),
     )
-    assert.ok(btn, '头部应有「在编辑器中打开」按钮')
-    await click(btn)
-    const tabs = useWorkspaceStore.getState().openTabs
-    const tab = tabs.find((t) => t.kind === 'plugin-manager')
-    assert.ok(tab, '应打开 plugin-manager 工作区 tab')
-    assert.equal(tab?.assetPath, '')
-    assert.equal(tab?.title, '插件管理')
+    assert.equal(btn, undefined, '设置弹窗化后不应再有虚拟 tab 入口')
+    assert.match(q('.pm-footer-hint')?.textContent ?? '', /设置 → 插件/)
+    assert.equal(
+      useWorkspaceStore.getState().openTabs.some((t) => t.kind === 'plugin-manager'),
+      false,
+    )
     await h.unmount()
   })
 

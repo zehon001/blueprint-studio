@@ -26,6 +26,9 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useWorkspaceStore } from '@/shell/workspace-store'
+import { assetPanelId, openAssetPanel } from '@/shell/dock/assetPanelModel'
+import { useDockStore } from '@/shell/dock/store'
+import { useSelectionStore } from '@/shell/selection/store'
 import { Menu, type MenuItem } from './Menu'
 import { defaultFsApi, errorMessage, type FsApi, type HistoryEntry } from './api'
 import { applyFsEvents, findNode, sortTree, type FsChangeEvent, type FsNode } from './tree-model'
@@ -34,6 +37,8 @@ import {
   baseName,
   contentForNewFile,
   dedupeName,
+  displayNameOf,
+  extensionOf,
   extLabelOf,
   formatBytes,
   historyTsLabel,
@@ -43,7 +48,6 @@ import {
   validateFileName,
 } from './paths'
 import { mkdirViaPlaceholder, onFsNotice, onFsRefresh, runFsCommand, type FsNoticeKind } from './commands'
-import { PREFAB_DIR } from '@/ui-editor/prefab'
 import './menu.css'
 import './styles.css'
 
@@ -97,6 +101,111 @@ function PromptModal(props: PromptState & { onCancel: () => void }) {
           </button>
           <button type="button" className="fs-btn primary" onClick={() => props.onConfirm(value.trim())}>
             {props.confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ============================================================
+ * 新建资产向导（v3 T8.4：选类型 + 输主名 → 自动补扩展名与目录）
+ * ============================================================ */
+
+export interface NewAssetType {
+  id: string
+  label: string
+  /** 项目内目录（空 = 项目根） */
+  dir: string
+  /** 自动补全的扩展名 */
+  ext: string
+  /** 新建内容模板类别 */
+  template: 'ui' | 'bp' | 'text'
+}
+
+/** M8 开放的类型（元素/样式/函数随 M11 契约开放） */
+export const NEW_ASSET_TYPES: readonly NewAssetType[] = [
+  { id: 'scene', label: 'UI 场景（.ui.json）', dir: 'ui', ext: '.ui.json', template: 'ui' },
+  { id: 'prefab', label: '预制体（.ui.json）', dir: 'ui/prefabs', ext: '.ui.json', template: 'ui' },
+  { id: 'blueprint', label: '纯逻辑蓝图（.bp.json）', dir: 'logic', ext: '.bp.json', template: 'bp' },
+  { id: 'script-ts', label: '脚本（.ts）', dir: 'logic', ext: '.ts', template: 'text' },
+  { id: 'script-py', label: '脚本（.py）', dir: 'logic', ext: '.py', template: 'text' },
+]
+
+function NewAssetModal(props: {
+  /** 右键目录（仅作提示；实际落盘仍按类型约定目录） */
+  fromDir: string
+  projectPath: string
+  onCancel: () => void
+  onCreate: (type: NewAssetType, fileName: string) => void
+}) {
+  const [typeId, setTypeId] = useState(NEW_ASSET_TYPES[0].id)
+  const [name, setName] = useState('')
+  const type = NEW_ASSET_TYPES.find((t) => t.id === typeId) ?? NEW_ASSET_TYPES[0]
+  const raw = name.trim()
+  const lower = raw.toLowerCase()
+  const stem = lower.endsWith(type.ext) ? raw.slice(0, raw.length - type.ext.length) : raw
+  const fileName = stem ? `${stem}${type.ext}` : ''
+  const invalid = stem ? validateFileName(fileName) : null
+  const canCreate = stem !== '' && invalid === null
+  return (
+    <div
+      className="fs-modal-overlay"
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) props.onCancel()
+      }}
+    >
+      <div
+        className="fs-modal"
+        role="dialog"
+        aria-label="新建资产"
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') props.onCancel()
+          else if (e.key === 'Enter' && canCreate) props.onCreate(type, fileName)
+        }}
+      >
+        <div className="fs-modal-title">新建资产</div>
+        <label className="fs-modal-label">资产类型</label>
+        <select
+          className="fs-modal-input"
+          value={typeId}
+          onChange={(e) => setTypeId(e.target.value)}
+          aria-label="资产类型"
+        >
+          {NEW_ASSET_TYPES.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+        <label className="fs-modal-label">主名（自动补 {type.ext}）</label>
+        <input
+          className="fs-modal-input mono"
+          value={name}
+          placeholder={type.id === 'prefab' ? '如 list-item' : type.id.startsWith('script') ? '如 parser' : '如 main'}
+          spellCheck={false}
+          autoFocus
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <div className="fs-modal-hint">
+          目标：{joinPosix(props.projectPath, type.dir)}/{fileName || `${'{主名}'}${type.ext}`}
+          {props.fromDir !== joinPosix(props.projectPath, type.dir)
+            ? '（按类型约定目录，不跟随右键目录）'
+            : ''}
+        </div>
+        {invalid ? <div className="fs-modal-error">{invalid}</div> : null}
+        <div className="fs-modal-actions">
+          <button type="button" className="fs-btn" onClick={props.onCancel}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="fs-btn primary"
+            disabled={!canCreate}
+            onClick={() => props.onCreate(type, fileName)}
+          >
+            创建
           </button>
         </div>
       </div>
@@ -187,16 +296,18 @@ const WATCH_DEBOUNCE_MS = 300
  * 关闭并立即重开（openAsset）以强制重新加载磁盘上的恢复结果。
  */
 function reloadOpenTabs(relAssetPath: string): void {
-  const { openTabs, activeTabId, closeTab } = useWorkspaceStore.getState()
+  const { openTabs, activeTabId } = useWorkspaceStore.getState()
   const active = openTabs.find((t) => t.id === activeTabId)
   if (!active || active.kind === 'plugin-manager' || active.assetPath !== relAssetPath) return
-  closeTab(active.id)
-  useWorkspaceStore.getState().openAsset({ kind: active.kind, assetPath: active.assetPath, title: active.title })
+  if (active.kind !== 'ui' && active.kind !== 'blueprint' && active.kind !== 'script') return
+  // v3 T8.1：资产面板才是内容宿主——关闭再打开该面板以强制重新读盘
+  const panelId = assetPanelId(active.kind, active.assetPath)
+  useDockStore.getState().closePanel(panelId)
+  openAssetPanel(active.kind, active.assetPath)
 }
 
 export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   const project = useWorkspaceStore((s) => s.currentProject)
-  const openAsset = useWorkspaceStore((s) => s.openAsset)
   const projectPath = project?.path ?? null
 
   /* —— 树与交互状态 —— */
@@ -204,9 +315,14 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [selected, setSelected] = useState<string | null>(null)
+  const publishSelection = useSelectionStore((s) => s.publish)
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
+  /** 重命名保留的扩展名（v3 T8.4：只输主名） */
+  const [renameExt, setRenameExt] = useState('')
+  /** 新建资产向导（null = 关闭；值为右键所在目录） */
+  const [newAsset, setNewAsset] = useState<{ fromDir: string } | null>(null)
   const [prompt, setPrompt] = useState<PromptState | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
@@ -359,20 +475,34 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     })
   }, [])
 
+  /** 选中文件/目录：同步本面板选中态 + 发布统一选择（T8.2 检视器文件信息） */
+  function selectNode(node: FsNode): void {
+    setSelected(node.path)
+    publishSelection({
+      source: 'file',
+      path: node.path,
+      name: node.name,
+      kind: node.type,
+      ext: node.ext,
+    })
+  }
+
   function openFileNode(node: FsNode): void {
     const kind = assetKindOf(node.name)
     if (!kind) {
       showToast('info', `暂不支持打开「${node.name}」（支持 .ui.json / .bp.json / .ts / .py）`)
       return
     }
-    openAsset({ kind, assetPath: relInProject(node.path), title: node.name })
+    openAssetPanel(kind, relInProject(node.path))
   }
 
   function startRename(path: string): void {
     const node = tree ? findNode(tree, path) : null
     if (!node) return
     setRenamingPath(path)
-    setRenameDraft(node.name)
+    // v3 T8.4：资产只输主名（输入框显示 displayName），扩展名由 renameExt 保留
+    setRenameExt(node.type === 'dir' ? '' : extensionOf(node.name))
+    setRenameDraft(node.type === 'dir' ? node.name : displayNameOf(node.name))
   }
 
   function commitRename(): void {
@@ -382,7 +512,16 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       setRenamingPath(null)
       return
     }
-    const name = renameDraft.trim()
+    const typed = renameDraft.trim()
+    const stem =
+      renameExt && typed.toLowerCase().endsWith(renameExt.toLowerCase())
+        ? typed.slice(0, typed.length - renameExt.length)
+        : typed
+    if (renameExt && stem === '') {
+      showToast('error', '名称不能为空')
+      return
+    }
+    const name = renameExt ? `${stem}${renameExt}` : typed
     const invalid = validateFileName(name)
     if (invalid) {
       showToast('error', invalid)
@@ -438,8 +577,9 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       })
       expandTo(dirPath)
       await refresh()
-      // Godot 习惯：新建后直接行内重命名（Esc 保留默认名）
-      setRenameDraft(finalName)
+      // Godot 习惯：新建后直接行内重命名（Esc 保留默认名）；只显示/编辑主名
+      setRenameExt(extensionOf(finalName))
+      setRenameDraft(displayNameOf(finalName))
       setRenamingPath(finalPath)
       setSelected(finalPath)
     } catch (e) {
@@ -456,6 +596,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       runFsCommand(`新建文件夹「${name}」`, { kind: 'create', path, targetKind: 'dir' })
       expandTo(path)
       await refresh()
+      setRenameExt('')
       setRenameDraft(name)
       setRenamingPath(path)
       setSelected(path)
@@ -621,8 +762,8 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
 
   function dirMenuItems(node: FsNode): MenuItem[] {
     return [
-      { label: '新建文件', onSelect: () => setPrompt(newFilePrompt(node.path)) },
-      { label: '新建预制体', onSelect: () => setPrompt(newPrefabPrompt()) },
+      { label: '新建资产…', onSelect: () => setNewAsset({ fromDir: node.path }) },
+      { label: '新建文件（自定义扩展名）', onSelect: () => setPrompt(newFilePrompt(node.path)) },
       { label: '新建文件夹', onSelect: () => void createDir(node.path) },
       { label: '重命名', onSelect: () => startRename(node.path) },
       { label: '删除', danger: true, onSelect: () => void deleteNode(node) },
@@ -633,8 +774,8 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
 
   function blankMenuItems(dirPath: string): MenuItem[] {
     return [
-      { label: '新建文件', onSelect: () => setPrompt(newFilePrompt(dirPath)) },
-      { label: '新建预制体', onSelect: () => setPrompt(newPrefabPrompt()) },
+      { label: '新建资产…', onSelect: () => setNewAsset({ fromDir: dirPath }) },
+      { label: '新建文件（自定义扩展名）', onSelect: () => setPrompt(newFilePrompt(dirPath)) },
       { label: '新建文件夹', onSelect: () => void createDir(dirPath) },
       { label: '刷新', onSelect: () => void refresh() },
       { separator: true },
@@ -657,41 +798,12 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     }
   }
 
-  /**
-   * 新建预制体（T7.3 · ADR-009）：名字输入 → 固定写入 ui/prefabs/<名>.ui.json（空 UI 模板，
-   * 目录不存在由服务端 PUT 自动创建）；复用 createFile（兄弟名去重 / 行内重命名 / 文件系统域可撤销）。
-   */
-  function newPrefabPrompt(): PromptState {
-    return {
-      title: '新建预制体',
-      label: `预制体名（自动补 .ui.json；写入「${PREFAB_DIR}/」）`,
-      placeholder: '如 list-item',
-      value: '',
-      confirmText: '创建',
-      onConfirm: (name) => {
-        setPrompt(null)
-        void createPrefab(name)
-      },
-    }
-  }
-
-  /** 新建预制体：名字清洗（去已有 .ui.json 后缀）→ 固定目录 createFile */
-  async function createPrefab(rawName: string): Promise<void> {
-    const stem = rawName.trim().replace(/\.ui\.json$/i, '')
-    if (!stem) {
-      showToast('error', '预制体名不能为空')
-      return
-    }
-    const fileName = `${stem}.ui.json`
-    const invalid = validateFileName(fileName)
-    if (invalid) {
-      showToast('error', invalid)
-      return
-    }
-    // 项目根相对路径前缀 = 项目（树路径与 relInProject 同源）；无项目时面板本就显示空态
+  /** 新建资产向导：按类型约定目录落盘（复用 createFile 的去重/撤销/行内重命名） */
+  async function createAsset(type: NewAssetType, fileName: string): Promise<void> {
+    setNewAsset(null)
     const base = projectPath ?? ''
     if (!base) return
-    await createFile(joinPosix(base, PREFAB_DIR), fileName)
+    await createFile(joinPosix(base, type.dir), fileName)
   }
 
   function importPrompt(dirPath: string): PromptState {
@@ -755,12 +867,12 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
             className={`fs-row${selected === node.path ? ' selected' : ''}${dropTarget ? ' dragover' : ''}`}
             style={{ paddingLeft: `calc(var(--space-2) + ${depth} * var(--space-5))` }}
             title={node.path}
-            onClick={() => setSelected(node.path)}
+            onClick={() => selectNode(node)}
             onDoubleClick={() => toggleExpand(node.path)}
             onContextMenu={(e) => {
               e.preventDefault()
               e.stopPropagation()
-              setSelected(node.path)
+              selectNode(node)
               openMenuAt(e, dirMenuItems(node))
             }}
             onDragOver={(e) => {
@@ -802,19 +914,23 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         className={`fs-row${selected === node.path ? ' selected' : ''}`}
         style={{ paddingLeft: `calc(var(--space-2) + ${depth} * var(--space-5))` }}
         title={node.path}
-        onClick={() => setSelected(node.path)}
+        onClick={() => selectNode(node)}
         onDoubleClick={() => openFileNode(node)}
         onContextMenu={(e) => {
           e.preventDefault()
           e.stopPropagation()
-          setSelected(node.path)
+          selectNode(node)
           openMenuAt(e, fileMenuItems(node))
         }}
       >
         <span className={`fs-icon ext-${extLabelOf(node.name).replace(/[^a-zA-Z0-9]/g, '')}`} aria-hidden>
           {extLabelOf(node.name)}
         </span>
-        {renamingPath === node.path ? renderRenameInput() : <span className="fs-name">{node.name}</span>}
+        {renamingPath === node.path ? (
+          renderRenameInput()
+        ) : (
+          <span className="fs-name">{displayNameOf(node.name)}</span>
+        )}
       </div>
     )
   }
@@ -865,6 +981,14 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         )}
       </div>
       {menu && <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {newAsset ? (
+        <NewAssetModal
+          fromDir={newAsset.fromDir}
+          projectPath={projectPath ?? ''}
+          onCancel={() => setNewAsset(null)}
+          onCreate={(type, fileName) => void createAsset(type, fileName)}
+        />
+      ) : null}
       {prompt && <PromptModal {...prompt} onCancel={() => setPrompt(null)} />}
       {history && (
         <HistoryModal

@@ -1,4 +1,4 @@
-# Blueprint Studio v2 · 节点开发指南
+# Blueprint Studio v3 · 节点开发指南
 
 > 面向扩展开发者：如何定义新的内置节点（`src/nodes/`）。
 > 契约真源：`src/ir/types.ts`（NodeSpec / PinSpec / ParamSpec / NodeRunFn）· ADR-003 · **ADR-008（多次出脚）**。
@@ -233,3 +233,12 @@ generator 节点的 `inputs` 是**触发时**求值的一次性快照；循环�
 - ADR-005 曾裁定「多出口触发用链尾回连状态机」，**已被 ADR-008 推翻**：`src/nodes/flow.ts` 顶部残留的旧「循环状态机」注释是历史遗留，实际实现（forLoop / whileLoop / sequence 的 generator + timer）以 ADR-008 为准；只有单出口状态节点（gate / flipFlop / doOnce / multiGate）仍用状态槽。
 - `tests/roundtrip/samples.ts` 头注释写「17 可往返执行节点」，实际 `execNodeSampleDefs` 已是 18 条（B11 新增 `system.readFile` 后计数注释未同步）——门禁按真实数组计数，不受影响。
 - `src/runtime/interpreter/interpreter.ts` 头注释引用的 ADR-005 语义描述同样是历史文本，现行行为以 `driveGenerator` 与本指南 §4.3 为准。
+
+## 12. v3 增量（2026-10-18）
+
+- **NodeSpec.traits**：可选 `traits?: string[]`（ADR-018）。当前用于 `ui.setText(['text'])`、`ui.setValue(['value'])`、`ui.listSetItems(['items'])`、`ui.setTitle(['text'])`；省略 = 不做 trait 过滤，向后兼容，不升 IR 版本。
+- **反射节点**：`ui.getProp` / `ui.setProp`（params `nodeName` + `propId`），运行时经 `ctx.ui.read/write`；仅 schema `PropDef.reflect:true` 的属性进入「设计器」右键分组（`ui.label.text` / `ui.label.visible` 已标记）。
+- **函数三档**：`flow.call` 增加 params `function` + `scope(auto|blueprint|project|global)`；外部 `.fn.json` 由 `src/runtime/functions.ts` 在运行前加载注入，节点库侧无需新增类型。
+- **子节点选择器**：`ui.get` 增加 `target`（`type:'nodeSelector'`）参数，Details 下拉列出当前 UI 树节点名；未连线 `name` 时使用 target。
+- **roundtrip 入库**：新增节点仍按 §8 流程；`ui.getProp`/`ui.setProp`/`ui.setText` 当前无脚本映射，登记在 `KNOWN_UNMAPPED_NODE_IDS`。
+- **v3 资产**：节点逻辑 IR 结构未变；UI/元素/样式/函数资产版本与内嵌图见 `docs/v3/PLAN.md` 与 ADR-011~016。

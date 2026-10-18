@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "name": "日志查看器",
   "entry": "bind",
   "graphs": {

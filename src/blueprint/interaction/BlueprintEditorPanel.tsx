@@ -19,17 +19,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { registerShortcut } from '../../shell/keymap/registry';
+import { useWorkspaceStore } from '../../shell/workspace-store';
 import { serializeIR, validateIR } from '../../ir/validate';
 import type { ValidationIssue } from '../../ir/validate';
 import type { IRAsset, IRComment, NodeSpec } from '../../ir/types';
 import { NODE_CATEGORIES } from '../../nodes';
+import { reflectionEntries, type ReflectTargetNode } from '../../nodes/reflect';
+import { useSceneTreeDomain } from '../../ui-editor/store';
+import { getUISchema } from '../../ui-editor/schema';
 import { BPGraphCanvas, headVariantFor, nodeSizeFor } from '../view';
 import type { FlowEdge, FlowNode } from '../view';
 import { useBlueprintStore, EMPTY_SELECTION } from '../store/blueprint-store';
-// T2.3 结构面板（左栏 + 顶部图签）与 T2.4 蓝图检视器（右栏）
+// T2.3 结构面板（左栏 + 顶部图签）；v3 T8.2：Details 迁入统一检视器，编辑器变两栏
 import { MyBlueprint } from '../my-blueprint/MyBlueprint';
 import { GraphTabs } from '../my-blueprint/GraphTabs';
-import { Details } from '../details/Details';
 // T2.7 注释框（图层 + 右键菜单 + 选中 id 换算）
 import {
   CommentContextMenu,
@@ -240,6 +243,24 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
       st.closeMenu();
       return;
     }
+    if (specId.startsWith('reflect:')) {
+      const [, rest] = specId.split(':', 2);
+      const [kind, nodeName, propId] = (rest ?? '').split('|');
+      const id = st.addNode(kind === 'set' ? 'ui.setProp' : 'ui.getProp', st.menu.flow);
+      if (id) st.setNodeParams(id, { nodeName, propId });
+      st.closeMenu();
+      return;
+    }
+    if (specId.startsWith('fncall:')) {
+      const parts = specId.split(':');
+      const id = st.addNode('flow.call', st.menu.flow);
+      if (id) {
+        if (parts.length >= 3) st.setNodeParams(id, { function: parts[2], scope: parts[1] });
+        else st.setNodeParams(id, { graph: parts[1] });
+      }
+      st.closeMenu();
+      return;
+    }
     st.addNode(specId, st.menu.flow);
     st.closeMenu();
   }, []);
@@ -365,11 +386,103 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
 
   /* ---------------- 渲染 ---------------- */
 
+  /* v3 T12.3：项目库/内置库函数清单（进入「函数」分组检索） */
+  const [externalFns, setExternalFns] = useState<Array<{ name: string; scope: 'project' | 'global' }>>([]);
+  const projectPath = useWorkspaceStore((s) => s.currentProject?.path ?? null);
+  const { asset: uiAsset } = useSceneTreeDomain();
+  useEffect(() => {
+    let alive = true;
+    const load = async (): Promise<void> => {
+      const out: Array<{ name: string; scope: 'project' | 'global' }> = [];
+      if (projectPath) {
+        try {
+          const r = await fetch(`/api/tree?path=${encodeURIComponent(`${projectPath}/library/functions`)}`);
+          const j = (await r.json()) as { ok?: boolean; tree?: { children?: Array<{ name?: string; type?: string }> } };
+          for (const c of j.tree?.children ?? []) {
+            if (c.type === 'file' && typeof c.name === 'string' && c.name.toLowerCase().endsWith('.fn.json')) {
+              out.push({ name: c.name.replace(/\.fn\.json$/i, ''), scope: 'project' });
+            }
+          }
+          const lr = await fetch('/api/library/list?kind=functions');
+          const lj = (await lr.json()) as { ok?: boolean; entries?: Array<{ name?: string }> };
+          for (const e of lj.entries ?? []) if (e.name) out.push({ name: e.name, scope: 'global' });
+        } catch {
+          /* 库不可用时仅显示资产内函数 */
+        }
+      }
+      if (alive) setExternalFns(out);
+    };
+    void load();
+    return () => {
+      alive = false;
+    };
+  }, [projectPath]);
+
   const searchEntries = useMemo<SpecEntry[]>(() => {
     const entries: SpecEntry[] = [...specs.values()].map((spec) => ({ spec, pin: null }));
+    // v3 T12.3：本资产函数图作为「函数」分组伪条目（pick 时建 flow.call 并预填 graph）
+    const fnEntries: SpecEntry[] = Object.keys(asset.graphs ?? {})
+      .filter((name) => name !== asset.entry)
+      .map((name) => ({
+        spec: {
+          id: `fncall:${name}`,
+          title: `调用 ${name}`,
+          category: '函数',
+          keywords: ['函数', 'call', '调用', name],
+          inputs: [],
+          outputs: [],
+        },
+        pin: null,
+      }));
+    const externalEntries: SpecEntry[] = externalFns.map((f) => ({
+      spec: {
+        id: `fncall:${f.scope}:${f.name}`,
+        title: `${f.scope === 'project' ? '全项目' : '全局'} · ${f.name}`,
+        category: '函数',
+        keywords: ['函数', 'call', '调用', f.name],
+        inputs: [],
+        outputs: [],
+      },
+      pin: null,
+    }));
+    // v3 T12.6：反射条目（图属主自身树节点 × reflect:true 属性；UI 内嵌蓝图时有树）
+    const reflectNodes: ReflectTargetNode[] = [];
+    const walkUi = (n: NonNullable<typeof uiAsset>['root']): void => {
+      reflectNodes.push({ name: n.name, type: n.type, props: getUISchema(n.type)?.props ?? null });
+      for (const c of n.children ?? []) walkUi(c);
+    };
+    if (uiAsset) walkUi(uiAsset.root);
+    const reflects: SpecEntry[] = reflectNodes.flatMap((n) =>
+      reflectionEntries([n])
+        .filter((e) => e.nodeName === n.name)
+        .flatMap((e) => [
+          {
+            spec: {
+              id: `reflect:get|${e.nodeName}|${e.propId}`,
+              title: `Get ${e.label}`,
+              category: '设计器',
+              keywords: ['设计器', '反射', 'get', '读取', e.nodeName, e.propId],
+              inputs: [],
+              outputs: [],
+            },
+            pin: null,
+          },
+          {
+            spec: {
+              id: `reflect:set|${e.nodeName}|${e.propId}`,
+              title: `Set ${e.label}`,
+              category: '设计器',
+              keywords: ['设计器', '反射', 'set', '写入', e.nodeName, e.propId],
+              inputs: [],
+              outputs: [],
+            },
+            pin: null,
+          },
+        ]),
+    );
     // 「添加注释」伪条目追加在分类浏览尾部（搜索「注释」可直达；pick 在 searchPick 拦截）
-    return [...entries, { spec: COMMENT_MENU_SPEC, pin: null }];
-  }, [specs]);
+    return [...entries, ...fnEntries, ...externalEntries, ...reflects, { spec: COMMENT_MENU_SPEC, pin: null }];
+  }, [specs, asset, externalFns, uiAsset]);
 
   const commentList = useBlueprintStore(
     (s) => s.asset?.graphs[s.graphName]?.comments ?? NO_COMMENTS,
@@ -509,10 +622,7 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
             ) : null}
           </div>
         </div>
-        {/* 右栏：Details 蓝图检视器（T2.4） */}
-        <aside className="bp-editor-side bp-editor-side--details">
-          <Details />
-        </aside>
+        {/* v3 T8.2：检视器在 dock「检视器」面板（统一检视器），此处不再有右栏 */}
       </div>
     </div>
   );

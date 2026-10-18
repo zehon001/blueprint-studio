@@ -46,7 +46,7 @@ export interface Size2 {
  * ============================================================ */
 
 /** IR 格式当前版本（IRAsset.version 的当前值；格式变更必须走 ADR） */
-export const IR_VERSION = 2;
+export const IR_VERSION = 3;
 
 /** IR 内置原语类型 */
 export type IRPrimitiveType =
@@ -286,8 +286,8 @@ export interface IRGraph {
 
 /** 逻辑资产 IR（.bp.json 的序列化对象；蓝图 / TS / Python 三种资产共用的内存表示） */
 export interface IRAsset {
-  /** IR 格式版本（迁移判定用，当前 = IR_VERSION） */
-  version: 2;
+  /** IR 格式版本（迁移判定用；读入接受 2/3，写出统一 IR_VERSION=3） */
+  version: 2 | 3;
   /** 资产名（如 '日志查看器'；默认与文件名一致） */
   name: string;
   /** 主图名（graphs 的键；绑定 UI 节点时作为事件入口图） */
@@ -306,7 +306,7 @@ export interface IRAsset {
 
 /**
  * IR 版本迁移入口（预留接口）。
- * 当前 IR_VERSION = 2 为初始版本：直通返回，不做校验。
+ * IR_VERSION = 3：读入接受 2/3（结构未变），写出统一为 3。
  * 后续格式变更时：在此按 version 链式调用各版本迁移函数（每步迁移方案在对应 ADR 中定义），
  * 迁移后 version 必须等于 IR_VERSION。
  */
@@ -346,6 +346,49 @@ export interface UITransform {
   anchors?: UIAnchors;
 }
 
+/* ---------------- v3 flex 布局契约（ADR-011；v2 字段保留为兼容层） ---------------- */
+
+/** v3 长度：像素数值 / auto / 百分比字符串 */
+export type UILength = number | 'auto' | `${number}%`;
+
+/** v3 四向边距（t/r/b/l 像素） */
+export interface UIEdges {
+  t: number;
+  r: number;
+  b: number;
+  l: number;
+}
+
+/** v3 节点布局（作为父容器的流式子项 + 自身定位） */
+export interface UILayout {
+  /** 定位模式：relative（默认，参与父 flex 流）/ absolute（脱离流，left/top/right/bottom） */
+  position?: 'relative' | 'absolute';
+  grow?: number;
+  shrink?: number;
+  basis?: UILength;
+  alignSelf?: 'auto' | 'start' | 'center' | 'end' | 'stretch';
+  order?: number;
+  /** 首选尺寸（流式）/ 实际尺寸（absolute） */
+  size?: { w: UILength; h: UILength };
+  margin?: Partial<UIEdges>;
+  /** absolute 专属（px 或 %；可成对拉伸） */
+  left?: UILength;
+  top?: UILength;
+  right?: UILength;
+  bottom?: UILength;
+}
+
+/** v3 容器布局（容器原语与元素根） */
+export interface UIContainer {
+  direction?: 'row' | 'column';
+  wrap?: 'nowrap' | 'wrap' | 'wrap-reverse';
+  justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around' | 'space-evenly';
+  align?: 'start' | 'center' | 'end' | 'stretch' | 'baseline';
+  gap?: number;
+  padding?: Partial<UIEdges>;
+  overflow?: 'visible' | 'hidden' | 'scroll';
+}
+
 /** UI 节点（*.ui.json 资产树中的一个节点） */
 export interface UINode {
   /** 节点实例 id（资产内唯一） */
@@ -354,7 +397,17 @@ export interface UINode {
   name: string;
   /** UI 节点类型（PLAN §7.1 节点库，如 vbox / button / list；类型枚举由 T1.1 schema 定义） */
   type: string;
-  /** 变换属性 */
+  /** v3 布局（存在即走 flex 引擎；覆盖 transform 的 position/size） */
+  layout?: UILayout;
+  /** v3 容器布局（容器节点 / 元素根） */
+  container?: UIContainer;
+  /** v3 样式类（§3.3；M11 解析） */
+  classes?: string[];
+  /** v3 元素实例引用（§3.2；M11 实现） */
+  element?: string;
+  /** v3 元素/预制体实例的提升变量覆盖（§8.3） */
+  vars?: Record<string, unknown>;
+  /** 变换属性（v2 兼容层：无 layout 时由渲染器/视口读取） */
   transform: UITransform;
   /** 主题样式属性（键 = T1.1 属性 schema 定义的样式名） */
   theme: Record<string, unknown>;
@@ -375,12 +428,48 @@ export interface UINode {
   children: UINode[];
 }
 
+/** v3 元素自定义属性声明（PropDef 的字段子集；渲染期以 default 作为初值） */
+export interface ElementPropDef {
+  id: string;
+  label?: string;
+  type?: string;
+  default?: unknown;
+  doc?: string;
+}
+
+/** v3 元素资产（*.elem.json；与 UIAsset 同构 + 自定义属性/事件/traits） */
+export interface ElementAsset {
+  version: 3;
+  kind: 'element';
+  name: string;
+  props?: ElementPropDef[];
+  events?: IREventDef[];
+  traits?: string[];
+  styles?: string[];
+  root: UINode;
+  graphs?: Record<string, IRGraph & { kind?: 'event' | 'function' }>;
+  variables?: IRVariable[];
+  layout?: Record<string, IRGraphLayout>;
+}
+
 /** UI 资产（*.ui.json 的序列化对象） */
 export interface UIAsset {
-  /** 资产格式版本（当前 = 2；变更走 ADR） */
-  version: 2;
+  /** 资产格式版本（v3 = 3；v2 = 2 仅过渡兼容，T13.2 后拒载） */
+  version: 2 | 3;
   /** 资产名（默认与文件名一致） */
   name: string;
+  /** v3：场景 / 预制体（缺省 scene） */
+  kind?: 'scene' | 'prefab';
+  /** v3：本资产应用的样式表引用（§3.8；M11 解析） */
+  styles?: string[];
+  /** v3：内嵌蓝图图集合（§3.1；M10 接入） */
+  graphs?: Record<string, IRGraph & { kind?: 'event' | 'function' }>;
+  /** v3：图视图状态（键 = 图名） */
+  layout?: Record<string, IRGraphLayout>;
+  /** v3：变量表（内嵌蓝图，M10） */
+  variables?: IRVariable[];
+  /** v3：自定义事件声明 */
+  events?: IREventDef[];
   /** UI 树根节点 */
   root: UINode;
 }
@@ -435,9 +524,9 @@ export interface PinSpec {
 }
 
 /** UI 访问器（ADR-005：解释器注入到 NodeRunContext.ui；缺失时节点须降级不抛错） */
-export interface UiHandle {
+export interface UiHandle<T = unknown> {
   /** 按名查找绑定 UI 子树中的节点（找到返回节点对象，找不到返回 null） */
-  find(name: string): unknown;
+  find(name: string): T | null;
   /** 读 UI 节点属性值（attr 如 text / value / checked / items / visible） */
   read(name: string, attr: string): unknown;
   /** 写 UI 节点属性值 */
@@ -552,6 +641,13 @@ export interface NodeSpec {
    * 超过 maxSteps 视为疑似 exec 死循环并中止。
    */
   unlimitedFires?: boolean;
+  /**
+   * 节点入参所需的 UI trait 清单（ADR-018；T12.4 契约的节点侧最小可选字段）：
+   * 供蓝图右键选择器 / PinDragMenu / 连线校验按 trait 过滤 UiHandle 族入参
+   * （如 ui.setText 要求 'text'、ui.setValue 要求 'value'、ui.listSetItems 要求 'items'）。
+   * 省略 = 不按 trait 过滤（旧节点 / 旧资产行为不变，向后兼容，version 不升）。
+   */
+  traits?: string[];
   /** 节点运行函数（解释器执行该节点时调用；纯节点求值同样走 run，next 被忽略） */
   run?: NodeRunFn;
   /** 节点说明文档（蓝图检视器 / 帮助浮层显示） */

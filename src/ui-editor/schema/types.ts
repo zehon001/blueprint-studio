@@ -80,6 +80,11 @@ export interface PropDef {
    * schema 里的值只是「默认提示」，检视器应按实际父级（根节点 / 自由容器内）解锁。
    */
   disabled?: boolean;
+  /**
+   * v3 ADR-018：是否允许反射节点（ui.getProp/ui.setProp）读写。
+   * 默认 false；仅显式 true 的属性进入「设计器」右键分组（T12.6）。
+   */
+  reflect?: boolean;
 }
 
 /** 节点内建事件（事件面板 T5.2 展示与跳转；事件到逻辑资产的挂接由 T5.1 / T2.6 落地） */
@@ -247,6 +252,7 @@ export function commonProps(kind: LayoutKind, defaultSize?: Size2): PropDef[] {
       type: 'bool',
       group: '节点',
       default: true,
+      reflect: true,
       doc: '关闭后运行态不渲染（编辑态保留占位以便继续编辑）',
     },
     {

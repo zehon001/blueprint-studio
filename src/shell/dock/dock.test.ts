@@ -505,45 +505,51 @@ describe('workspace store：项目上下文与资产 tabs', () => {
     ws.useWorkspaceStore.setState(ws.useWorkspaceStore.getInitialState())
   })
 
-  it('从 URL ?project= 初始化项目上下文', () => {
+  it('从 URL ?project= 初始化项目上下文；v3 不再预置占位 tabs', () => {
     const s = ws.useWorkspaceStore.getState()
     assert.deepEqual(s.currentProject, { name: 'MyTool', path: 'D:/demo/MyTool' })
-    assert.deepEqual(s.openTabs.map((t) => t.title), ['UI 编辑', '蓝图编辑']) // 默认占位 tabs
-    assert.equal(s.activeTabId, ws.tabIdOf('ui', 'ui/main.ui.json'))
+    assert.deepEqual(s.openTabs, [])
+    assert.equal(s.activeTabId, null)
   })
 
   it('openAsset：重复打开去重并激活；新打开追加并缺省命名', () => {
     const s = ws.useWorkspaceStore.getState()
-    s.openAsset({ kind: 'ui', assetPath: 'ui/main.ui.json' }) // 已存在 → 仅激活
+    s.openAsset({ kind: 'ui', assetPath: 'ui/main.ui.json' })
     let st = ws.useWorkspaceStore.getState()
-    assert.equal(st.openTabs.length, 2)
+    assert.equal(st.openTabs.length, 1)
     assert.equal(st.activeTabId, ws.tabIdOf('ui', 'ui/main.ui.json'))
 
     st.openAsset({ kind: 'script', assetPath: 'logic/parser.ts' }) // 新增
     st = ws.useWorkspaceStore.getState()
-    assert.equal(st.openTabs.length, 3)
+    assert.equal(st.openTabs.length, 2)
     assert.equal(st.activeTabId, ws.tabIdOf('script', 'logic/parser.ts'))
-    assert.equal(st.openTabs[2].title, 'parser.ts')
+    assert.equal(st.openTabs[1].title, 'parser.ts')
   })
 
   it('closeTab：关闭激活 tab 时右邻优先、末位取左邻', () => {
     const s = ws.useWorkspaceStore.getState()
-    const first = s.openTabs[0].id
-    const second = s.openTabs[1].id
-    s.closeTab(first)
+    s.openAsset({ kind: 'ui', assetPath: 'ui/main.ui.json' })
+    s.openAsset({ kind: 'script', assetPath: 'logic/parser.ts' })
+    const st = ws.useWorkspaceStore.getState()
+    const first = st.openTabs[0].id
+    const second = st.openTabs[1].id
+    st.closeTab(first)
     assert.equal(ws.useWorkspaceStore.getState().activeTabId, second) // 右邻
 
-    s.closeTab(second)
+    ws.useWorkspaceStore.getState().closeTab(second)
     assert.equal(ws.useWorkspaceStore.getState().activeTabId, null) // 已空
   })
 
   it('markDirty / clearDirty 脏标记', () => {
     const s = ws.useWorkspaceStore.getState()
-    const id = s.openTabs[0].id
-    s.markDirty(id)
+    s.openAsset({ kind: 'ui', assetPath: 'ui/main.ui.json' })
+    const id = ws.useWorkspaceStore.getState().openTabs[0].id
+    ws.useWorkspaceStore.getState().markDirty(id)
     assert.equal(ws.useWorkspaceStore.getState().openTabs[0].dirty, true)
-    s.clearDirty(id)
+    const before = ws.useWorkspaceStore.getState().saveSeq
+    ws.useWorkspaceStore.getState().clearDirty(id)
     assert.equal(ws.useWorkspaceStore.getState().openTabs[0].dirty, false)
+    assert.equal(ws.useWorkspaceStore.getState().saveSeq, before + 1, '保存成功序号自增（T8.5 自动重跑）')
   })
 
   it('closeProject 清空项目与 tabs', () => {

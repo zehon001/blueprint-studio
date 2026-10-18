@@ -330,3 +330,30 @@
 .fs-toast.info {
   border-color: var(--accent);
 }
+
+/* ===== v3 T8.4：新建资产向导 ===== */
+select.fs-modal-input {
+  width: 100%;
+}
+
+.fs-modal-hint {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.fs-modal-error {
+  color: var(--error);
+  font-size: var(--font-xs);
+}
+
+.fs-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.fs-btn.primary:disabled {
+  background: var(--bg-input);
+  border-color: var(--border);
+  color: var(--text-dim);
+}

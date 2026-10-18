@@ -169,7 +169,7 @@ describe('模板与项目', () => {
         version: number
         root: { type: string }
       }
-      assert.equal(ui.version, 2)
+      assert.equal(ui.version, 3)
       assert.equal(ui.root.type, 'vbox')
     })
   })
@@ -179,17 +179,23 @@ describe('模板与项目', () => {
       createProject(root, '日志分析器', 'log-analyzer')
       const p = path.join(root, '日志分析器')
       const ui = JSON.parse(fs.readFileSync(path.join(p, 'ui', 'main.ui.json'), 'utf8')) as {
+        version: number
         root: { type: string; children: Array<{ name: string; type: string; logicAsset?: string; events?: string[] }> }
+        graphs?: Record<string, { nodes: Array<{ type: string }>; edges: unknown[] }>
       }
+      assert.equal(ui.version, 3)
       assert.equal(ui.root.type, 'vbox')
       assert.equal(ui.root.children.length, 2)
       assert.equal(ui.root.children[0].type, 'label')
       const list = ui.root.children[1]
       assert.equal(list.type, 'list')
-      assert.equal(list.logicAsset, 'logic/main.bp.json')
-      // T7.6 顺带对齐：list 内建事件名为 selectionChanged（ADR-002 修正名，与
-      // schema/渲染器/模板一致；B13+B14 模板事件名即修后本断言未同步——预存失败修复）
-      assert.ok(list.events?.includes('selectionChanged'))
+      // v3：逻辑内嵌（不再引用 logicAsset）；事件图随 UI 资产
+      assert.equal(list.logicAsset, undefined)
+      assert.ok(ui.graphs?.event, 'v3 模板应内嵌事件图')
+      assert.equal(ui.graphs.event.nodes[0].type, 'event.start')
+      // v3：示例样式表 + 示例元素随模板分发
+      assert.ok(fs.existsSync(path.join(p, 'ui', 'styles', 'app.uss.json')))
+      assert.ok(fs.existsSync(path.join(p, 'ui', 'elements', 'StatCard.elem.json')))
 
       const ir = JSON.parse(fs.readFileSync(path.join(p, 'logic', 'main.bp.json'), 'utf8')) as {
         version: number
@@ -197,7 +203,7 @@ describe('模板与项目', () => {
         graphs: Record<string, { nodes: Array<{ type: string }>; edges: unknown[] }>
         variables: unknown[]
       }
-      assert.equal(ir.version, 2)
+      assert.equal(ir.version, 3)
       assert.equal(ir.entry, 'bind')
       assert.equal(ir.graphs.bind.nodes[0].type, 'event.start')
       // T7.2 前置补全：开箱可跑（读文件 → 解析 → 填列表 → 打印），5 节点 5 边
@@ -603,7 +609,7 @@ describe('importProjectFolder（T0.6）', () => {
           version: number
           root: { type: string }
         }
-        assert.equal(ui.version, 2)
+        assert.equal(ui.version, 3)
         assert.equal(ui.root.type, 'vbox')
       } finally {
         fs.rmSync(outside, { recursive: true, force: true })

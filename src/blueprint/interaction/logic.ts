@@ -90,6 +90,8 @@ export interface PinRef {
   dir: 'in' | 'out';
   /** 引脚类型（未知节点 / 未知引脚为 null） */
   type: IRValueType | null;
+  /** v3 T12.4：源节点声明的 traits（用于拖出兼容菜单过滤；缺省 = 不限制） */
+  traits?: readonly string[];
 }
 
 /** 从 spec 取引脚类型（未找到返回 null） */
@@ -115,7 +117,13 @@ export function resolvePinRef(
   if (!node) return null;
   const spec = specs.get(node.type);
   const type = pinTypeOf(spec, pinId, dir);
-  return { nodeId, pinId, dir, type: type ?? (spec ? null : 'any') };
+  return {
+    nodeId,
+    pinId,
+    dir,
+    type: type ?? (spec ? null : 'any'),
+    ...(spec?.traits?.length ? { traits: [...spec.traits] } : {}),
+  };
 }
 
 /** 连线预检结论 */
@@ -263,6 +271,10 @@ export function compatibleSpecEntries(
   // 从输出拖出 → 候选是输入引脚；从输入反拖 → 候选是输出引脚（方向感知）
   const targetDir = from.dir === 'out' ? ('in' as const) : ('out' as const);
   for (const spec of specs.values()) {
+    // v3 T12.4：源/目标都声明 trait 时须有交集；任一方未声明 = 不限制（向后兼容）
+    if (from.traits?.length && spec.traits?.length && !spec.traits.some((t) => from.traits!.includes(t))) {
+      continue;
+    }
     const pins = from.dir === 'out' ? spec.inputs : spec.outputs;
     const pin = bestTargetPin(pins, fromType, { targetDir });
     if (pin) entries.push({ spec, pin });

@@ -12,7 +12,8 @@
  * 不要在本目录之外重复注册（重复 id 会被 dock registry 覆盖并告警）。
  */
 import { registerPanel, type PanelApi } from '@/shell/dock/registry'
-import { InspectorPanel } from './InspectorPanel'
+import { InspectorHost } from './InspectorHost'
+import '@/blueprint/details/details.css'
 import './inspector.css'
 
 /** 面板 id（跨卡契约：与 defaultPanels.tsx 的 PANEL_ID_INSPECTOR 一致，替换实现时不变） */
@@ -23,7 +24,7 @@ export function registerInspectorPanel(): PanelApi {
   return registerPanel({
     id: INSPECTOR_PANEL_ID,
     title: '检视器',
-    component: InspectorPanel,
+    component: InspectorHost,
     defaultArea: 'right',
   })
 }
