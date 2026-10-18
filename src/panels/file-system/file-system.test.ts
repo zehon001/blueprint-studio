@@ -223,12 +223,15 @@ describe('路径工具（posix）', () => {
     assert.equal(newFileTemplateOf('a.ts'), 'text')
     const ui = JSON.parse(contentForNewFile('main.ui.json')) as {
       version: number
+      kind: string
       name: string
-      root: { type: string; children: unknown[] }
+      root: { type: string; children: unknown[]; container?: { direction?: string } }
     }
-    assert.equal(ui.version, 2)
+    assert.equal(ui.version, 3)
+    assert.equal(ui.kind, 'scene')
     assert.equal(ui.name, 'main')
     assert.equal(ui.root.type, 'panel') // 单 panel 根节点
+    assert.equal(ui.root.container?.direction, 'column')
     assert.deepEqual(ui.root.children, [])
     const bp = JSON.parse(contentForNewFile('main.bp.json')) as {
       version: number
@@ -432,7 +435,7 @@ describe('filesystem 命令日志与 undo 映射（T0.7 DoD）', () => {
     assert.ok(ui.action === 'write')
     if (ui.action === 'write') {
       const asset = JSON.parse(ui.content) as { version: number; root: { type: string } }
-      assert.equal(asset.version, 2)
+      assert.equal(asset.version, 3)
       assert.equal(asset.root.type, 'panel')
     }
 

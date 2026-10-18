@@ -1,13 +1,28 @@
 {
-  "version": 2,
+  "version": 3,
+  "kind": "scene",
   "name": "main",
+  "styles": [],
   "root": {
     "id": "ui_root",
     "name": "root",
     "type": "vbox",
+    "layout": { "position": "relative", "size": { "w": "100%", "h": "100%" } },
+    "container": {
+      "direction": "column",
+      "gap": 4,
+      "align": "stretch",
+      "padding": { "t": 8, "r": 8, "b": 8, "l": 8 }
+    },
     "transform": { "position": { "x": 0, "y": 0 }, "size": { "w": 960, "h": 640 }, "rotation": 0 },
-    "theme": { "padding": 8 },
-    "props": { "spacing": 4 },
+    "theme": {},
+    "props": {},
     "children": []
-  }
+  },
+  "graphs": {
+    "event": { "kind": "event", "nodes": [], "edges": [], "comments": [] }
+  },
+  "layout": {},
+  "variables": [],
+  "events": []
 }

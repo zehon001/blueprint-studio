@@ -142,17 +142,25 @@ export function assetStemOf(fileName: string): string {
 /** 新建 .ui.json 的空 UI 资产（单 panel 根节点；结构对齐 src/ui-editor/schema 的 panel 默认值与 templates/empty） */
 export function uiAssetTemplate(name: string): string {
   const asset = {
-    version: 2,
+    version: 3,
+    kind: 'scene',
     name,
+    styles: [],
     root: {
       id: 'panel_root',
       name: 'root',
       type: 'panel',
+      layout: { position: 'relative', size: { w: '100%', h: '100%' } },
+      container: { direction: 'column', gap: 4, padding: { t: 8, r: 8, b: 8, l: 8 } },
       transform: { position: { x: 0, y: 0 }, size: { w: 400, h: 300 }, rotation: 0 },
       theme: {},
-      props: { padding: 8 },
+      props: {},
       children: [],
     },
+    graphs: { event: { kind: 'event', nodes: [], edges: [], comments: [] } },
+    layout: {},
+    variables: [],
+    events: [],
   }
   return `${JSON.stringify(asset, null, 2)}\n`
 }

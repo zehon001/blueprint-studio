@@ -53,6 +53,33 @@ test('ref-library-missing：@library 元素/样式缺失；离线省略库清单
   assert.equal(offline.some((i) => i.code === 'ref-library-missing'), false)
 })
 
+test('图内引用：var/flow.call/ui.get 缺失 → 对应 error 码', () => {
+  const graphAsset: UIAsset = {
+    ...asset,
+    variables: [{ name: 'count', type: 'int' }],
+    graphs: {
+      event: {
+        nodes: [
+          { id: 'v', type: 'var.get', params: { varName: 'gone' }, pinDefaults: {}, position: { x: 0, y: 0 } },
+          { id: 'f', type: 'flow.call', params: { function: 'nope', scope: 'project' }, pinDefaults: {}, position: { x: 0, y: 0 } },
+          { id: 'u', type: 'ui.getProp', params: { nodeName: 'ghost', propId: 'text' }, pinDefaults: {}, position: { x: 0, y: 0 } },
+          { id: 'ok', type: 'var.set', params: { varName: 'count' }, pinDefaults: {}, position: { x: 0, y: 0 } },
+        ],
+        edges: [],
+      },
+    },
+  }
+  const issues = validateUIAssetRefs({
+    asset: graphAsset,
+    styleClasses: new Set(['card', 'missing']),
+    externalFunctions: new Set<string>(),
+  })
+  assert.ok(issues.some((i) => i.code === 'ref-variable-missing' && i.nodeId === 'v'))
+  assert.ok(issues.some((i) => i.code === 'ref-function-missing' && i.nodeId === 'f'))
+  assert.ok(issues.some((i) => i.code === 'ref-node-missing' && i.nodeId === 'u'))
+  assert.equal(issues.some((i) => i.code === 'ref-variable-missing' && i.nodeId === 'ok'), false)
+})
+
 test('ref-element-boundary：项目元素路径不在项目元素清单', () => {
   const issues = validateUIAssetRefs({
     asset,
