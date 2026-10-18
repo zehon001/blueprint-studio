@@ -161,6 +161,10 @@ export const timer = defineNode({
       // 计时到期即向总线发布系统事件 'timer'（T5.1：走本实例串行队列 → 总线 target 默认 ui）
       ctx.emit('timer', { ticks: fired });
       if (!boolOf(cur.loop, true)) {
+        // 单次定时器：到期先触发一次「每次触发」子链（print 等），再走「结束」。
+        // 旧实现直接 stopped，导致 loop=false + tick 接线的图永远不执行（模板/常见用法踩坑）。
+        yield { next: 'tick', outputs: { ticks: fired } };
+        if (ctx.signal.aborted) return;
         yield { next: 'stopped', outputs: { ticks: fired } };
         return;
       }

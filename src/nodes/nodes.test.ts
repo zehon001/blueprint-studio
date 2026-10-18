@@ -756,12 +756,14 @@ test('event.send：mock ctx.emit（对象展开 / 数组打包 / 单值打包 / 
 });
 
 test('event.timer（ADR-008）：一次触发自动持续 tick；单次模式走结束；cancel 走结束', async () => {
-  // loop=false：一次延时后直接 stopped（ticks=1）
+  // loop=false：一次延时后先 tick（执行子链）再 stopped（ticks=1）
   const ctx = makeCtx();
   const single = await drain(await runGen('event.timer', ctx, { interval: 0.005, loop: false }));
-  assert.equal(single.length, 1);
-  assert.equal(single[0]!.next, 'stopped');
+  assert.equal(single.length, 2);
+  assert.equal(single[0]!.next, 'tick');
   assert.equal(single[0]!.outputs.ticks, 1);
+  assert.equal(single[1]!.next, 'stopped');
+  assert.equal(single[1]!.outputs.ticks, 1);
 
   // loop=true（默认）：持续 tick——手动取 3 次后 return()（无限产出不可 drain）
   const ctx2 = makeCtx();
