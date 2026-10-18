@@ -38,10 +38,10 @@
 
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
-| T8.1 | 工作区资产 tab 并入 dock 体系 | `src/shell/dock/` + `assetPanel` + workspace-store 资产注册表化 | — | Shell | ①每个打开资产=独立 dock 面板（`asset:<kind>:<path>`），可与任意面板拖拽分屏/合并/tab 切换/拆出窗口 ②重复打开=聚焦；脏关闭逐个确认；tab 右键关闭/其他/右侧 ③布局持久化 `bps.dockLayout.v3`（含 activePanelId，启动从布局重建 openTabs，v2 布局忽略）④`activePanelId` 维护正确，拆出弹窗按 `?panel=asset:…` 重建 ⑤12 面板（含 6 资产）布局增删/序列化往返单测，非资产面板行为不回退 | 待办 |
+| T8.1 | 工作区资产 tab 并入 dock 体系 | `src/shell/dock/` + `assetPanel` + workspace-store 资产注册表化 | — | Shell | ①每个打开资产=独立 dock 面板（`asset:<kind>:<path>`），可与任意面板拖拽分屏/合并/tab 切换/拆出窗口 ②重复打开=聚焦；脏关闭逐个确认；tab 右键关闭/其他/右侧 ③布局持久化 `bps.dockLayout.v3`（含 activePanelId，启动从布局重建 openTabs，v2 布局忽略）④`activePanelId` 维护正确，拆出弹窗按 `?panel=asset:…` 重建 ⑤12 面板（含 6 资产）布局增删/序列化往返单测，非资产面板行为不回退 | 完成 · 2026-10-18（B17：assetPanel/Model + 持久化 v3 + activePanelId + 脏确认/右键菜单/拆出；8 单测 + GUI 实测打开/还原/脏关闭/拆出） |
 | T8.2 | 统一检视器（多源选择协议） | `src/shell/selection/` + `src/panels/inspector/` 重构 + Details 迁移 | T8.1 | UIEditor+Blueprint+Shell（主责 Shell） | ①`SelectionDescriptor` 四源（ui/blueprint/file/library）+ activePanel 分发落地 ②蓝图节点/无选中图接口/多选批量在 dock 检视器可用（蓝图 tab 移除右栏，变两栏）③UI 节点检视能力不回退（分组/搜索/多选/预制体覆盖）④文件选中→基本信息（多选=N 个）；无属性资产=文件名+路径/大小；资源库条目为 M11 占位 ⑤激活 tab 切换上下文正确，不串台；测试覆盖四源切换 | 待办 |
-| T8.3 | 设置模态弹窗 + 插件管理入驻 | `src/shell/settings/` + 两面板迁移 | — | Shell+Plugin | ①右上角齿轮开模态（Esc/遮罩关闭、焦点在弹窗内）②四分区（通用含库路径输入+前端校验+autoRerun 开关/快捷键/插件/关于）③插件四态徽标/SSE 日志全功能，移除「在编辑器中打开」入口 ④Ctrl+, 打开并记忆上次分区 ⑤移除 settings/plugin-manager dock 面板与工作区虚拟 tab；设置存 `bps.settings.v1` ⑥库路径服务端安全根不在本卡（T11.4），文档/提示写清 | 待办 |
-| T8.4 | 文件系统扩展名隐藏与新建向导 | `src/panels/file-system/` | — | Shell | ①资产行=主名+徽标（PLAN §3.7；最长后缀优先）②新建对话框选类型+主名，自动补扩展名与目录（M8：场景/预制体/蓝图/脚本；元素/样式/函数 M11 开放）③重命名只输主名并保扩展名 ④.history/导入/删除撤销照旧 ⑤旧双扩展名与未知 `.json` 显示正确（`main.ui.json`→`main`、`report.final.json` 原样） | 待办 |
+| T8.3 | 设置模态弹窗 + 插件管理入驻 | `src/shell/settings/` + 两面板迁移 | — | Shell+Plugin | ①右上角齿轮开模态（Esc/遮罩关闭、焦点在弹窗内）②四分区（通用含库路径输入+前端校验+autoRerun 开关/快捷键/插件/关于）③插件四态徽标/SSE 日志全功能，移除「在编辑器中打开」入口 ④Ctrl+, 打开并记忆上次分区 ⑤移除 settings/plugin-manager dock 面板与工作区虚拟 tab；设置存 `bps.settings.v1` ⑥库路径服务端安全根不在本卡（T11.4），文档/提示写清 | 完成 · 2026-10-18（B17：模态/四分区/齿轮与 Ctrl+,/分区记忆/插件迁入；8 单测 + GUI 实测 Esc/遮罩/记忆/路径校验） |
+| T8.4 | 文件系统扩展名隐藏与新建向导 | `src/panels/file-system/` | — | Shell | ①资产行=主名+徽标（PLAN §3.7；最长后缀优先）②新建对话框选类型+主名，自动补扩展名与目录（M8：场景/预制体/蓝图/脚本；元素/样式/函数 M11 开放）③重命名只输主名并保扩展名 ④.history/导入/删除撤销照旧 ⑤旧双扩展名与未知 `.json` 显示正确（`main.ui.json`→`main`、`report.final.json` 原样） | 完成 · 2026-10-18（B17：主名/EL·ST·FN 徽标/新建资产向导/重命名保扩展；路径单测 + GUI 实建 TS 资产后清理） |
 | T8.5 | 运行视图内置工作区 | `src/panels/runtime/`（iframe 承载）+ runtime-launch 改造 | T8.1, T8.3 | Runtime+Shell | ①F5/F6 打开/聚焦运行面板并重跑（F6 仅当前 UI）②「拆出独立窗口」= `window.open(runtime.html…)` + 关内置面板（pong 探测沿用）③`embed=1` 隐藏运行页 chrome；控制台镜像+调试观察生效 ④Ctrl+S 保存成功自动重跑（`autoRerun` 默认开，可关）⑤iframe 内 F5/F6/Ctrl+S 经 postMessage 转发父窗；单实例不双开 | 待办 |
 
 ### M9 flex 布局引擎与 UI 编辑器重构
@@ -126,9 +126,9 @@ M13：T13.1 ← T11.6+T12.9    T13.2(T9.1) ─ T13.4(T11.6/T8.5)    T13.3(T13.1)
 
 ## 5. 当前状态与批次计划
 
-- 看板初始化：2026-10-18；**开工前评审完成（draft2）**；全部 `待办`，无在途卡；B17 已可开工。
+- 看板初始化：2026-10-18；**开工前评审完成（draft2）**；**B17 已交付（T8.1/T8.3/T8.4）**；下一批 B18（T8.2/T8.5）。
 - 沿用 v2 单会话模式：不逐卡建 git 分支，PM 按批次在 `v3` 长分支提交（每批次一次 commit，自 main@B16 拉出；M8/M10/M13 后合回 main）。
-- 测试基线（开工前实测，2026-10-18）：**923 测试全绿、typecheck 0 错、构建绿**（v2 看板最后记录为 917，差异为后续测试增补；以实测为准）。命令见 PLAN §15.4。基线数量随 v3 重写允许变化，每批记录新基线。
+- 测试基线（B17 收尾实测，2026-10-18）：**940 测试全绿（132 suites，0 fail / 0 skip）、typecheck 0 错、构建绿**。开工前基线 923（v2 看板最后记录 917）；B17 新增 17 测试。命令见 PLAN §15.4。基线数量随 v3 重写允许变化，每批记录新基线。
 
 | 批次 | 卡片 | 说明 |
 |---|---|---|
@@ -149,5 +149,6 @@ M13：T13.1 ← T11.6+T12.9    T13.2(T9.1) ─ T13.4(T11.6/T8.5)    T13.3(T13.1)
 
 ## 6. 进度纪要（PM 维护，倒序追加）
 
+- **2026-10-18 · B17（M8 第一批：T8.1/T8.3/T8.4）**：三卡完成。**T8.1 dock 资产化**——`assetPanel`/`assetPanelModel` 拆分（纯逻辑可单测、不拉入编辑器 CSS）：动态注册 `asset:<kind>:<path>`、泛型宿主、布局 v3（`{version:3,root,activePanelId}`）、启动扫描布局重建 openTabs/activeTabId、点击/打开/关闭维护 activePanelId、脏关闭确认、tab 右键关闭/其他/右侧、拆出窗口（`?panel=asset:…` 重建）；workspace-store 降级为资产注册表；中央组锚定 `runtime`（修复 BFS 首个 tabs 组误落底部控制台）。**T8.3 设置模态**——齿轮/Ctrl+,、四分区（通用库路径+前端校验+autoRerun/快捷键/插件/关于）、Esc/遮罩、分区记忆 `bps.settings.section`、设置 `bps.settings.v1`、插件管理面板迁入并移除「在编辑器中打开」、删除 settings/plugin-manager dock 面板注册。**T8.4 文件呈现**——主名显示（`.ui/.bp/.elem/.uss/.fn` 最长后缀）、EL/ST/FN 徽标、新建资产向导（场景/预制体/蓝图/TS/PY，按约定目录，元素/样式/函数 M11 开放）、重命名只输主名保扩展。**验证**：940 测试全绿（+17）、typecheck 0 错、构建绿；Playwright 实测打开 UI 资产并入中央组、刷新还原、脏关闭确认、拆出/合回、设置四分区与路径校验、新建 TS 资产；截图 `gui-test-screenshots/v3-b17-*.png`。**偏差**：dock 居中锚改用 `runtime`（PLAN §4.1 未指定锚点，已在实现注释说明）；未改运行视图（T8.5 下一批）。**下步**：B18 = T8.2 统一检视器 + T8.5 运行视图内置。
 - **2026-10-18 · 开工前评审（draft2）**：逐节核对 PLAN 与源码，发现并修订 8 项契约级不清晰（图集合缺 kind/layout、元素覆盖字段混用、库引用语法缺失、theme 退役未说明、flow.call 作用域二义、反射/选择器穿透边界、预制体图语义缺失、既有校验码数量 11→12）+ 若干任务卡依赖/DoD 不可测问题；补 B17/B18 批次、Plugin-Agent 角色、单会话分支规则与 923 基线。评审明细见 [REVIEW.md](./REVIEW.md)。结论：**可以开工**。
 - **2026-10-18 · v3 规划定稿（待评审）**：用户提 12 条需求 + 追加需求「通过编辑器面板自制内置元素/内置函数」，两轮书面问答（Q1~Q13 + 默认项 A1~A18）全部拍板后 PLAN.md / TASKBOARD.md 成稿。关键决策：dock 完全统一（资产=面板）；深度 flex 化；USS 式样式库；类级内嵌蓝图（logicAsset 退役，.bp.json 降为纯逻辑资产）；函数三档；干净断裂（v2 拒载/模板重制/roundtrip+e2e 重写）；内置库=组合式创作、路径设置可配、即时生效无版本、首版含导出导入。里程碑 M8~M13、批次自 B17 起、ADR 自 011 起、`v3` 长分支。

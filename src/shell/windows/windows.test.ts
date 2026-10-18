@@ -583,6 +583,8 @@ describe('同步桥：双向改 store 均同步（内存总线集成）', () => 
     assert.equal(ws.activeTabId, tabIdOf('script', 'logic/a.ts'))
 
     // 主窗侧改（任意路径触达共享 store）→ 镜像同步 dirty 标记
+    // v3：不再预置占位 tab，先打开 UI 资产再标脏
+    useWorkspaceStore.getState().openAsset({ kind: 'ui', assetPath: 'ui/main.ui.json' })
     useWorkspaceStore.getState().markDirty(tabIdOf('ui', 'ui/main.ui.json'))
     assert.equal(
       useWorkspaceStore.getState().openTabs.find((t) => t.id === tabIdOf('ui', 'ui/main.ui.json'))?.dirty,

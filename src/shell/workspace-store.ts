@@ -1,10 +1,10 @@
 /**
- * 工作区状态（zustand，T0.3 · PLAN §6.2 中央工作区）
+ * 工作区状态（zustand；v3 T8.1 降级为「资产注册表」）
  *
- * 职责：当前项目上下文 + 打开的资产 tabs（UI 编辑 / 蓝图编辑 / 脚本编辑 / 插件管理）。
- * 本期 openAsset 只切 tab、不加载内容（内容加载与保存链路 T0.7 / T1.x 接入）；
- * dirty 脏标记（tab ●）由本 store 承载，Ctrl+S 的 file.save 快捷键本期为空实现（T0.5 注册），
- * 后续保存链路接 clearDirty。
+ * 职责：当前项目上下文 + 打开的资产列表（openTabs / 脏标记 / 激活项）。
+ * v3 起 dock 布局是打开资产的持久化真源：assetPanel 在布局变化时同步本 store
+ * （启动从布局里的 `asset:` 面板重建 openTabs），本 store 不再渲染中央 tab 条。
+ * 保留本 store 的原因：F6 需要「当前 UI 资产」、tab 标题/脏标记、多窗口快照同步。
  *
  * 项目上下文：从 URL ?project=<绝对路径> 初始化（PLAN §3.1 窗口模型；
  * T0.6 项目管理器将统一以该方式进入编辑器）；closeProject 清空并回到空上下文。
@@ -68,24 +68,13 @@ interface WorkspaceState {
   closeProject: () => void
 }
 
-/**
- * 默认占位 tabs（对应 PLAN §6.2 默认布局示意「UI 编辑 / 蓝图编辑」）。
- * T0.6 / T0.7 起将由真实打开的资产替换，此处仅为外壳演示提供内容。
- */
-const SEED_TABS: OpenTab[] = [
-  { id: tabIdOf('ui', 'ui/main.ui.json'), kind: 'ui', assetPath: 'ui/main.ui.json', title: 'UI 编辑' },
-  {
-    id: tabIdOf('blueprint', 'logic/main.bp.json'),
-    kind: 'blueprint',
-    assetPath: 'logic/main.bp.json',
-    title: '蓝图编辑',
-  },
-]
+/** v3：不再预置占位 tab；打开资产由 dock 面板驱动并从布局还原 */
+const NO_TABS: OpenTab[] = []
 
 export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   currentProject: projectFromLocation(),
-  openTabs: SEED_TABS,
-  activeTabId: SEED_TABS[0].id,
+  openTabs: NO_TABS,
+  activeTabId: null,
 
   openAsset: ({ kind, assetPath, title }) => {
     const id = tabIdOf(kind, assetPath)

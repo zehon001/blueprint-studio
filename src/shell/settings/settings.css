@@ -1,0 +1,213 @@
+/* 设置模态弹窗（v3 T8.3） */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.settings-modal {
+  display: flex;
+  width: min(860px, calc(100vw - 48px));
+  height: min(620px, calc(100vh - 72px));
+  min-height: 380px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  outline: none;
+}
+
+.settings-side {
+  flex: none;
+  width: 148px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-panel-header);
+  border-right: 1px solid var(--border);
+}
+
+.settings-title {
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--text);
+  padding: 0 var(--space-2);
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-nav-item {
+  text-align: left;
+  padding: var(--space-2);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: var(--font-sm);
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+.settings-nav-item:hover {
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+.settings-nav-item.active {
+  background: var(--bg-input);
+  color: var(--accent);
+}
+
+.settings-content {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+}
+
+.settings-close {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.settings-close:hover {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--bg-input);
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+
+.settings-section-title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-md);
+  font-weight: 600;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.settings-label {
+  font-size: var(--font-sm);
+  color: var(--text);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-sm);
+  font-family: var(--font-mono);
+}
+
+.settings-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.settings-btn {
+  flex: none;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-sm);
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+.settings-btn:hover {
+  border-color: var(--border-strong);
+}
+
+.settings-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.settings-btn.primary:hover {
+  background: var(--accent-hover);
+}
+
+.settings-hint {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  line-height: 1.6;
+}
+
+.settings-error {
+  color: var(--error);
+  font-size: var(--font-xs);
+}
+
+.settings-ok {
+  color: var(--accent);
+  font-size: var(--font-xs);
+}
+
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.settings-about-name {
+  color: var(--text);
+  font-size: var(--font-lg);
+  font-weight: 600;
+}
+
+/* 复用旧面板时去掉其外框（内容已由弹窗滚动容器承载） */
+.settings-content .bps-settings {
+  flex: 1;
+  min-height: 0;
+}
+.settings-content .pm-panel {
+  flex: 1;
+  min-height: 320px;
+}

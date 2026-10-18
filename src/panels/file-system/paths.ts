@@ -56,11 +56,44 @@ export function assetKindOf(fileName: string): AssetOpenKind | null {
   return null
 }
 
+/** 双扩展名资产后缀（最长后缀优先；v3 PLAN §3.7） */
+export const ASSET_SUFFIXES = ['.ui.json', '.bp.json', '.elem.json', '.uss.json', '.fn.json'] as const
+
+/** 文件名的双扩展名后缀（无则 ''；大小写不敏感） */
+export function assetSuffixOf(fileName: string): string {
+  const lower = fileName.toLowerCase()
+  for (const suffix of ASSET_SUFFIXES) {
+    if (lower.endsWith(suffix)) return suffix
+  }
+  return ''
+}
+
+/**
+ * 资产显示主名（v3 T8.4）：双扩展名去后缀；脚本/未知文件保留完整名。
+ * 例：main.ui.json → main；app.uss.json → app；a.b.ts → a.b.ts；report.final.json → report.final.json
+ */
+export function displayNameOf(fileName: string): string {
+  const suffix = assetSuffixOf(fileName)
+  if (!suffix) return fileName
+  return fileName.slice(0, fileName.length - suffix.length) || fileName
+}
+
+/** 文件名的单扩展名（含点；无则 ''），用于重命名时保留 */
+export function extensionOf(fileName: string): string {
+  const suffix = assetSuffixOf(fileName)
+  if (suffix) return suffix
+  const dot = fileName.lastIndexOf('.')
+  return dot > 0 ? fileName.slice(dot) : ''
+}
+
 /** 扩展名图标字符（树行左侧的等宽小徽标；目录行用折叠箭头，不在此列） */
 export function extLabelOf(fileName: string): string {
   const lower = fileName.toLowerCase()
   if (lower.endsWith('.ui.json')) return 'UI'
   if (lower.endsWith('.bp.json')) return 'BP'
+  if (lower.endsWith('.elem.json')) return 'EL'
+  if (lower.endsWith('.uss.json')) return 'ST'
+  if (lower.endsWith('.fn.json')) return 'FN'
   switch (extOf(lower)) {
     case 'ts':
       return 'TS'
@@ -96,10 +129,13 @@ export function newFileTemplateOf(fileName: string): NewFileTemplate {
   return 'text'
 }
 
-/** 资产名（去掉 .ui.json / .bp.json / 单扩展名后的主干；空主干回落文件名本身） */
+/** 资产名（去掉双扩展名 / 单扩展名后的主干；空主干回落文件名本身） */
 export function assetStemOf(fileName: string): string {
   const base = baseName(fileName)
-  const stem = base.replace(/\.(ui|bp)\.json$/i, '').replace(/\.[^.]+$/, '')
+  const suffix = assetSuffixOf(base)
+  const stem = suffix
+    ? base.slice(0, base.length - suffix.length)
+    : base.replace(/\.[^.]+$/, '')
   return stem || base
 }
 

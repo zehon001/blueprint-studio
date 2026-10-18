@@ -24,6 +24,16 @@ import { computeDropSide, type Rect } from './dropZone'
 import { getPanel } from './registry'
 import { useDockStore } from './store'
 import {
+  assetBadge,
+  assetPanelTitle,
+  ensureAssetPanelsInLayout,
+  parseAssetPanelId,
+  requestClosePanel,
+  requestClosePanels,
+  syncWorkspaceFromDock,
+} from './assetPanel'
+import { tabIdOf, useWorkspaceStore } from '@/shell/workspace-store'
+import {
   MIN_PANE_PX,
   resizeSashSizes,
   type DockNode,
@@ -34,6 +44,7 @@ import {
 import { PopoutPlaceholder } from '@/shell/windows/PopoutApp'
 import { popoutPanel, recallPopout, usePopoutsStore } from '@/shell/windows/popout'
 import { ToastHost } from '@/shell/windows/toast'
+import { SettingsModalHost } from '@/shell/settings'
 import './dock.css'
 import '@/shell/windows/windows.css'
 
@@ -84,6 +95,17 @@ function DockRoot() {
   const dragRef = useRef<DragState | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
   const dragging = drag !== null
+
+  // v3 T8.1：dock 布局是打开资产的真源 → 补注册动态资产面板 + 同步 workspace 注册表
+  useEffect(() => {
+    const sync = (): void => {
+      const { root } = useDockStore.getState()
+      ensureAssetPanelsInLayout(root)
+      syncWorkspaceFromDock()
+    }
+    sync()
+    return useDockStore.subscribe(sync)
+  }, [])
 
   const beginDrag = useCallback((panelId: string, from: { x: number; y: number }) => {
     dragRef.current = { panelId, fromPoint: from, drop: null }
@@ -284,11 +306,101 @@ function SplitView({
   )
 }
 
+/** 资产 tab 标题：类型徽标 + 主名 + 脏标记（v3 T8.1；静态面板回退注册标题） */
+function DockTabLabel({ panelId, fallback }: { panelId: string; fallback: string }) {
+  const ref = parseAssetPanelId(panelId)
+  const tabId = ref ? tabIdOf(ref.kind as Parameters<typeof tabIdOf>[0], ref.path) : ''
+  const dirty = useWorkspaceStore((s) => (tabId ? s.openTabs.some((t) => t.id === tabId && t.dirty) : false))
+  if (!ref) return <span className="dock-tab-label">{fallback}</span>
+  return (
+    <span className="dock-tab-label">
+      <span className="dock-tab-badge" aria-hidden>
+        {assetBadge(ref.kind, ref.path)}
+      </span>
+      <span className="dock-tab-name">{assetPanelTitle(ref.kind, ref.path)}</span>
+      {dirty ? (
+        <span className="dock-tab-dirty" title="有未保存修改">
+          ●
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
+/** tab 右键菜单状态（v3 T8.1：关闭 / 关闭其他 / 关闭右侧） */
+interface TabMenuState {
+  x: number
+  y: number
+  panelId: string
+  groupId: string
+}
+
+/** tab 右键菜单：动作按所属 tabs 组计算；资产面板关闭前逐个脏确认 */
+function TabContextMenu({
+  state,
+  panels,
+  onClose,
+}: {
+  state: TabMenuState
+  panels: readonly string[]
+  onClose: () => void
+}) {
+  const index = panels.indexOf(state.panelId)
+  const right = index >= 0 ? panels.slice(index + 1) : []
+  const others = panels.filter((p) => p !== state.panelId)
+  const run = (ids: readonly string[]): void => {
+    if (requestClosePanels(ids)) onClose()
+  }
+  return (
+    <div
+      className="dock-menu"
+      style={{ left: state.x, top: state.y }}
+      onPointerDown={(e) => e.stopPropagation()}
+      role="menu"
+    >
+      <button type="button" className="dock-menu-item" onClick={() => (requestClosePanel(state.panelId) ? onClose() : undefined)}>
+        关闭
+      </button>
+      <button
+        type="button"
+        className="dock-menu-item"
+        disabled={others.length === 0}
+        onClick={() => run(others)}
+      >
+        关闭其他
+      </button>
+      <button
+        type="button"
+        className="dock-menu-item"
+        disabled={right.length === 0}
+        onClick={() => run(right)}
+      >
+        关闭右侧
+      </button>
+    </div>
+  )
+}
+
 /** tabs 组：页签条（拖动=移动面板 / 点击=激活）+ 操作区（拆出窗口 ⊞ / 合回 ⊟ / 关闭）+ 页面体 */
 function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: string | null }) {
   const setTabActive = useDockStore((s) => s.setTabActive)
-  const closePanel = useDockStore((s) => s.closePanel)
   const beginDrag = useContext(DragContext)
+  const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
+
+  // 菜单外部点击 / Esc 关闭
+  useEffect(() => {
+    if (!tabMenu) return
+    const close = (): void => setTabMenu(null)
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [tabMenu])
   // 已拆出面板集合（T0.4：主窗该页签显示「已拆出」占位，弹窗关闭 / 合回后自动恢复）
   const popoutSessions = usePopoutsStore((s) => s.sessions)
   const poppedPanelIds = useMemo(() => new Set(Object.keys(popoutSessions)), [popoutSessions])
@@ -326,9 +438,14 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
               key={panelId}
               className={cls}
               onPointerDown={(e) => onTabDown(e, panelId, i)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setTabMenu({ x: e.clientX, y: e.clientY, panelId, groupId: node.id })
+              }}
               title={def ? `${def.title}${popped ? '（已拆出）' : ''}` : panelId}
             >
-              <span className="dock-tab-label">{def?.title ?? panelId}</span>
+              <DockTabLabel panelId={panelId} fallback={def?.title ?? panelId} />
             </div>
           )
         })}
@@ -363,7 +480,7 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
             disabled={activePanelId === undefined}
             title={activeDef ? `关闭「${activeDef.title}」` : '关闭'}
             onClick={() => {
-              if (activePanelId !== undefined) closePanel(activePanelId)
+              if (activePanelId !== undefined) requestClosePanel(activePanelId)
             }}
           >
             ×
@@ -394,6 +511,9 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
           <div className="dock-panel-placeholder">（空面板组）</div>
         ) : null}
       </div>
+      {tabMenu ? (
+        <TabContextMenu state={tabMenu} panels={node.panels} onClose={() => setTabMenu(null)} />
+      ) : null}
     </div>
   )
 }
@@ -405,6 +525,7 @@ export default function DockShell() {
       <Toolbar />
       <DockRoot />
       <ToastHost />
+      <SettingsModalHost />
     </div>
   )
 }

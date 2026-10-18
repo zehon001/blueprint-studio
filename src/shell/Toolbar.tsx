@@ -23,6 +23,7 @@ import { useWorkspaceStore } from '@/shell/workspace-store'
 import { usePanels } from '@/shell/dock/registry'
 import { useDockStore } from '@/shell/dock/store'
 import { findTabsByPanel } from '@/shell/dock/tree'
+import { openSettings } from '@/shell/settings'
 
 /** 顶栏栈顶命令摘要选择器（tooltip 显示 label 用） */
 function topUndo(s: { undoStack: CommandEntry[] }): CommandEntry | undefined {
@@ -156,6 +157,15 @@ export default function Toolbar() {
 
         <button type="button" className="toolbar-btn" onClick={resetLayout} title="恢复默认布局">
           重置布局
+        </button>
+        <button
+          type="button"
+          className="toolbar-btn toolbar-gear"
+          onClick={() => openSettings()}
+          title="设置（Ctrl+,）"
+          aria-label="设置"
+        >
+          ⚙
         </button>
       </div>
     </div>

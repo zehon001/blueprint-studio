@@ -104,7 +104,6 @@ export interface PluginManagerPanelProps {
 
 export function PluginManagerPanel({ api = defaultPluginApi }: PluginManagerPanelProps) {
   const project = useWorkspaceStore((s) => s.currentProject)
-  const openAsset = useWorkspaceStore((s) => s.openAsset)
   const projectPath = project?.path ?? null
 
   /* —— 列表与 detect 状态 —— */
@@ -492,14 +491,6 @@ export function PluginManagerPanel({ api = defaultPluginApi }: PluginManagerPane
         <button
           type="button"
           className="pm-header-btn"
-          title="在中央工作区以「插件管理」标签页打开（编辑器内独立页签）"
-          onClick={() => openAsset({ kind: 'plugin-manager', assetPath: '', title: '插件管理' })}
-        >
-          在编辑器中打开
-        </button>
-        <button
-          type="button"
-          className="pm-header-btn"
           title="重新拉取清单并逐项检测"
           onClick={() => void loadList()}
         >
@@ -538,7 +529,7 @@ export function PluginManagerPanel({ api = defaultPluginApi }: PluginManagerPane
         )}
       </div>
       <div className="pm-footer-hint">
-        提示：点击「在编辑器中打开」可将本界面作为中央工作区的「插件管理」标签页打开（与文件面板同层）。
+        提示：本界面已迁入右上角「设置 → 插件」模态弹窗（v3 T8.3）；安装/更新行为与原面板一致。
       </div>
       {confirm && (
         <div
