@@ -188,8 +188,8 @@ export function LibraryPanel() {
 
   const onOpen = (): void => {
     if (!selected) return
-    if (selected.path.startsWith('@library/')) {
-      window.alert('内置库条目编辑（@library 解析）随 T11.6 完整版接入；当前可在项目库打开项目元素/样式。')
+    if (selected.path.startsWith('@library/') && selected.kind === 'styles') {
+      window.alert('样式表编辑器随 T11.5 完整版接入；元素/函数可直接打开。')
       return
     }
     if (selected.kind === 'elements') openAssetPanel('element', selected.path)

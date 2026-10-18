@@ -181,9 +181,12 @@ export const useUIEditorStore = create<UIEditorState>()((set, get) => ({
 }))
 
 /** React hook：订阅 scene-tree 域状态（资产/未挂载返回空壳，组件随域变更重渲染） */
+/** 稳定的空域快照（useSyncExternalStore 要求同一引用；不可每次新建对象） */
+const EMPTY_SCENE_TREE: SceneTreeDomainState = { asset: null }
+
 export function useSceneTreeDomain(): SceneTreeDomainState {
   ensureDomain()
-  return useEditorStore((s) => (s.domains['scene-tree'] as SceneTreeDomainState | undefined) ?? { asset: null })
+  return useEditorStore((s) => (s.domains['scene-tree'] as SceneTreeDomainState | undefined) ?? EMPTY_SCENE_TREE)
 }
 
 /** 非订阅读取（命令/事件处理器内用） */

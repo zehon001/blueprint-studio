@@ -24,6 +24,9 @@ import { serializeIR, validateIR } from '../../ir/validate';
 import type { ValidationIssue } from '../../ir/validate';
 import type { IRAsset, IRComment, NodeSpec } from '../../ir/types';
 import { NODE_CATEGORIES } from '../../nodes';
+import { reflectionEntries, type ReflectTargetNode } from '../../nodes/reflect';
+import { useSceneTreeDomain } from '../../ui-editor/store';
+import { getUISchema } from '../../ui-editor/schema';
 import { BPGraphCanvas, headVariantFor, nodeSizeFor } from '../view';
 import type { FlowEdge, FlowNode } from '../view';
 import { useBlueprintStore, EMPTY_SELECTION } from '../store/blueprint-store';
@@ -240,6 +243,14 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
       st.closeMenu();
       return;
     }
+    if (specId.startsWith('reflect:')) {
+      const [, rest] = specId.split(':', 2);
+      const [kind, nodeName, propId] = (rest ?? '').split('|');
+      const id = st.addNode(kind === 'set' ? 'ui.setProp' : 'ui.getProp', st.menu.flow);
+      if (id) st.setNodeParams(id, { nodeName, propId });
+      st.closeMenu();
+      return;
+    }
     if (specId.startsWith('fncall:')) {
       const parts = specId.split(':');
       const id = st.addNode('flow.call', st.menu.flow);
@@ -378,6 +389,7 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
   /* v3 T12.3：项目库/内置库函数清单（进入「函数」分组检索） */
   const [externalFns, setExternalFns] = useState<Array<{ name: string; scope: 'project' | 'global' }>>([]);
   const projectPath = useWorkspaceStore((s) => s.currentProject?.path ?? null);
+  const { asset: uiAsset } = useSceneTreeDomain();
   useEffect(() => {
     let alive = true;
     const load = async (): Promise<void> => {
@@ -433,9 +445,44 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
       },
       pin: null,
     }));
+    // v3 T12.6：反射条目（图属主自身树节点 × reflect:true 属性；UI 内嵌蓝图时有树）
+    const reflectNodes: ReflectTargetNode[] = [];
+    const walkUi = (n: NonNullable<typeof uiAsset>['root']): void => {
+      reflectNodes.push({ name: n.name, type: n.type, props: getUISchema(n.type)?.props ?? null });
+      for (const c of n.children ?? []) walkUi(c);
+    };
+    if (uiAsset) walkUi(uiAsset.root);
+    const reflects: SpecEntry[] = reflectNodes.flatMap((n) =>
+      reflectionEntries([n])
+        .filter((e) => e.nodeName === n.name)
+        .flatMap((e) => [
+          {
+            spec: {
+              id: `reflect:get|${e.nodeName}|${e.propId}`,
+              title: `Get ${e.label}`,
+              category: '设计器',
+              keywords: ['设计器', '反射', 'get', '读取', e.nodeName, e.propId],
+              inputs: [],
+              outputs: [],
+            },
+            pin: null,
+          },
+          {
+            spec: {
+              id: `reflect:set|${e.nodeName}|${e.propId}`,
+              title: `Set ${e.label}`,
+              category: '设计器',
+              keywords: ['设计器', '反射', 'set', '写入', e.nodeName, e.propId],
+              inputs: [],
+              outputs: [],
+            },
+            pin: null,
+          },
+        ]),
+    );
     // 「添加注释」伪条目追加在分类浏览尾部（搜索「注释」可直达；pick 在 searchPick 拦截）
-    return [...entries, ...fnEntries, ...externalEntries, { spec: COMMENT_MENU_SPEC, pin: null }];
-  }, [specs, asset, externalFns]);
+    return [...entries, ...fnEntries, ...externalEntries, ...reflects, { spec: COMMENT_MENU_SPEC, pin: null }];
+  }, [specs, asset, externalFns, uiAsset]);
 
   const commentList = useBlueprintStore(
     (s) => s.asset?.graphs[s.graphName]?.comments ?? NO_COMMENTS,

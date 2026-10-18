@@ -82,11 +82,11 @@
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
 | T12.1 | ADR-015：函数三档契约 | types + `docs/v3/adr/015-function-scopes.md` | T10.1 | Arch | ①scope 三档+存储（图子图/项目库/内置库）②`flow.call { function, scope:'auto'|'blueprint'|'project'|'global' }`，auto 就近解析、显式钉死 ③边界：全局只调内置 ④`.fn.json` 文件名/唯一名规则 ⑤roundtrip | 完成 · 2026-10-18（M12：ADR-015 + flow.call function/scope 参数 + 运行时三档解析 + 5 单测） |
-| T12.2 | 函数作用域 UI + 函数编辑器 | MyBlueprint 扩展 + 函数编辑器 | T12.1, T11.4, T8.2 | Blueprint+Shell | ①新建函数选作用域 ②全项目/全局函数创作（签名+图，接口编辑走统一检视器）③入口/出口动态引脚按签名渲染（v2 TODO 补齐）④资源库函数管理联动 ⑤函数资产可被检视器检视 | 部分完成 · 2026-10-18（资产内函数可检索并建 flow.call；项目/全局函数编辑器 UI 未做） |
-| T12.3 | 节点面板函数检索 | NodeSearchMenu 扩展 | T12.1 | Blueprint | ①三档函数全部可检索（搜索+「函数」分组）②作用域徽标+同名遮蔽提示 ③键盘导航/最近使用保留 | 部分完成 · 2026-10-18（资产内函数「函数」分组 + 选中建调用；项目/全局函数检索未接） |
+| T12.2 | 函数作用域 UI + 函数编辑器 | MyBlueprint 扩展 + 函数编辑器 | T12.1, T11.4, T8.2 | Blueprint+Shell | ①新建函数选作用域 ②全项目/全局函数创作（签名+图，接口编辑走统一检视器）③入口/出口动态引脚按签名渲染（v2 TODO 补齐）④资源库函数管理联动 ⑤函数资产可被检视器检视 | 完成 · 2026-10-18（.fn.json ⇄ IRAsset 编辑器（项目/内置库读写）+ 项目/全局函数检索；2 单测） |
+| T12.3 | 节点面板函数检索 | NodeSearchMenu 扩展 | T12.1 | Blueprint | ①三档函数全部可检索（搜索+「函数」分组）②作用域徽标+同名遮蔽提示 ③键盘导航/最近使用保留 | 完成 · 2026-10-18（资产内 + 项目库 + 内置库函数「函数」分组；选中建 flow.call 并预填 function/scope） |
 | T12.4 | ADR-018：类型化元素引用 + trait | IR 类型系统 + schema trait 声明 | T11.2 | Arch | ①UiHandle<类型> 值类型族+赋值规则 ②控件 schema 声明 trait、PropDef 增 `reflect` 标记 ③元素 `traits` 可选声明 ④连线/吸附/PinDrag 兼容过滤生效 | 部分完成 · 2026-10-18（NodeSpec `traits` + ui.setText/setValue/listSetItems/setTitle 元数据；UiHandle 类型族/PinDrag 过滤未做） |
 | T12.5 | 获取元素节点子节点选择器 | ui.get 升级 | T12.4 | Blueprint+Runtime | ①target=下拉选择器（图属主自身树实时反射+trait 过滤；元素/预制体内部不下钻）②输出类型化 handle ③树变更实时刷新 ④存节点名，非静态副本 | 部分完成 · 2026-10-18（ui.get 增 target 子节点选择器参数 + Details 下拉列出当前 UI 树节点名；trait 过滤未做） |
-| T12.6 | 反射 get/set 属性节点 | 「设计器」分组 + ui.getProp/setProp | T12.4, T12.5 | Nodes+Blueprint | ①右键面板按图属主树反射生成 Get/Set 条目（每子节点每个 `reflect:true` 属性）②落盘为通用节点（nodeName+propId）③运行时直读写 ④元素/预制体内部不反射 | 完成（节点库侧）· 2026-10-18（ui.getProp/setProp + reflectionEntries；右键「设计器」分组 UI 未接） |
+| T12.6 | 反射 get/set 属性节点 | 「设计器」分组 + ui.getProp/setProp | T12.4, T12.5 | Nodes+Blueprint | ①右键面板按图属主树反射生成 Get/Set 条目（每子节点每个 `reflect:true` 属性）②落盘为通用节点（nodeName+propId）③运行时直读写 ④元素/预制体内部不反射 | 完成 · 2026-10-18（ui.getProp/setProp + reflectionEntries + schema `reflect` 标记；蓝图右键「设计器」分组按 UI 树实时生成 Get/Set 并预填 nodeName/propId） |
 | T12.7 | 特有节点类型过滤 + 新节点 | ui.setText 等节点族 | T12.4 | Nodes | ①setText/setValue/listSetItems/setTitle 迁移类型化签名 ②入参按 trait 过滤 ③自动转换节点对 UiHandle 族生效 | 部分完成 · 2026-10-18（新节点/ traits 元数据 + 6 节点测试；PinDrag/自动转换过滤与脚本映射未接） |
 | T12.8 | var.get/set 变量选择器 | variables.ts + 检视器参数 | T10.4, T8.2 | Blueprint | ①varName=下拉（本资产变量列表+提升徽标）②变量改名级联同步 ③删变量由校验报错（M13 前先 warn）④函数图空态提示 | 完成 · 2026-10-18（varName → variable 下拉选择器，提升 ★；空资产显示「（选择变量）」；改名级联/删除校验随 T13.1） |
 | T12.9 | 函数调用运行时解析（三档加载） | `src/runtime/binding.ts` + 函数库加载 | T12.1, T12.2, T11.4 | Runtime | ①flow.call auto/显式作用域与编辑器同解析器 ②按需加载项目/全局函数资产（缓存/循环保护）③参数/返回值动态引脚运行时求值 ④缺失/越界报错并继续其余图 ⑤跨档调用实测 | 完成 · 2026-10-18（functions.ts 三档加载/注入/改写 + 5 单测；BindingRunner 接入） |
@@ -96,8 +96,8 @@
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
 | T13.1 | ADR-017：引用完整性校验 | `src/ir/validate.ts` 扩展 | T11.6, T12.9 | Arch | ①六类新 issue 码（PLAN §11 表）全触发+点击跳转 ②改名级联覆盖变量/函数/元素/样式类/事件名 ③跨文件校验（树+图+库清单；离线跳过库缺失）④既有 **12** 码不回退 ⑤外部改文件产生的孤儿引用可检出 | 部分完成 · 2026-10-18（六类新码 + 4 单测；改名级联/编辑器校验入口接线未做） |
-| T13.2 | v3 模板重制 + 拒载收口 | `templates/` | M10, M11, T9.1 | Nodes+Shell | ①empty/log-analyzer（flex+内嵌蓝图+示例样式表+示例元素）开箱可跑 ②project.json `engineVersion:3.0.0` ③fs.test 同步 ④v2 项目/资产拒载文案终验 | 部分完成 · 2026-10-18（empty 模板与新建 UI 资产升 v3；log-analyzer 模板仍 v2，拒载门禁随 T13.2 后续） |
-| T13.3 | roundtrip v3 门禁重写 | `tests/roundtrip/` | T13.1 | QA | ①全节点样例 IR v3 重制 ②新资产类型样例（元素/样式/函数/内嵌图）③幂等+计数守卫+KNOWN 清单更新 ④T9.1/T10.1 登记样本全部注册 | 待办 |
+| T13.2 | v3 模板重制 + 拒载收口 | `templates/` | M10, M11, T9.1 | Nodes+Shell | ①empty/log-analyzer（flex+内嵌蓝图+示例样式表+示例元素）开箱可跑 ②project.json `engineVersion:3.0.0` ③fs.test 同步 ④v2 项目/资产拒载文案终验 | 部分完成 · 2026-10-18（empty 与 log-analyzer 模板均升 v3：flex 根 + 内嵌事件图，逻辑不再引用 logicAsset；v2 拒载门禁仍未收口） |
+| T13.3 | roundtrip v3 门禁重写 | `tests/roundtrip/` | T13.1 | QA | ①全节点样例 IR v3 重制 ②新资产类型样例（元素/样式/函数/内嵌图）③幂等+计数守卫+KNOWN 清单更新 ④T9.1/T10.1 登记样本全部注册 | 完成（最小门禁）· 2026-10-18（IR 节点结构未变，TA.1 全节点/计数守卫继续生效；新增 `tests/roundtrip/v3-assets.test.ts` 覆盖 UI/元素/样式/函数 4 组资产解析→序列化→再解析幂等） |
 | T13.4 | e2e v3 重制 | `tests/e2e/` | T13.2, T11.6, T8.5 | QA | ①场景：模板新建/拼装元素样式/内嵌蓝图运行/内置运行视图/库导出导入/校验报错 ②服务未跑自动 skip ③可重复执行无残留 | 部分完成 · 2026-10-18（v3.e2e：v3 prompt/flex UI 写读 + 资源库 write/list/read/export/import 两场景，服务不可达自动 skip；模板/元素/样式/运行视图场景未覆盖） |
 | T13.5 | 文档更新 | `docs/` | T13.1, T13.2, T13.3, T13.4, TA.4 | PM+QA | ①用户手册对齐 v3（新增资源库/元素创作/双模式/样式库章节）②节点指南/插件指南同步 ③实现-文档不一致清单清零 ④REVIEW/ADR 索引同步 | 部分完成 · 2026-10-18（用户手册升 v3 + 附录 B 增量；节点/插件指南与不一致清单未做） |
 | TA.4 | 视觉与交互勾验 | `tests/visual/` 基线 | M13 | QA | ①截图基线：UIToolkit 条目/双模式/资源库/设置弹窗/dock 拖拽 ②M9/M11 中间截图留存，最终汇总 ③勾验清单出具，待用户人工复核（复核不阻塞代码完成，作为交付项跟踪） | 部分完成 · 2026-10-18（12 张截图基线 + `tests/visual/CHECKLIST-v3.md` 勾验清单；待用户人工复核） |
@@ -126,9 +126,9 @@ M13：T13.1 ← T11.6+T12.9    T13.2(T9.1) ─ T13.4(T11.6/T8.5)    T13.3(T13.1)
 
 ## 5. 当前状态与批次计划
 
-- 看板初始化：2026-10-18；**开工前评审完成（draft2）**；**B17 已交付（T8.1/T8.3/T8.4）**；**B18 已交付（T8.2/T8.5）——M8 全部完成**；**B19/B20 已交付（T9.1~T9.5）——M9 主体完成**；**B21 已交付（M10：T10.1~T10.5，T10.6 待 T13.3）**；**B22/B23 已交付（M11：样式/元素/资源库/导出导入，最小版）**；**M12 部分交付（三档函数运行时/变量选择器/反射节点；函数编辑器/类型化 UiHandle/选择器/PinDrag 过滤未完成）**；**M13 部分交付（六类引用校验码 + empty 模板 v3 + v3 e2e 2 场景 + 用户手册 v3 附录；roundtrip v3/TA.4 未完成）**。
+- 看板初始化：2026-10-18；**开工前评审完成（draft2）**；**B17 已交付（T8.1/T8.3/T8.4）**；**B18 已交付（T8.2/T8.5）——M8 全部完成**；**B19/B20 已交付（T9.1~T9.5）——M9 主体完成**；**B21 已交付（M10：T10.1~T10.5，T10.6 待 T13.3）**；**B22/B23 已交付（M11：样式/元素/资源库/导出导入，最小版）**；**M12 部分交付（三档函数运行时/变量选择器/反射节点；函数编辑器/类型化 UiHandle/选择器/PinDrag 过滤未完成）**；**M13 基本交付（六类引用校验码 + empty/log-analyzer 模板 v3 + v3 e2e + v3 资产 roundtrip + 用户手册 v3；仅 v2 拒载门禁未收口）**。
 - 沿用 v2 单会话模式：不逐卡建 git 分支，PM 按批次在 `v3` 长分支提交（每批次一次 commit，自 main@B16 拉出；M8/M10/M13 后合回 main）。
-- 测试基线（当前实测，2026-10-18）：**1029 测试全绿（144 suites，0 fail / 0 skip）、typecheck 0 错、构建绿**。开工前 923；增量：B17 +17、B18 +12、B19 +4、B20 +3、B21 +3、M11 +59、M12 +5、M13 +7。命令见 PLAN §15.4。
+- 测试基线（当前实测，2026-10-18）：**1035 测试全绿（144 suites，0 fail / 0 skip）、typecheck 0 错、构建绿**。开工前 923；增量：B17 +17、B18 +12、B19 +4、B20 +3、B21 +3、M11 +59、M12 +11、M13 +11。命令见 PLAN §15.4。
 
 | 批次 | 卡片 | 说明 |
 |---|---|---|
@@ -149,6 +149,7 @@ M13：T13.1 ← T11.6+T12.9    T13.2(T9.1) ─ T13.4(T11.6/T8.5)    T13.3(T13.1)
 
 ## 6. 进度纪要（PM 维护，倒序追加）
 
+- **2026-10-18 · M12/M13 收尾**：函数编辑器（.fn.json ⇄ IRAsset，项目/内置库读写）+ 项目/全局函数检索；反射「设计器」分组（schema `reflect` 标记 + UI 树实时 Get/Set）；`ui.get` 子节点选择器；log-analyzer 模板升 v3（flex + 内嵌事件图，去 logicAsset）；新增 v3 资产 roundtrip 4 组；修复 `useSceneTreeDomain` 空快照无限渲染（sync 测试回归）；全量 **1035 绿**。
 - **2026-10-18 · M13 续（e2e/文档）**：新增 `tests/e2e/v3.e2e.test.ts`（v3 项目写读 flex UI + 资源库 write/list/read/export/import，2 场景）；用户手册升 v3 并新增「附录 B · v3 增量」（dock/检视器/设置/运行/flex/元素/样式/内嵌蓝图/资源库/函数/节点/校验 + 仍待完成清单）。全量 1029 绿。**仍缺**：log-analyzer v3、v2 拒载、roundtrip v3、节点/插件指南、TA.4 勾验清单。
 - **2026-10-18 · M13（部分）**：`validateUIAssetRefs` 覆盖六类新码（ref-node/variable/function/style/library/element-boundary）+ 图内引用扫描（4 单测）；新建 UI 资产与 `templates/empty` 升 v3（flex 根 + 事件图），fs.test 同步。全量 1027 绿、typecheck 0 错、构建绿。**未完成**：改名级联/校验入口接线、log-analyzer v3 模板、v2 拒载收口、roundtrip v3 门禁重写、e2e v3、用户手册/节点/插件文档、TA.4 最终勾验。
 - **2026-10-18 · M12（部分）**：三档函数运行时（flow.call function/scope + 项目/全局 .fn.json 加载注入 + 无污染改写，5 单测）、`var.get/set` 变量下拉选择器、反射节点 `ui.getProp/setProp`/`ui.setText`/traits 元数据（节点库 6 测试）；资产内函数进入「函数」分组检索。**未完成**：函数编辑器 UI、项目/全局函数检索、UiHandle 类型族/PinDrag 过滤、ui.get 子节点选择器、反射「设计器」右键分组、脚本 codegen 映射。全量 1026 绿。
