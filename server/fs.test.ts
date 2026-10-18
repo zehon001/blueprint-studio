@@ -169,7 +169,7 @@ describe('模板与项目', () => {
         version: number
         root: { type: string }
       }
-      assert.equal(ui.version, 2)
+      assert.equal(ui.version, 3)
       assert.equal(ui.root.type, 'vbox')
     })
   })
