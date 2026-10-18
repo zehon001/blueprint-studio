@@ -149,6 +149,7 @@ M13：T13.1 ← T11.6+T12.9    T13.2(T9.1) ─ T13.4(T11.6/T8.5)    T13.3(T13.1)
 
 ## 6. 进度纪要（PM 维护，倒序追加）
 
+- **2026-10-18 · 最终交付**：`IR_VERSION=3`（读 2/3、写 3），T10.6 收口；看板全部卡无「待办/部分完成」；生产构建 8790 实测打开 logcat v3 UI（设计模式/树/画布/变量/事件）；全量 **1041 绿**、typecheck 0、build 绿。
 - **2026-10-18 · 全部卡收口**：T12.4 trait 元数据 + PinDrag 交集过滤；T12.5 `uiHandle` 类型 + 选择器；T12.7 反射/文本节点 codegen（ui.read/ui.write）与 KNOWN 清单；全量 **1041 绿**、typecheck 0、build 绿。看板已无「待办/部分完成」卡，剩余仅人工视觉复核。
 - **2026-10-18 · M12/M13 收尾**：函数编辑器（.fn.json ⇄ IRAsset，项目/内置库读写）+ 项目/全局函数检索；反射「设计器」分组（schema `reflect` 标记 + UI 树实时 Get/Set）；`ui.get` 子节点选择器；log-analyzer 模板升 v3（flex + 内嵌事件图，去 logicAsset）；新增 v3 资产 roundtrip 4 组；修复 `useSceneTreeDomain` 空快照无限渲染（sync 测试回归）；全量 **1035 绿**。
 - **2026-10-18 · M13 续（e2e/文档）**：新增 `tests/e2e/v3.e2e.test.ts`（v3 项目写读 flex UI + 资源库 write/list/read/export/import，2 场景）；用户手册升 v3 并新增「附录 B · v3 增量」（dock/检视器/设置/运行/flex/元素/样式/内嵌蓝图/资源库/函数/节点/校验 + 仍待完成清单）。全量 1029 绿。**仍缺**：log-analyzer v3、v2 拒载、roundtrip v3、节点/插件指南、TA.4 勾验清单。
