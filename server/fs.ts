@@ -1200,15 +1200,19 @@ function detectMainUI(projectDir: string): string | null {
 
 /** 补脚手架时新建的空 main.ui.json（结构与 templates/empty 的 UI 资产一致） */
 const EMPTY_MAIN_UI = {
-  version: 2,
+  version: 3,
+  kind: 'scene',
   name: 'main',
+  styles: [],
   root: {
     id: 'ui_root',
     name: 'root',
     type: 'vbox',
+    layout: { position: 'relative', size: { w: '100%', h: '100%' } },
+    container: { direction: 'column', gap: 4 },
     transform: { position: { x: 0, y: 0 }, size: { w: 960, h: 640 }, rotation: 0 },
-    theme: { padding: 8 },
-    props: { spacing: 4 },
+    theme: {},
+    props: {},
     children: [],
   },
 }

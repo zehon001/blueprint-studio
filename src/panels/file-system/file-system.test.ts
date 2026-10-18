@@ -242,7 +242,7 @@ describe('路径工具（posix）', () => {
       snippets: unknown[]
       layout: Record<string, unknown>
     }
-    assert.equal(bp.version, 2)
+    assert.equal(bp.version, 3)
     assert.equal(bp.entry, 'bind')
     assert.deepEqual(Object.keys(bp.graphs), ['bind'])
     assert.deepEqual(bp.graphs.bind, { nodes: [], edges: [] })

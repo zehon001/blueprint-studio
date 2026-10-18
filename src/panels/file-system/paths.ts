@@ -168,7 +168,7 @@ export function uiAssetTemplate(name: string): string {
 /** 新建 .bp.json 的空 IR 资产（结构对齐 src/ir/types.ts 的 IRAsset） */
 export function bpAssetTemplate(name: string): string {
   const asset = {
-    version: 2,
+    version: 3,
     name,
     entry: 'bind',
     graphs: { bind: { nodes: [], edges: [] } },

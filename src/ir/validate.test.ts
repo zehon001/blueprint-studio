@@ -422,7 +422,7 @@ test('集成：分支 + 循环 + 变量读写的合法蓝图（builtinSpecMap）
 
 /** 含全特性（多图 / 变量 / 事件 / 片段 / 布局 / pinDefaults / params / 注释 / 函数图接口）的规范形资产 */
 const fullAsset: IRAsset = {
-  version: 2,
+  version: 3,
   name: '特性全量资产',
   entry: 'main',
   graphs: {
@@ -587,7 +587,7 @@ test('deserializeIR：合法输入通过，缺省的 params/pinDefaults/position
     layout: {},
   });
   const ir = deserializeIR(text);
-  assert.equal(ir.version, 2);
+  assert.equal(ir.version, 3);
   assert.deepEqual(ir.graphs['main'].nodes[0], {
     id: 'n1',
     type: 'event.start',

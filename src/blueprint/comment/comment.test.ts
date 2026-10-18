@@ -411,7 +411,7 @@ test('IR 往返：含 comments 的资产 serialize → deserialize 深等（键�
   ];
   const text = JSON.stringify(a); // 先模拟 .bp.json 文本再反序列化
   const restored = deserializeIR(text);
-  assert.equal(restored.version, 2, 'version 不因 comments 升级（ADR-006：仍为 2）');
+  assert.equal(restored.version, 3, '写出版本统一为 IR_VERSION=3');
   assert.deepEqual(
     restored.graphs['main']!.comments,
     [

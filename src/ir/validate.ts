@@ -331,8 +331,8 @@ function assertIRStructure(raw: unknown): void {
   if (typeof raw['version'] !== 'number') {
     throw new Error(`IR 结构错误：version 必须是数字，实际是 ${describeType(raw['version'])}`);
   }
-  if (raw['version'] !== IR_VERSION) {
-    throw new Error(`IR 结构错误：不支持的 IR 版本 ${raw['version']}（当前引擎支持 ${IR_VERSION}，请先升级资产）`);
+  if (raw['version'] !== 2 && raw['version'] !== 3) {
+    throw new Error(`IR 结构错误：不支持的 IR 版本 ${raw['version']}（当前引擎接受 2/3，写出 ${IR_VERSION}，请先升级资产）`);
   }
   if (typeof raw['name'] !== 'string') throw new Error('IR 结构错误：缺少 name 字段（资产名）');
   if (typeof raw['entry'] !== 'string' || raw['entry'] === '') throw new Error('IR 结构错误：缺少 entry 字段（主图名）');

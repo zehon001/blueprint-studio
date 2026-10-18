@@ -29,7 +29,7 @@ export function emptyEmbeddedGraph(): IRGraph {
 /** 建立空的 UI 内嵌蓝图（IRAsset 视图） */
 export function emptyEmbeddedBlueprint(name: string): IRAsset {
   return {
-    version: 2,
+    version: 3,
     name,
     entry: 'event',
     graphs: { event: emptyEmbeddedGraph() },
@@ -66,7 +66,7 @@ export function embeddedBlueprintOf(asset: UIAsset): IRAsset {
   }
   if (!cleaned[eventKey]) cleaned[eventKey] = emptyEmbeddedGraph()
   return {
-    version: 2,
+    version: 3,
     name: asset.name,
     entry: eventKey,
     graphs: cleaned,

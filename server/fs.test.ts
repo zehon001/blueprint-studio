@@ -203,7 +203,7 @@ describe('模板与项目', () => {
         graphs: Record<string, { nodes: Array<{ type: string }>; edges: unknown[] }>
         variables: unknown[]
       }
-      assert.equal(ir.version, 2)
+      assert.equal(ir.version, 3)
       assert.equal(ir.entry, 'bind')
       assert.equal(ir.graphs.bind.nodes[0].type, 'event.start')
       // T7.2 前置补全：开箱可跑（读文件 → 解析 → 填列表 → 打印），5 节点 5 边
@@ -609,7 +609,7 @@ describe('importProjectFolder（T0.6）', () => {
           version: number
           root: { type: string }
         }
-        assert.equal(ui.version, 2)
+        assert.equal(ui.version, 3)
         assert.equal(ui.root.type, 'vbox')
       } finally {
         fs.rmSync(outside, { recursive: true, force: true })

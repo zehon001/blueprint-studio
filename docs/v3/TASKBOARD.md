@@ -63,7 +63,7 @@
 | T10.3 | 事件路由升级（类级图 + sourceNode） | `src/runtime/binding.ts` 重构 | T10.1 | Runtime | ①每资产一个 root 图解释器；每个元素/预制体实例一个类图解释器（惰性）②控件事件→最近图属主+sourceNode 注入；实例内部对宿主不透明 ③event.start/timer 于各图自身；嵌套事件 `<实例路径>.<事件名>` ④预取/环保护/协作调度沿用 ⑤元素/预制体内外事件转发实测 | 完成（根图部分）· 2026-10-18（M10：BindingRunner embedded 分支——不 fetch logicAsset、整树路由类级图、start/print 实测；**偏差**：元素/预制体实例解释器与 sourceNode 注入随 M11 元素系统接入） |
 | T10.4 | 变量提升消费 | 检视器「变量」区 + 运行时合并 | T10.1, T8.2 | UIEditor+Runtime | ①提升变量出现在 UI 检视面板可编辑 ②场景自身直改默认值 ③元素/预制体实例覆盖存 vars、运行时合并为解释器初值 ④IRVariable.exposed 落地；取消 exposed 后孤儿键校验告警 | 完成（场景部分）· 2026-10-18（M10：检视器「变量（提升）」区 + 场景默认值编辑；实例 vars 覆盖随 M11） |
 | T10.5 | 纯逻辑 .bp.json 保留适配 | binding/解释器分支 | T10.3 | Runtime | ①.bp.json 不绑 UI 可独立运行（e2e 用）②.ts 脚本链路照旧 ③旧 logicAsset API 清退无残留引用 ④v3 版本门禁不误伤纯逻辑资产 | 完成 · 2026-10-18（M10：embedded 仅在有 graphs 时启用；无 graphs 保持 logicAsset 路径，既有 962 测试全绿） |
-| T10.6 | `.bp.json` v3 与蓝图⇄脚本回归 | `src/ir/types.ts` 版本、`src/script/` | T10.1 | Script | ①IR_VERSION=3 时 `.bp.json` 读写/校验通过（IRGraph 结构不变）②codegen/解析器版本门禁明确 ③既有 roundtrip 基线全绿或按变更记录 ④内嵌图不误入脚本双视图 | 待办 · 依赖 T13.3 版本收口（IRGraph 结构未变；当前 `.bp.json` v2 路径全绿） |
+| T10.6 | `.bp.json` v3 与蓝图⇄脚本回归 | `src/ir/types.ts` 版本、`src/script/` | T10.1 | Script | ①IR_VERSION=3 时 `.bp.json` 读写/校验通过（IRGraph 结构不变）②codegen/解析器版本门禁明确 ③既有 roundtrip 基线全绿或按变更记录 ④内嵌图不误入脚本双视图 | 完成 · 2026-10-18（`IR_VERSION=3`；读入接受 2/3、写出统一 3；`.bp.json` 模板/空蓝图/内嵌图均 v3；既有 roundtrip 与 1041 测试全绿） |
 
 ### M11 库系统（样式/元素/资源库）
 

@@ -111,7 +111,7 @@ export function collectBoundNodes(asset: UIAsset): LogicBinding[] {
  */
 export function emptyBlueprintAsset(name: string): IRAsset {
   return {
-    version: 2,
+    version: 3,
     name,
     entry: 'bind',
     graphs: {

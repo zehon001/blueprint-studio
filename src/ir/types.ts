@@ -46,7 +46,7 @@ export interface Size2 {
  * ============================================================ */
 
 /** IR 格式当前版本（IRAsset.version 的当前值；格式变更必须走 ADR） */
-export const IR_VERSION = 2;
+export const IR_VERSION = 3;
 
 /** IR 内置原语类型 */
 export type IRPrimitiveType =
@@ -286,8 +286,8 @@ export interface IRGraph {
 
 /** 逻辑资产 IR（.bp.json 的序列化对象；蓝图 / TS / Python 三种资产共用的内存表示） */
 export interface IRAsset {
-  /** IR 格式版本（迁移判定用，当前 = IR_VERSION） */
-  version: 2;
+  /** IR 格式版本（迁移判定用；读入接受 2/3，写出统一 IR_VERSION=3） */
+  version: 2 | 3;
   /** 资产名（如 '日志查看器'；默认与文件名一致） */
   name: string;
   /** 主图名（graphs 的键；绑定 UI 节点时作为事件入口图） */
@@ -306,7 +306,7 @@ export interface IRAsset {
 
 /**
  * IR 版本迁移入口（预留接口）。
- * 当前 IR_VERSION = 2 为初始版本：直通返回，不做校验。
+ * IR_VERSION = 3：读入接受 2/3（结构未变），写出统一为 3。
  * 后续格式变更时：在此按 version 链式调用各版本迁移函数（每步迁移方案在对应 ADR 中定义），
  * 迁移后 version 必须等于 IR_VERSION。
  */
