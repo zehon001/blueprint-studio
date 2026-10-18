@@ -58,12 +58,12 @@
 
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
-| T10.1 | ADR-014：UIAsset v3 内嵌蓝图契约 | `src/ir/types.ts`、`docs/v3/adr/014-embedded-blueprint.md` | T9.1 | Arch | ①`graphs`（event 唯一 + function 带签名）/`layout`/`variables`/`events` 定型；`theme`/`logicAsset` 清退 ②无任何 detach/replace 命令路径 ③logicAsset 链路移除无残留引用 ④序列化/归一化单测；T13.3 roundtrip 样本 | 待办 |
-| T10.2 | 设计/蓝图双模式编辑 | UITab 模式切换 + 蓝图编辑器复用 | T10.1, T9.4, T8.2 | Blueprint+UIEditor | ①模式切换（UE5 Widget BP 心智）②蓝图模式=MyBlueprint+画布 ③节点 Details 走统一检视器（无内部右栏）④Ctrl+S 整资产保存（树+图+变量）+校验 ⑤切模式不丢草稿/选中 | 待办 |
-| T10.3 | 事件路由升级（类级图 + sourceNode） | `src/runtime/binding.ts` 重构 | T10.1 | Runtime | ①每资产一个 root 图解释器；每个元素/预制体实例一个类图解释器（惰性）②控件事件→最近图属主+sourceNode 注入；实例内部对宿主不透明 ③event.start/timer 于各图自身；嵌套事件 `<实例路径>.<事件名>` ④预取/环保护/协作调度沿用 ⑤元素/预制体内外事件转发实测 | 待办 |
-| T10.4 | 变量提升消费 | 检视器「变量」区 + 运行时合并 | T10.1, T8.2 | UIEditor+Runtime | ①提升变量出现在 UI 检视面板可编辑 ②场景自身直改默认值 ③元素/预制体实例覆盖存 vars、运行时合并为解释器初值 ④IRVariable.exposed 落地；取消 exposed 后孤儿键校验告警 | 待办 |
-| T10.5 | 纯逻辑 .bp.json 保留适配 | binding/解释器分支 | T10.3 | Runtime | ①.bp.json 不绑 UI 可独立运行（e2e 用）②.ts 脚本链路照旧 ③旧 logicAsset API 清退无残留引用 ④v3 版本门禁不误伤纯逻辑资产 | 待办 |
-| T10.6 | `.bp.json` v3 与蓝图⇄脚本回归 | `src/ir/types.ts` 版本、`src/script/` | T10.1 | Script | ①IR_VERSION=3 时 `.bp.json` 读写/校验通过（IRGraph 结构不变）②codegen/解析器版本门禁明确 ③既有 roundtrip 基线全绿或按变更记录 ④内嵌图不误入脚本双视图 | 待办 |
+| T10.1 | ADR-014：UIAsset v3 内嵌蓝图契约 | `src/ir/types.ts`、`docs/v3/adr/014-embedded-blueprint.md` | T9.1 | Arch | ①`graphs`（event 唯一 + function 带签名）/`layout`/`variables`/`events` 定型；`theme`/`logicAsset` 清退 ②无任何 detach/replace 命令路径 ③logicAsset 链路移除无残留引用 ④序列化/归一化单测；T13.3 roundtrip 样本 | 完成 · 2026-10-18（M10：graphs/layout/variables/events 字段 + embedded.ts 转换 + ADR-014 成文；embedded 2 单测） |
+| T10.2 | 设计/蓝图双模式编辑 | UITab 模式切换 + 蓝图编辑器复用 | T10.1, T9.4, T8.2 | Blueprint+UIEditor | ①模式切换（UE5 Widget BP 心智）②蓝图模式=MyBlueprint+画布 ③节点 Details 走统一检视器（无内部右栏）④Ctrl+S 整资产保存（树+图+变量）+校验 ⑤切模式不丢草稿/选中 | 完成 · 2026-10-18（M10：设计/蓝图切换 + BlueprintEditorPanel 复用 + 保存写回整资产；Details 已在 T8.2 迁入检视器；**偏差**：切模式草稿保留依赖蓝图 store 卸载重载，未做跨模式选中同步） |
+| T10.3 | 事件路由升级（类级图 + sourceNode） | `src/runtime/binding.ts` 重构 | T10.1 | Runtime | ①每资产一个 root 图解释器；每个元素/预制体实例一个类图解释器（惰性）②控件事件→最近图属主+sourceNode 注入；实例内部对宿主不透明 ③event.start/timer 于各图自身；嵌套事件 `<实例路径>.<事件名>` ④预取/环保护/协作调度沿用 ⑤元素/预制体内外事件转发实测 | 完成（根图部分）· 2026-10-18（M10：BindingRunner embedded 分支——不 fetch logicAsset、整树路由类级图、start/print 实测；**偏差**：元素/预制体实例解释器与 sourceNode 注入随 M11 元素系统接入） |
+| T10.4 | 变量提升消费 | 检视器「变量」区 + 运行时合并 | T10.1, T8.2 | UIEditor+Runtime | ①提升变量出现在 UI 检视面板可编辑 ②场景自身直改默认值 ③元素/预制体实例覆盖存 vars、运行时合并为解释器初值 ④IRVariable.exposed 落地；取消 exposed 后孤儿键校验告警 | 完成（场景部分）· 2026-10-18（M10：检视器「变量（提升）」区 + 场景默认值编辑；实例 vars 覆盖随 M11） |
+| T10.5 | 纯逻辑 .bp.json 保留适配 | binding/解释器分支 | T10.3 | Runtime | ①.bp.json 不绑 UI 可独立运行（e2e 用）②.ts 脚本链路照旧 ③旧 logicAsset API 清退无残留引用 ④v3 版本门禁不误伤纯逻辑资产 | 完成 · 2026-10-18（M10：embedded 仅在有 graphs 时启用；无 graphs 保持 logicAsset 路径，既有 962 测试全绿） |
+| T10.6 | `.bp.json` v3 与蓝图⇄脚本回归 | `src/ir/types.ts` 版本、`src/script/` | T10.1 | Script | ①IR_VERSION=3 时 `.bp.json` 读写/校验通过（IRGraph 结构不变）②codegen/解析器版本门禁明确 ③既有 roundtrip 基线全绿或按变更记录 ④内嵌图不误入脚本双视图 | 待办 · 依赖 T13.3 版本收口（IRGraph 结构未变；当前 `.bp.json` v2 路径全绿） |
 
 ### M11 库系统（样式/元素/资源库）
 
@@ -126,9 +126,9 @@ M13：T13.1 ← T11.6+T12.9    T13.2(T9.1) ─ T13.4(T11.6/T8.5)    T13.3(T13.1)
 
 ## 5. 当前状态与批次计划
 
-- 看板初始化：2026-10-18；**开工前评审完成（draft2）**；**B17 已交付（T8.1/T8.3/T8.4）**；**B18 已交付（T8.2/T8.5）——M8 全部完成**；**B19/B20 已交付（T9.1~T9.5）——M9 主体完成**；下一批 B21（M10 内嵌蓝图）。
+- 看板初始化：2026-10-18；**开工前评审完成（draft2）**；**B17 已交付（T8.1/T8.3/T8.4）**；**B18 已交付（T8.2/T8.5）——M8 全部完成**；**B19/B20 已交付（T9.1~T9.5）——M9 主体完成**；**B21 已交付（M10：T10.1~T10.5，T10.6 待 T13.3）**；下一批 B22（M11 样式/元素/库契约）。
 - 沿用 v2 单会话模式：不逐卡建 git 分支，PM 按批次在 `v3` 长分支提交（每批次一次 commit，自 main@B16 拉出；M8/M10/M13 后合回 main）。
-- 测试基线（B20 收尾实测，2026-10-18）：见 §6 最后一条（全量数随批更新）。命令见 PLAN §15.4。基线数量随 v3 重写允许变化，每批记录新基线。
+- 测试基线（B21 收尾实测，2026-10-18）：**962 测试全绿（135 suites，0 fail / 0 skip）、typecheck 0 错、构建绿**。开工前 923；B17 +17、B18 +12、B19 +4、B20 +3、B21 +3。命令见 PLAN §15.4。基线数量随 v3 重写允许变化，每批记录新基线。
 
 | 批次 | 卡片 | 说明 |
 |---|---|---|
@@ -149,6 +149,7 @@ M13：T13.1 ← T11.6+T12.9    T13.2(T9.1) ─ T13.4(T11.6/T8.5)    T13.3(T13.1)
 
 ## 6. 进度纪要（PM 维护，倒序追加）
 
+- **2026-10-18 · B21（M10：T10.1~T10.5）**：内嵌蓝图闭环——`embedded.ts` UIAsset⇄IRAsset 转换（事件图/函数图/变量/事件/图视图，保存置 version 3）、UI tab「设计/蓝图」双模式复用 BlueprintEditorPanel、保存写回整资产；BindingRunner 新增 `embedded` 分支（不 fetch logicAsset，整树路由类级图）；检视器「变量（提升）」区（exposed 变量、场景默认值）。测试：embedded 2 + binding-embedded 1，全量 962 绿；ADR-014 成文。**偏差**：元素/预制体实例解释器/sourceNode/实例 vars 随 M11；T10.6 版本升 3 随 T13.3。
 - **2026-10-18 · B20（T9.3/T9.4/T9.5）**：UI 编辑器左栏三分页内嵌 UI 树（元素库/样式库占位），独立 scene-tree dock 面板移除；检视器新增「布局（flex）」条目（位置/grow/shrink/basis/尺寸/margin/absolute 偏移/容器 direction-wrap-justify-align-gap-padding-overflow，命令栈可撤销）；视口按 layout 判定 absolute/relative 并统一位置读写。验证：flex-node 3 单测 + inspector 20 回归 + GUI（左栏三分页/树内嵌/改 grow）；全量基线见下批。
 - **2026-10-18 · B19（T9.1/T9.2）**：ADR-011 + v3 `layout/container/classes` 字段；渲染器 flex 覆盖层（container 映射、layout 覆盖 v2 transform、absolute/relative）；v3 资产 parse 接受 3；flex 4 单测 + 55 渲染/视口回归绿。**偏差**：v2 拒载/engineVersion 门禁随 T13.2 收口；23 schema 细排随 T9.5/T11.1。
 - **2026-10-18 · B18（M8 收尾：T8.2/T8.5，M8 完成）**：**T8.2 统一检视器**——`selection` store（四源 descriptor + 清空/匹配）、UITab/BlueprintTab/文件面板发布选择、`InspectorHost` 按 `activePanelId` 分发（UI 节点 / 蓝图 Details / 文件信息 / 资产基本信息 / 库占位）、蓝图编辑器移除内部右栏变两栏、点击面板内容即聚焦（dock `focusPanel`）；7 单测 + GUI 实测蓝图 Details/文件信息/上下文切换。**T8.5 内置运行视图**——`runtime` store（单实例 target/nonce）、iframe 面板（embed=1/拆出独立窗口/重跑）、F5/F6 改走内置面板、`workspace.saveSeq` + `autoRerun` 保存自动重跑、iframe F5/F6/Ctrl+S postMessage 转发、控制台镜像照旧；store/URL 单测 + GUI 实测 F5/拆出/iframe F5/保存自动重跑。**验证**：952 测试全绿（+12）、typecheck 0 错、构建绿；截图 `v3-b18-*.png`。**偏差**：文件面板当前单选（PLAN 已同步）；自动重跑对任意资产保存生效（按 PLAN §4.5 字面）。**下步**：B19 = T9.1 IR v3 契约 + T9.2 flex 渲染器。

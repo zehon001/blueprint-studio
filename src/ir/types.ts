@@ -403,6 +403,10 @@ export interface UINode {
   container?: UIContainer;
   /** v3 样式类（§3.3；M11 解析） */
   classes?: string[];
+  /** v3 元素实例引用（§3.2；M11 实现） */
+  element?: string;
+  /** v3 元素/预制体实例的提升变量覆盖（§8.3） */
+  vars?: Record<string, unknown>;
   /** 变换属性（v2 兼容层：无 layout 时由渲染器/视口读取） */
   transform: UITransform;
   /** 主题样式属性（键 = T1.1 属性 schema 定义的样式名） */

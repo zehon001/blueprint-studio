@@ -515,8 +515,20 @@ body.dock-dragging * {
   min-width: 0;
   min-height: 0;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   background: var(--bg-panel);
+}
+.ui-editor-workspace {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+}
+.ui-editor-blueprint {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 .ui-editor-left {
   flex: none;
@@ -537,7 +549,8 @@ body.dock-dragging * {
   background: var(--bg-panel-header);
 }
 .ui-editor-mode {
-  flex: 1;
+  flex: none;
+  min-width: 64px;
   padding: 2px var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);

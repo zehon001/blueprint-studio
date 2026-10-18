@@ -28,6 +28,7 @@ import { BindingRunner } from './binding'
 import { DebugProbe } from './debug-probe'
 import type { UIAsset } from '../ir/types'
 import { parseUIAsset } from '../ui-editor/store'
+import { runtimeEmbeddedBlueprint } from '../ui-editor/embedded'
 import {
   clearPrefabCache,
   findPrefabCycle,
@@ -365,6 +366,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
       const runner = new BindingRunner({
         project,
         asset: app.asset,
+        embedded: runtimeEmbeddedBlueprint(app.asset) ?? undefined,
         renderHandle: handle,
         fetchImpl: propsRef.current.fetchImpl ?? fetch,
         onPrint: appendConsole,

@@ -593,6 +593,15 @@
 .insp-flex-num {
   flex: 1;
 }
+.insp-vars-group {
+  border-bottom: 1px solid var(--border);
+}
+.insp-vars-type {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 9px;
+  font-family: var(--font-mono);
+}
 .insp-flex-subtitle {
   margin-top: var(--space-1);
   padding: 2px 0;

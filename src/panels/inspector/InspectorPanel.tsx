@@ -35,6 +35,7 @@ import { openPrefabTab } from '@/ui-editor/prefabTab'
 import { detachPrefabCommand } from '@/panels/scene-tree/commands'
 import { PropEditor } from './PropEditors'
 import { FlexLayoutSection } from './FlexLayoutSection'
+import { VariableSection } from './VariableSection'
 import {
   PROPTYPE_LABELS,
   anyRowDisabled,
@@ -224,21 +225,22 @@ export function InspectorPanel() {
   if (nodes.length === 0) {
     return (
       <div className="insp-panel">
-        <div className="insp-empty">
-          {asset ? (
-            <>
+        {asset ? (
+          <div className="insp-body">
+            <VariableSection />
+            <div className="insp-empty">
               <div className="insp-empty-title">未选中节点</div>
               <div>资产：{asset.name}</div>
               <div>节点数：{collectUINodeIds(asset.root).length}</div>
               <div className="insp-empty-hint">在 2D 视口或 UI 树面板中选择节点以编辑属性</div>
-            </>
-          ) : (
-            <>
-              <div className="insp-empty-title">未打开 UI 资产</div>
-              <div className="insp-empty-hint">在文件系统面板双击 *.ui.json 打开</div>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        ) : (
+          <div className="insp-empty">
+            <div className="insp-empty-title">未打开 UI 资产</div>
+            <div className="insp-empty-hint">在文件系统面板双击 *.ui.json 打开</div>
+          </div>
+        )}
       </div>
     )
   }
@@ -288,6 +290,7 @@ export function InspectorPanel() {
       <div className="insp-body">
         {/* v3 T9.5：flex 布局/容器条目（单选） */}
         {single ? <FlexLayoutSection node={single} /> : null}
+        {single ? <VariableSection node={single} /> : null}
         {single?.prefab ? (
           <div className="insp-prefab">
             <div className="insp-prefab-head">
