@@ -15,6 +15,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { IRNode, NodeSpec, PinSpec } from '../../ir/types';
 import { PIN_COLORS, pinColor } from '../../shell/theme/tokens';
 import type { DebugHighlightKind } from '../../shell/debug/overlay-state';
+import { useSceneTreeDomain } from '../../ui-editor/store';
 import {
   headColorFor,
   headIconFor,
@@ -128,6 +129,48 @@ function SelectDefaultEditor({ pin, value, onCommit }: EditorProps) {
   );
 }
 
+/** 这些 UI 访问器节点的 `name` 引脚可用图属主树节点名下拉（v3 子节点选择器） */
+const UI_NAME_PIN_TYPES = new Set([
+  'ui.get',
+  'ui.getValue',
+  'ui.setText',
+  'ui.setValue',
+  'ui.setVisible',
+  'ui.listSetItems',
+  'ui.setTitle',
+])
+
+function UiNodeNameDefaultEditor({ pin, value, onCommit }: EditorProps) {
+  const { asset } = useSceneTreeDomain()
+  const names: string[] = []
+  const walk = (n: { name: string; children?: readonly unknown[] }): void => {
+    names.push(n.name)
+    for (const c of (n.children ?? []) as Array<{ name: string; children?: readonly unknown[] }>) walk(c)
+  }
+  if (asset) walk(asset.root)
+  const initial = String(initialValueOf(pin, value) ?? '')
+  // 树为空（独立 .bp.json / 嵌入前）退回文本输入，保证仍可手填
+  if (names.length === 0) return <TextDefaultEditor pin={pin} value={value} onCommit={onCommit} />
+  const options = initial && !names.includes(initial) ? [initial, ...names] : names
+  return (
+    <select
+      className="bp-pin-default bp-pin-default--select"
+      value={initial}
+      onChange={(e) => onCommit(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      aria-label="选择 UI 节点"
+    >
+      <option value="">（选择节点）</option>
+      {options.map((name) => (
+        <option key={name} value={name}>
+          {name}
+        </option>
+      ))}
+    </select>
+  )
+}
+
 function TextDefaultEditor({ pin, value, onCommit }: EditorProps) {
   const initial = String(initialValueOf(pin, value) ?? '');
   const [draft, setDraft] = useState(initial);
@@ -154,6 +197,9 @@ function PinDefaultEditor({ nodeId, pin, data }: { nodeId: string; pin: PinSpec;
     // TODO(T2.2/T2.4)：经统一命令栈写入 IRNode.pinDefaults（可撤销）；本卡仅透传可选回调 + 本地 state
     data.onPinDefaultChange?.(nodeId, pin.id, next);
   };
+  if (pin.id === 'name' && UI_NAME_PIN_TYPES.has(data.node.type)) {
+    return <UiNodeNameDefaultEditor pin={pin} value={value} onCommit={onCommit} />;
+  }
   switch (editorKindOf(pin)) {
     case 'bool': return <BoolDefaultEditor pin={pin} value={value} onCommit={onCommit} />;
     case 'number': return <NumberDefaultEditor pin={pin} value={value} onCommit={onCommit} />;
