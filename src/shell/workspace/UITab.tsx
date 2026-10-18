@@ -61,6 +61,27 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
     })
   }
 
+  /**
+   * 设计/蓝图切换：蓝图编辑器的未保存节点只存在于 blueprint store。
+   * 切回设计前把当前 IR 同步进 UI 资产（命令栈内，标脏），否则面板卸载后
+   * 重新 mount 会从旧资产重建，刚加的节点就“消失”了。
+   */
+  const switchMode = (next: 'design' | 'blueprint'): void => {
+    if (next === mode) return
+    if (next === 'design' && mode === 'blueprint') {
+      const ir = useBlueprintStore.getState().asset
+      if (ir && asset) {
+        const before = embeddedBlueprintOf(asset)
+        if (JSON.stringify(before) !== JSON.stringify(ir)) {
+          runUICommand('蓝图：同步到设计资产', (draft) => {
+            applyEmbeddedBlueprint(draft as UIAsset, ir)
+          })
+        }
+      }
+    }
+    setMode(next)
+  }
+
   /* v3 T8.2：统一选择协议——按设计/蓝图模式发布对应选择，让检视器切换内容 */
   useEffect(() => {
     if (status !== 'ready' || activePanelId !== uid) return
@@ -175,7 +196,7 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
           className={`ui-editor-mode${mode === 'design' ? ' active' : ''}`}
           role="tab"
           aria-selected={mode === 'design'}
-          onClick={() => setMode('design')}
+          onClick={() => switchMode('design')}
         >
           设计
         </button>
@@ -184,7 +205,7 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
           className={`ui-editor-mode${mode === 'blueprint' ? ' active' : ''}`}
           role="tab"
           aria-selected={mode === 'blueprint'}
-          onClick={() => setMode('blueprint')}
+          onClick={() => switchMode('blueprint')}
           title="编辑本资产的内嵌蓝图（事件图 / 函数 / 变量）"
         >
           蓝图
