@@ -714,10 +714,16 @@ class Codegen {
       case SNIPPET_NODE_TYPE:
         return this.emitSnippetNode(ctx, node);
       case 'ui.setValue':
+      case 'ui.setText':
       case 'ui.setVisible':
       case 'ui.listSetItems':
       case 'ui.setTitle':
         return this.emitUiWrite(ctx, node);
+      case 'ui.setProp':
+        return this.emitUiSetProp(ctx, node);
+      case 'ui.getProp':
+        // 值出口按 ui.read 表达式内联；执行链本身无语句
+        return { out: { nodeId: node.id, pin: 'exec' } };
       default:
         break;
     }
@@ -1268,6 +1274,7 @@ class Codegen {
     let attrText: string | null = null; // null = 属性动态，需要调用形态
     if (node.type === 'ui.setVisible') attrText = 'visible';
     else if (node.type === 'ui.listSetItems') attrText = 'items';
+    else if (node.type === 'ui.setText') attrText = 'text';
     else {
       const attrLit = this.inputLiteral(ctx, node, 'attr');
       if (attrLit !== NONE && typeof attrLit === 'string') attrText = attrLit;
@@ -1278,11 +1285,28 @@ class Codegen {
       this.push(`ui.${nameLit}.${attrText} = ${value};`);
     } else {
       const attrExpr =
-        node.type === 'ui.setVisible' || node.type === 'ui.listSetItems'
+        node.type === 'ui.setVisible' || node.type === 'ui.listSetItems' || node.type === 'ui.setText'
           ? JSON.stringify(attrText ?? '')
           : this.expectSingle(ctx, node, 'attr', node.type);
       this.push(`ui.write(${this.expectSingle(ctx, node, 'name', node.type)}, ${attrExpr}, ${value});`);
     }
+    return { out: { nodeId: node.id, pin: 'exec' } };
+  }
+
+  /** v3 反射写值：ui.setProp(nodeName, propId, value) → ui.write(名, 属性id, 值) */
+  private emitUiSetProp(ctx: MethodCtx, node: IRNode): NodeEmit {
+    const nodeName = typeof node.params?.nodeName === 'string' ? node.params.nodeName : '';
+    const propId = typeof node.params?.propId === 'string' ? node.params.propId : '';
+    if (!nodeName || !propId) {
+      throw new CodegenError(
+        `反射节点「${node.id}」（ui.setProp）缺少 nodeName/propId 参数`,
+        ctx.graphName,
+        node.id,
+      );
+    }
+    const value = this.expectSingle(ctx, node, 'value', node.type);
+    this.flushPending(ctx);
+    this.push(`ui.write(${JSON.stringify(nodeName)}, ${JSON.stringify(propId)}, ${value});`);
     return { out: { nodeId: node.id, pin: 'exec' } };
   }
 
@@ -1345,6 +1369,8 @@ class Codegen {
         src.id,
       );
     }
+    // v3 反射读值：ui.getProp 虽有 exec 入/出，但 value 出口可按表达式内联
+    if (src.type === 'ui.getProp') return this.uiGetPropExpr(ctx, src);
     const spec = specOfType(src.type);
     const isDataOnly = !!spec && !spec.pure && !spec.inputs.some((p) => p.type === 'exec');
     if ((spec?.pure ?? false) || isDataOnly) {
@@ -1450,6 +1476,20 @@ class Codegen {
       return isSafeIdentifier(nameLit) ? `ui.${nameLit}` : `ui[${JSON.stringify(nameLit)}]`;
     }
     return `ui.find(${this.expectSingle(ctx, node, 'name', 'ui.get')})`;
+  }
+
+  /** v3 反射读值：ui.getProp → ui.read(nodeName, propId) */
+  private uiGetPropExpr(ctx: MethodCtx, node: IRNode): string {
+    const nodeName = typeof node.params?.nodeName === 'string' ? node.params.nodeName : '';
+    const propId = typeof node.params?.propId === 'string' ? node.params.propId : '';
+    if (!nodeName || !propId) {
+      throw new CodegenError(
+        `反射节点「${node.id}」（ui.getProp）缺少 nodeName/propId 参数`,
+        ctx.graphName,
+        node.id,
+      );
+    }
+    return `ui.read(${JSON.stringify(nodeName)}, ${JSON.stringify(propId)})`;
   }
 
   /** ui.getValue → 属性式 ui.<name>.<attr>（名字/属性均可静态化）或 ui.read(n, attr) 调用形态 */

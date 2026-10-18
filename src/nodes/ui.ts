@@ -43,7 +43,7 @@ export const get = defineNode({
   // v3 T12.5：子节点选择器参数（Details 下拉，列出图属主自身树节点名）
   params: [{ id: 'target', label: '子节点', type: 'nodeSelector', default: '' }],
   inputs: [dataIn('name', 'string', '节点名', '')],
-  outputs: [dataOut('object', 'any', '节点对象')],
+  outputs: [dataOut('object', 'uiHandle', '节点对象（UiHandle）')],
   run: (ctx, inputs) => {
     const ui = probeUi(ctx);
     if (!ui) { missingUi(ctx); return { outputs: { object: null } }; }

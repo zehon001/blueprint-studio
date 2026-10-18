@@ -263,6 +263,15 @@ test('兼容菜单：float 输出只列可接入的数据节点（assignable / a
   }
 });
 
+test('兼容菜单：trait 交集过滤（v3 T12.4）', () => {
+  const from: PinRef = { nodeId: 'x', pinId: 'value', dir: 'out', type: 'string', traits: ['value'] };
+  const ids = new Set(compatibleSpecEntries(SPEC, from).map((e) => e.spec.id));
+  assert.ok(ids.has('ui.setValue'), 'value trait 保留');
+  assert.ok(!ids.has('ui.setText'), 'text trait 被过滤');
+  assert.ok(!ids.has('ui.listSetItems'), 'items trait 被过滤');
+  assert.ok(ids.has('system.print'), '未声明 trait 的节点不受限制');
+});
+
 test('兼容菜单：string / any 输出与数组输出', () => {
   const fromString = compatibleSpecEntries(SPEC, outRef('string.concat', 'value', 'string'));
   const ids = new Set(fromString.map((e) => e.spec.id));
