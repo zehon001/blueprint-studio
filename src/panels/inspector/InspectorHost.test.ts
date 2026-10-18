@@ -72,6 +72,21 @@ describe('InspectorHost 四源分发', () => {
     root.unmount()
   })
 
+  it('UI 面板内嵌蓝图：blueprint descriptor 优先于 UI 分支（显示 Details）', async () => {
+    useDockStore.setState({ activePanelId: 'asset:ui:ui/main.ui.json' })
+    useSelectionStore.getState().publish({
+      source: 'blueprint',
+      panelId: 'asset:ui:ui/main.ui.json',
+      assetPath: 'ui/main.ui.json',
+      graph: 'event',
+      nodeIds: ['n1'],
+      edgeIds: [],
+    })
+    const { root, el } = await mount()
+    assert.ok(el.querySelector('.insp-blueprint-host'), '蓝图选择应显示 Details 宿主而非 UI 节点检视器')
+    root.unmount()
+  })
+
   it('非 UI/蓝图资产 → 资产基本信息（路径 + 未保存状态）', async () => {
     useDockStore.setState({ activePanelId: 'asset:script:logic/a.ts' })
     const { root, el } = await mount()

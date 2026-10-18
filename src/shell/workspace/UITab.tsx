@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { UIEditorPanel } from '@/ui-editor'
 import { BlueprintEditorPanel } from '@/blueprint'
+import { useBlueprintStore } from '@/blueprint/store/blueprint-store'
 import { SceneTreePanel } from '@/panels/scene-tree/SceneTreePanel'
 import { ElementLibraryPanel, StyleLibraryPanel } from '@/panels/library'
 import { runUICommand, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
@@ -38,6 +39,8 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
   const uid = panelId ?? assetPanelId('ui', assetPath)
   const activePanelId = useDockStore((s) => s.activePanelId)
   const selection = useUIEditorStore((s) => s.selection)
+  const bpSelection = useBlueprintStore((s) => s.selection)
+  const bpGraph = useBlueprintStore((s) => s.graphName)
   const publishSelection = useSelectionStore((s) => s.publish)
   const clearSelection = useSelectionStore((s) => s.clear)
   /** v3 T9.4：左栏三分页（UI 树 / 元素库 / 样式库） */
@@ -58,14 +61,36 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
     })
   }
 
-  /* v3 T8.2：统一选择协议——本面板激活且就绪时发布 UI 选中节点 */
+  /* v3 T8.2：统一选择协议——按设计/蓝图模式发布对应选择，让检视器切换内容 */
   useEffect(() => {
     if (status !== 'ready' || activePanelId !== uid) return
-    publishSelection({ source: 'ui', panelId: uid, assetPath, nodeIds: selection })
-  }, [status, activePanelId, uid, assetPath, selection, publishSelection])
+    if (mode === 'blueprint') {
+      publishSelection({
+        source: 'blueprint',
+        panelId: uid,
+        assetPath,
+        graph: bpGraph,
+        nodeIds: bpSelection.nodeIds,
+        edgeIds: bpSelection.edgeIds,
+      })
+    } else {
+      publishSelection({ source: 'ui', panelId: uid, assetPath, nodeIds: selection })
+    }
+  }, [
+    status,
+    activePanelId,
+    uid,
+    assetPath,
+    mode,
+    selection,
+    bpSelection,
+    bpGraph,
+    publishSelection,
+  ])
   useEffect(
     () => () => {
       clearSelection('ui', uid)
+      clearSelection('blueprint', uid)
     },
     [clearSelection, uid],
   )

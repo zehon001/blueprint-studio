@@ -78,15 +78,17 @@ export function InspectorHost() {
   const activePanelId = useDockStore((s) => s.activePanelId)
   const selection = useSelectionStore((s) => s.selection)
   const ref = activePanelId ? parseAssetPanelId(activePanelId) : null
+  /** 当前面板的有效选择（UI 内嵌蓝图共用同一个 dock 面板 id，靠 descriptor 区分模式） */
+  const context = activePanelId ? selectionOfPanel(selection, activePanelId) : null
 
-  if (ref?.kind === 'ui') return <InspectorPanel />
-  if (ref?.kind === 'blueprint') {
+  if (context?.source === 'blueprint' || ref?.kind === 'blueprint') {
     return (
       <div className="insp-panel insp-blueprint-host">
         <Details />
       </div>
     )
   }
+  if (ref?.kind === 'ui') return <InspectorPanel />
   if (activePanelId === 'file-system') {
     const file = selectionOfPanel(selection, activePanelId)
     if (file?.source === 'file') {
