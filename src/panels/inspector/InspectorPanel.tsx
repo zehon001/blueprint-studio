@@ -32,6 +32,7 @@ import {
 import { getUISchema, type PropDef } from '@/ui-editor/schema'
 import { expandPrefabNode, getCachedPrefab } from '@/ui-editor/prefab'
 import { openPrefabTab } from '@/ui-editor/prefabTab'
+import { openElementTab } from '@/ui-editor/elementTab'
 import { detachPrefabCommand } from '@/panels/scene-tree/commands'
 import { PropEditor } from './PropEditors'
 import { FlexLayoutSection } from './FlexLayoutSection'
@@ -291,6 +292,24 @@ export function InspectorPanel() {
         {/* v3 T9.5：flex 布局/容器条目（单选） */}
         {single ? <FlexLayoutSection node={single} /> : null}
         {single ? <VariableSection node={single} /> : null}
+        {single?.element ? (
+          <div className="insp-prefab">
+            <div className="insp-prefab-head">
+              <span className="insp-prefab-title">元素</span>
+              <span className="insp-prefab-path" title={`元素资产：${single.element}`}>
+                ⧉ {single.element}
+              </span>
+            </div>
+            <div className="insp-prefab-actions">
+              <button type="button" className="insp-btn" onClick={() => openElementTab(single.element as string)}>
+                编辑元素
+              </button>
+            </div>
+            <div className="insp-prefab-hint">
+              结构以元素为准；自定义属性与提升变量为实例覆盖（首版不提供断开物化）。
+            </div>
+          </div>
+        ) : null}
         {single?.prefab ? (
           <div className="insp-prefab">
             <div className="insp-prefab-head">

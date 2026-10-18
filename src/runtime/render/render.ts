@@ -54,6 +54,8 @@ import {
 import { bindNode, clamp, div, num, span, str, type NodeCtx } from './common';
 import { rendererFor, type NodeRenderer } from './nodes';
 import { ensureRenderStyle } from './style';
+import { mergeStyledNode } from '../../ui-editor/styles';
+import { expandElementNode, getCachedElement, loadElement } from '../../ui-editor/element';
 
 /** 渲染事件（onEvent 的载荷；事件名与 src/ui-editor/schema 的 BuiltInEvent 一致） */
 export interface UIRenderEvent {
@@ -74,6 +76,8 @@ export interface RenderOptions {
   onEvent?: (evt: UIRenderEvent) => void;
   /** 编辑视口缩放（T1.3 用；作用于 .bps-ui-root 的 scale 变换，默认 1） */
   scale?: number;
+  /** v3 T11.1：已解析的样式表（按资产 styles 数组顺序；空/缺省 = 无样式类） */
+  styles?: readonly import('../../ui-editor/styles').StyleSheet[];
   /**
    * 预制体补拉完成回调（T7.3 · ADR-009，可选）：渲染期遇到未缓存 prefab 而发起的
    * 异步补拉成功后调用（失败不调用，避免占位→刷新→失败循环）。调用方应触发一次
@@ -425,10 +429,25 @@ function schedulePrefabLoad(path: string, state: RenderState): void {
  *   循环 / 超深 → 占位节点就地显示中文错误。
  */
 function effectiveNode(node: UINode, state: RenderState): UINode {
-  if (!node.prefab || isPrefabExpanded(node)) return node;
-  const expanded = expandPrefabNode(node, getCachedPrefab);
-  if (expanded.missing) schedulePrefabLoad(node.prefab, state);
-  return expanded.node;
+  let out = node;
+  if (node.prefab && !isPrefabExpanded(node)) {
+    const expanded = expandPrefabNode(node, getCachedPrefab);
+    if (expanded.missing) schedulePrefabLoad(node.prefab, state);
+    out = expanded.node;
+  }
+  // v3 T11.2：元素实例展开（结构取元素根，props 三层合并）；未缓存 → 占位 + 异步补拉
+  if (out.element) {
+    const expanded = expandElementNode(out, getCachedElement);
+    if (!getCachedElement(out.element)) {
+      const path = out.element;
+      void loadElement(path).then((asset) => {
+        if (asset) state.opts.onPrefabLoad?.();
+      });
+    }
+    out = expanded.node;
+  }
+  // v3 T11.1：样式类合并（class → 节点内联覆盖；无 styles 时零成本）
+  return state.opts.styles && state.opts.styles.length > 0 ? mergeStyledNode(out, state.opts.styles) : out;
 }
 
 /* ============================================================

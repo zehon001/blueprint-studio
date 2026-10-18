@@ -68,11 +68,32 @@ export const getValue = defineNode({
   },
 });
 
+/* -------------------------------------------------------------- ui.setText */
+export const setText = defineNode({
+  id: 'ui.setText', title: '设置文本', category: '界面',
+  keywords: ['ui', 'settext', '文本', '设置文本', 'text', '标题'],
+  doc: '写 UI 节点的 text 属性（目标需具 text trait；value 入参保持 any 兼容，非字符串按原值写入）。',
+  traits: ['text'],
+  inputs: [
+    execIn(),
+    dataIn('name', 'string', '节点名', ''),
+    { id: 'value', type: 'any', label: '文本', defaultValue: '' },
+  ],
+  outputs: [execOut()],
+  run: (ctx, inputs) => {
+    const ui = probeUi(ctx);
+    if (!ui) { missingUi(ctx); return { next: 'exec', outputs: {} }; }
+    ui.write(strOf(inputs.name), 'text', inputs.value ?? '');
+    return { next: 'exec', outputs: {} };
+  },
+});
+
 /* ------------------------------------------------------------ ui.setValue */
 export const setValue = defineNode({
   id: 'ui.setValue', title: '写入UI值', category: '界面',
   keywords: ['ui', 'setvalue', '写值', '设置属性', '赋值'],
   doc: '写 UI 节点属性（attr 可选 text/value/checked/title/placeholder/visible），如 ui.title.text = …。',
+  traits: ['value'],
   inputs: [
     execIn(),
     dataIn('name', 'string', '节点名', ''),
@@ -112,6 +133,7 @@ export const listSetItems = defineNode({
   id: 'ui.listSetItems', title: '设置列表项', category: '界面',
   keywords: ['ui', 'list', 'items', '列表', '设置列表项', '条目'],
   doc: '写 List 节点的 items 属性（数组；非数组输入转单元素数组）。',
+  traits: ['items'],
   inputs: [
     execIn(),
     dataIn('name', 'string', '列表名', ''),
@@ -131,11 +153,12 @@ export const listSetItems = defineNode({
 export const setTitle = defineNode({
   id: 'ui.setTitle', title: '设置标题', category: '界面',
   keywords: ['ui', 'title', 'settitle', '标题', '设置标题'],
-  doc: '写文本类属性通用入口（attr 可选 title/text/value/placeholder）。',
+  doc: '写文本类属性通用入口（attr 可选 title/text/value/placeholder；value 入参保持 any 兼容）。',
+  traits: ['text'],
   inputs: [
     execIn(),
     dataIn('name', 'string', '节点名', ''),
-    dataIn('value', 'string', '文本', ''),
+    { id: 'value', type: 'any', label: '文本', defaultValue: '' },
     selectIn('attr', ATTR_TITLE, '属性', 'title'),
   ],
   outputs: [execOut()],
@@ -150,4 +173,4 @@ export const setTitle = defineNode({
 /** 供解释器 / 测试构造 ui 句柄时的形状参考 */
 export type { UiHandle };
 
-export const uiNodes: NodeSpec[] = [get, getValue, setValue, setVisible, listSetItems, setTitle];
+export const uiNodes: NodeSpec[] = [get, getValue, setText, setValue, setVisible, listSetItems, setTitle];

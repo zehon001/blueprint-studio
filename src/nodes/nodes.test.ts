@@ -11,7 +11,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { NodeRunContext, NodeRunResult, PinSpec } from '../ir/types';
-import { builtinSpecs, builtinSpecMap, NODE_CATEGORIES, clearAllStateSlots } from './index';
+import {
+  builtinSpecs,
+  builtinSpecMap,
+  NODE_CATEGORIES,
+  clearAllStateSlots,
+  listReflectableProps,
+  reflectionEntries,
+} from './index';
 
 /* ============================================================
  * Mock：NodeRunContext 与运行帮助
@@ -604,6 +611,110 @@ test('ui.*：ctx 无 ui 句柄时降级打印提示并放行执行链', async ()
   assert.ok(ctx.logs.length === 1 && ctx.logs[0].includes('ui'), '应经 ctx.print 提示');
   const g = await run('ui.get', ctx, { name: 'title' });
   assert.equal(g.outputs.object, null);
+});
+
+/* ============================================================
+ * ui 反射节点（T12.6）与类型化节点族（T12.7 节点侧）
+ * ============================================================ */
+
+test('ui.getProp / ui.setProp：按 params nodeName+propId 运行时反射读写', async () => {
+  const um = makeUiMock({ title: { text: '旧文本' } });
+  const ctx = makeCtx({ params: { nodeName: 'title', propId: 'text' }, ui: um });
+
+  const g = await run('ui.getProp', ctx);
+  assert.equal(g.next, 'exec');
+  assert.equal(g.outputs.value, '旧文本');
+  assert.deepEqual(um.reads, [{ name: 'title', attr: 'text' }]);
+
+  const s = await run('ui.setProp', ctx, { value: '新文本' });
+  assert.equal(s.next, 'exec');
+  assert.deepEqual(um.writes, [{ name: 'title', attr: 'text', value: '新文本' }]);
+
+  // 不存在的属性 → null（不抛错）
+  const g2 = await run('ui.getProp', makeCtx({ params: { nodeName: 'title', propId: 'nope' }, ui: um }));
+  assert.equal(g2.outputs.value, null);
+
+  // 反射节点参数声明为 string（nodeName + propId，落盘即通用节点）
+  const spec = builtinSpecMap.get('ui.getProp');
+  assert.deepEqual(spec?.params?.map((p) => [p.id, p.type]), [
+    ['nodeName', 'string'],
+    ['propId', 'string'],
+  ]);
+});
+
+test('ui.getProp / ui.setProp：缺 ui 句柄降级打印且不抛错', async () => {
+  const ctx = makeCtx({ params: { nodeName: 'title', propId: 'text' }, ui: null });
+  const g = await run('ui.getProp', ctx);
+  assert.equal(g.next, 'exec');
+  assert.equal(g.outputs.value, null);
+  const s = await run('ui.setProp', ctx, { value: 'x' });
+  assert.equal(s.next, 'exec');
+  assert.equal(ctx.logs.length, 2);
+  assert.ok(ctx.logs[0].includes('ui.getProp'), 'getProp 应经 ctx.print 提示');
+  assert.ok(ctx.logs[1].includes('ui.setProp'), 'setProp 应经 ctx.print 提示');
+});
+
+test('ui.setText：新节点存在、写 text 属性且 value 保持 any 兼容', async () => {
+  const spec = builtinSpecMap.get('ui.setText');
+  assert.ok(spec, 'ui.setText 应注册');
+  assert.equal(spec!.category, '界面');
+  assert.deepEqual(spec!.traits, ['text'], 'ui.setText 应声明 text trait');
+  assert.equal(spec!.inputs.find((p) => p.id === 'value')?.type, 'any', 'value 入参保持 any 兼容');
+
+  const um = makeUiMock({ title: {} });
+  const ctx = makeCtx({ ui: um });
+  const r = await run('ui.setText', ctx, { name: 'title', value: '新文本' });
+  assert.equal(r.next, 'exec');
+  assert.deepEqual(um.writes, [{ name: 'title', attr: 'text', value: '新文本' }]);
+
+  // any 兼容：非字符串按原值写入（不强制转 string）
+  await run('ui.setText', ctx, { name: 'title', value: 42 });
+  assert.equal(um.writes[1].value, 42);
+});
+
+test('类型化 trait 元数据：setValue / listSetItems / setTitle 声明所需 trait', () => {
+  assert.deepEqual(builtinSpecMap.get('ui.setValue')?.traits, ['value']);
+  assert.deepEqual(builtinSpecMap.get('ui.listSetItems')?.traits, ['items']);
+  assert.deepEqual(builtinSpecMap.get('ui.setTitle')?.traits, ['text']);
+  // 未声明 traits 的旧节点行为不变
+  assert.equal(builtinSpecMap.get('ui.get')?.traits, undefined);
+});
+
+test('反射过滤：listReflectableProps 仅保留 reflect:true，无 schema 返回空', () => {
+  assert.deepEqual(listReflectableProps(undefined), []);
+  assert.deepEqual(listReflectableProps(null), []);
+  assert.deepEqual(listReflectableProps([]), []);
+
+  const props = [
+    { id: 'text', label: '文本', reflect: true },
+    { id: 'internal', label: '内部字段' },
+    { id: 'value', label: '值', reflect: false },
+    { id: 'items', label: '列表项', reflect: true },
+  ];
+  assert.deepEqual(listReflectableProps(props).map((p) => p.id), ['text', 'items']);
+});
+
+test('反射条目：reflectionEntries 按节点 × reflect:true 属性生成，无 schema 空', () => {
+  assert.deepEqual(reflectionEntries(undefined), []);
+  assert.deepEqual(reflectionEntries([]), []);
+
+  const entries = reflectionEntries([
+    {
+      name: 'title',
+      type: 'label',
+      props: [
+        { id: 'text', label: '文本', reflect: true },
+        { id: 'internal', label: '内部字段' },
+      ],
+    },
+    { name: 'list', type: 'list', props: [{ id: 'items', label: '列表项', reflect: true }] },
+    { name: 'box', type: 'vbox' }, // 无 schema → 不产生条目
+    { name: 'card', type: '__element', props: null },
+  ]);
+  assert.deepEqual(entries, [
+    { nodeName: 'title', propId: 'text', label: 'title.文本' },
+    { nodeName: 'list', propId: 'items', label: 'list.列表项' },
+  ]);
 });
 
 /* ============================================================

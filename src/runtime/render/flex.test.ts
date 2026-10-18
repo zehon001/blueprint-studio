@@ -9,6 +9,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Window } from 'happy-dom'
 import type { UIAsset, UINode } from '../../ir/types'
+import type { StyleSheet } from '../../ui-editor/styles'
 
 const win = new Window()
 ;(globalThis as Record<string, unknown>).window = win
@@ -129,6 +130,34 @@ test('v3 layout: absolute child left/top/right/bottom/size', () => {
   assert.equal(el.style.width, '120px')
   assert.equal(el.style.height, '40px')
   assert.equal(el.style.flexGrow, '')
+  h.destroy()
+})
+
+test('v3 styles: class props/layout merged before render', () => {
+  const root = node({
+    id: 'root',
+    type: 'vbox',
+    classes: ['card'],
+    container: { direction: 'row' },
+    children: [],
+  })
+  const styles: StyleSheet[] = [
+    {
+      version: 1,
+      classes: {
+        card: {
+          container: { gap: 12, padding: { t: 8, r: 8, b: 8, l: 8 } },
+          layout: { grow: 1, size: { w: '100%', h: '100%' } },
+        },
+      },
+    },
+  ]
+  const h = renderUI(asset(root), { mode: 'runtime', styles })
+  const el = byUid(h.el, 'root')
+  assert.equal(el.style.gap, '12px')
+  assert.equal(el.style.paddingTop, '8px')
+  assert.equal(el.style.flexGrow, '1')
+  assert.equal(el.style.width, '100%')
   h.destroy()
 })
 

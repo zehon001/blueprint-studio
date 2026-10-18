@@ -428,6 +428,30 @@ export interface UINode {
   children: UINode[];
 }
 
+/** v3 元素自定义属性声明（PropDef 的字段子集；渲染期以 default 作为初值） */
+export interface ElementPropDef {
+  id: string;
+  label?: string;
+  type?: string;
+  default?: unknown;
+  doc?: string;
+}
+
+/** v3 元素资产（*.elem.json；与 UIAsset 同构 + 自定义属性/事件/traits） */
+export interface ElementAsset {
+  version: 3;
+  kind: 'element';
+  name: string;
+  props?: ElementPropDef[];
+  events?: IREventDef[];
+  traits?: string[];
+  styles?: string[];
+  root: UINode;
+  graphs?: Record<string, IRGraph & { kind?: 'event' | 'function' }>;
+  variables?: IRVariable[];
+  layout?: Record<string, IRGraphLayout>;
+}
+
 /** UI 资产（*.ui.json 的序列化对象） */
 export interface UIAsset {
   /** 资产格式版本（v3 = 3；v2 = 2 仅过渡兼容，T13.2 后拒载） */
@@ -617,6 +641,13 @@ export interface NodeSpec {
    * 超过 maxSteps 视为疑似 exec 死循环并中止。
    */
   unlimitedFires?: boolean;
+  /**
+   * 节点入参所需的 UI trait 清单（ADR-018；T12.4 契约的节点侧最小可选字段）：
+   * 供蓝图右键选择器 / PinDragMenu / 连线校验按 trait 过滤 UiHandle 族入参
+   * （如 ui.setText 要求 'text'、ui.setValue 要求 'value'、ui.listSetItems 要求 'items'）。
+   * 省略 = 不按 trait 过滤（旧节点 / 旧资产行为不变，向后兼容，version 不升）。
+   */
+  traits?: string[];
   /** 节点运行函数（解释器执行该节点时调用；纯节点求值同样走 run，next 被忽略） */
   run?: NodeRunFn;
   /** 节点说明文档（蓝图检视器 / 帮助浮层显示） */

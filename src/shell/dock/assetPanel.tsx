@@ -40,6 +40,9 @@ function AssetPanelHost({ panelId }: { panelId: string }) {
       return <BlueprintTab assetPath={ref.path} panelId={panelId} />
     case 'script':
       return <ScriptTab assetPath={ref.path} />
+    case 'element':
+      // 元素编辑器 = UI 编辑器同款（kind=element 保留；T11.3）
+      return <UITab assetPath={ref.path} panelId={panelId} />
     default:
       return (
         <div className="dock-panel-placeholder">

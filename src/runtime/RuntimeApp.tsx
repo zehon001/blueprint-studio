@@ -29,6 +29,14 @@ import { DebugProbe } from './debug-probe'
 import type { UIAsset } from '../ir/types'
 import { parseUIAsset } from '../ui-editor/store'
 import { runtimeEmbeddedBlueprint } from '../ui-editor/embedded'
+import { parseStyleSheet, type StyleSheet } from '../ui-editor/styles'
+import {
+  clearElementCache,
+  findElementCycle,
+  getCachedElement,
+  prefetchElements,
+  setElementLoaderContext,
+} from '../ui-editor/element'
 import {
   clearPrefabCache,
   findPrefabCycle,
@@ -139,6 +147,8 @@ interface RuntimeAppState {
   uiPath: string | null
   /** 就绪资产（phase=ready 时交给 renderUI） */
   asset: UIAsset | null
+  /** v3 T11.1：资产应用的样式表 */
+  styleSheets: StyleSheet[]
 }
 
 export interface RuntimeAppProps {
@@ -156,8 +166,8 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     const raw = props.params ?? parseRuntimeParams(typeof location === 'undefined' ? '' : location.search)
     const v = validateRuntimeParams(raw)
     return v.ok
-      ? { params: v.params, phase: 'loading' as const, message: '', uiPath: v.params.ui, asset: null }
-      : { params: null, phase: 'error' as const, message: v.message, uiPath: null, asset: null }
+      ? { params: v.params, phase: 'loading' as const, message: '', uiPath: v.params.ui, asset: null, styleSheets: [] }
+      : { params: null, phase: 'error' as const, message: v.message, uiPath: null, asset: null, styleSheets: [] }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅取首次 props（窗口参数静态）
   }, [])
   const [app, setApp] = useState<RuntimeAppState>(initial)
@@ -255,7 +265,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     handleRef.current?.destroy()
     handleRef.current = null
     setConsoleLines([])
-    setApp({ params: p, phase: 'loading', message: '', uiPath: p.ui, asset: null })
+    setApp({ params: p, phase: 'loading', message: '', uiPath: p.ui, asset: null, styleSheets: [] })
     const fetchImpl = propsRef.current.fetchImpl ?? fetch
     try {
       let uiPath = p.ui
@@ -277,7 +287,23 @@ export default function RuntimeApp(props: RuntimeAppProps) {
       await prefetchPrefabs(asset.root)
       const cycle = findPrefabCycle(asset.root, (path) => getCachedPrefab(path))
       if (cycle) throw new Error(cycle)
-      setApp({ params: p, phase: 'ready', message: '', uiPath, asset })
+      // v3 T11.2：元素实例预取 + 循环检测
+      setElementLoaderContext({ projectPath: p.project, fetchImpl })
+      clearElementCache()
+      await prefetchElements(asset.root)
+      const elementCycle = findElementCycle(asset.root, (path) => getCachedElement(path))
+      if (elementCycle) throw new Error(elementCycle)
+      // v3 T11.1：装载样式表（项目相对；@library 待资源库服务接入）
+      const styleSheets: StyleSheet[] = []
+      for (const ref of asset.styles ?? []) {
+        if (ref.startsWith('@library/')) continue
+        try {
+          styleSheets.push(parseStyleSheet(await fetchFileText(fetchImpl, `${p.project}/${ref}`)))
+        } catch {
+          /* 样式缺失不阻断运行（T13.1 校验） */
+        }
+      }
+      setApp({ params: p, phase: 'ready', message: '', uiPath, asset, styleSheets })
     } catch (err) {
       setApp({
         params: p,
@@ -285,6 +311,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
         message: err instanceof Error ? err.message : String(err),
         uiPath: null,
         asset: null,
+        styleSheets: [],
       })
     }
   }, [])
@@ -345,6 +372,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     let localHandle: UIRenderHandle | null = null
     localHandle = renderUI(app.asset, {
       mode: 'runtime',
+      styles: app.styleSheets,
       onEvent: (evt) => {
         ;(propsRef.current.onEvent ?? defaultOnEvent)(evt)
         runnerRef.current?.routeEvent(evt)
@@ -386,7 +414,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
       probeRef.current?.stop()
       probeRef.current = null
     }
-  }, [app.phase, app.asset, appendConsole])
+  }, [app.phase, app.asset, app.styleSheets, appendConsole])
 
   const retry = useCallback((): void => {
     if (app.params) void load(app.params)

@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { UIEditorPanel } from '@/ui-editor'
 import { BlueprintEditorPanel } from '@/blueprint'
 import { SceneTreePanel } from '@/panels/scene-tree/SceneTreePanel'
+import { ElementLibraryPanel, StyleLibraryPanel } from '@/panels/library'
 import { runUICommand, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
 import { applyEmbeddedBlueprint, embeddedBlueprintOf } from '@/ui-editor/embedded'
 import type { IRAsset, UIAsset } from '@/ir/types'
@@ -188,12 +189,10 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
               <div className="ui-editor-left-body">
                 {leftTab === 'tree' ? (
                   <SceneTreePanel />
+                ) : leftTab === 'elements' ? (
+                  <ElementLibraryPanel />
                 ) : (
-                  <div className="dock-panel-placeholder">
-                    {leftTab === 'elements'
-                      ? '元素库：M11 接入（基础控件 / 内置元素 / 项目元素 / 预制体）'
-                      : '样式库：M11 接入（应用表 / 类列表 / 查找引用）'}
-                  </div>
+                  <StyleLibraryPanel />
                 )}
               </div>
             </aside>

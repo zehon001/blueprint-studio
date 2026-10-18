@@ -1,0 +1,309 @@
+/* 元素库（UI 编辑器左栏；v3 T11.7） */
+.element-library {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+}
+
+.element-library-search {
+  flex: none;
+  margin: var(--space-2);
+  height: 24px;
+  padding: 0 var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-xs);
+}
+
+.element-library-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--space-2) var(--space-2);
+}
+
+.element-library-group {
+  margin-bottom: var(--space-2);
+}
+
+.element-library-title {
+  padding: var(--space-1) 0;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  border-bottom: 1px solid var(--border);
+}
+
+.element-library-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+  padding-top: var(--space-1);
+}
+
+.element-library-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: 3px var(--space-1);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-xs);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.element-library-item:hover {
+  background: var(--bg-input);
+  border-color: var(--border);
+}
+
+.element-library-icon {
+  flex: none;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.element-library-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.element-library-empty {
+  padding: var(--space-2) 0;
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+  line-height: 1.6;
+}
+
+/* 样式库（T11.7） */
+.style-library {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-2);
+  color: var(--text);
+  font-size: var(--font-xs);
+}
+.style-library-sheets {
+  padding: var(--space-1) 0;
+}
+.style-library-sheet {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  padding: 2px 0;
+}
+.style-library-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: var(--space-1);
+}
+.style-library-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-sm);
+}
+.style-library-row:hover {
+  background: var(--bg-input);
+}
+.style-library-row.active .style-library-name {
+  color: var(--accent);
+}
+.style-library-name {
+  flex: 1;
+  text-align: left;
+  padding: 3px var(--space-1);
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+.style-library-refs {
+  flex: none;
+  min-width: 18px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+/* 资源库面板（T11.5） */
+.library-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+}
+.library-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+}
+.library-title {
+  font-size: var(--font-sm);
+}
+.library-scope {
+  display: flex;
+  gap: 2px;
+}
+.library-scope-btn,
+.library-kind,
+.library-btn {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+.library-scope-btn.active,
+.library-kind.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.library-btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.library-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.library-btn.danger {
+  color: var(--error);
+  border-color: var(--error);
+}
+.library-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.library-kinds {
+  flex: none;
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-right: 1px solid var(--border);
+}
+.library-kind {
+  text-align: left;
+}
+.library-list {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--space-1);
+}
+.library-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 3px var(--space-1);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--font-xs);
+  font-family: var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+.library-row:hover {
+  background: var(--bg-input);
+}
+.library-row.active {
+  border-color: var(--accent);
+}
+.library-row-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-row-meta {
+  flex: none;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+.library-detail {
+  flex: none;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-left: 1px solid var(--border);
+  overflow: auto;
+}
+.library-detail-title {
+  color: var(--text);
+  font-size: var(--font-sm);
+}
+.library-detail-path {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+.library-detail-actions {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+.library-create {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: auto;
+}
+.library-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 var(--space-1);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-xs);
+}
+.library-empty {
+  padding: var(--space-2);
+  color: var(--text-disabled);
+  font-size: var(--font-xs);
+  line-height: 1.6;
+}
+.library-error {
+  color: var(--error);
+  font-size: var(--font-xs);
+}

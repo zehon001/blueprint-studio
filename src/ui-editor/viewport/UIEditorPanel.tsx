@@ -146,6 +146,9 @@ export function UIEditorPanel() {
   const setSelection = useUIEditorStore((s) => s.setSelection);
   const addSelection = useUIEditorStore((s) => s.addSelection);
   const clearSelection = useUIEditorStore((s) => s.clearSelection);
+  /** v3 T11.1：已应用样式表（变化时重建渲染句柄以刷新合并结果） */
+  const styleSheets = useUIEditorStore((s) => s.styleSheets);
+  const stylesRef = useRef(styleSheets);
 
   /* —— 视口状态 —— */
   const [view, setView] = useState<ViewTransform>({ x: 0, y: 0, scale: 1 });
@@ -208,10 +211,20 @@ export function UIEditorPanel() {
       setBoxes([]);
       return;
     }
+    // 样式表变化 → 重建句柄（RenderOptions 不可变，updateUI 不会重新读样式）
+    if (handleRef.current && stylesRef.current !== styleSheets) {
+      handleRef.current.destroy();
+      handleRef.current = null;
+      stylesRef.current = styleSheets;
+    }
     if (!handleRef.current) {
       // onPrefabLoad（ADR-009）：渲染期补拉成功的占位刷新——bump prefabTick 让本 effect
       // 重跑（updateUI 增量更新；回调存于渲染 state，updateUI 沿用同一回调）。
-      const h = renderUI(asset, { mode: 'edit', onPrefabLoad: () => setPrefabTick((t) => t + 1) });
+      const h = renderUI(asset, {
+        mode: 'edit',
+        onPrefabLoad: () => setPrefabTick((t) => t + 1),
+        styles: styleSheets,
+      });
       handleRef.current = h;
       canvas.insertBefore(h.el, canvas.firstChild); // 渲染层在下，overlay 在上
     } else {
@@ -224,7 +237,7 @@ export function UIEditorPanel() {
       }
     }
     setBoxes(measure());
-  }, [asset, measure, prefabTick]);
+  }, [asset, measure, prefabTick, styleSheets]);
 
   /* —— 卸载清理 —— */
   useEffect(

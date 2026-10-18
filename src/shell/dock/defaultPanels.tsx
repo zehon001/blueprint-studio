@@ -21,6 +21,7 @@ import { registerInspectorPanel } from '@/panels/inspector'
 import { registerEventsPanel } from '@/panels/events'
 import { registerConsolePanel } from '@/panels/console'
 import { registerRuntimePanel } from '@/panels/runtime'
+import { registerLibraryPanel } from '@/panels/library'
 import { ensureAssetPanelsInLayout, syncWorkspaceFromDock } from './assetPanel'
 
 /* 内置面板 id（跨卡契约：替换实现时保持 id 不变） */
@@ -36,6 +37,7 @@ registerInspectorPanel() // T1.5 / T8.2 统一检视器（id: 'inspector'）
 registerEventsPanel() // T5.2 事件面板（id: 'events'）
 registerConsolePanel() // T1.6 控制台（id: 'console'）
 registerRuntimePanel() // T8.5 内置运行视图（iframe + embed；id: 'runtime'）
+registerLibraryPanel() // T11.5 资源库（默认不在布局，面板菜单打开；id: 'library'）
 
 /** 单面板 tabs 组 */
 function oneTabs(panelId: string): DockNode {
