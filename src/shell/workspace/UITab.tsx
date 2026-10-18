@@ -5,8 +5,9 @@
  * Ctrl+S（file.save 重绑定）→ saveUIAsset() → 清脏；脏标记监听 scene-tree 域命令。
  * 切走 tab 时 close()（域状态替换语义，重开安全——见 ui-editor/store.ts 注释）。
  */
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { UIEditorPanel } from '@/ui-editor'
+import { SceneTreePanel } from '@/panels/scene-tree/SceneTreePanel'
 import { useUIEditorStore } from '@/ui-editor/store'
 import { peekUndo, subscribeReplay, useEditorStore } from '@/shell/commands'
 import { registerShortcut, unregisterShortcut } from '@/shell/keymap/registry'
@@ -31,6 +32,8 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
   const selection = useUIEditorStore((s) => s.selection)
   const publishSelection = useSelectionStore((s) => s.publish)
   const clearSelection = useSelectionStore((s) => s.clear)
+  /** v3 T9.4：左栏三分页（UI 树 / 元素库 / 样式库） */
+  const [leftTab, setLeftTab] = useState<'tree' | 'elements' | 'styles'>('tree')
 
   /* v3 T8.2：统一选择协议——本面板激活且就绪时发布 UI 选中节点 */
   useEffect(() => {
@@ -106,5 +109,52 @@ export function UITab({ assetPath, panelId }: { assetPath: string; panelId?: str
       </div>
     )
   }
-  return <UIEditorPanel />
+  return (
+    <div className="ui-editor-shell">
+      <aside className="ui-editor-left">
+        <div className="ui-editor-modebar" role="tablist" aria-label="编辑器模式">
+          <button type="button" className="ui-editor-mode active" role="tab" aria-selected="true">
+            设计
+          </button>
+          <button type="button" className="ui-editor-mode" role="tab" aria-selected="false" disabled title="M10 接入内嵌蓝图">
+            蓝图
+          </button>
+        </div>
+        <div className="ui-editor-left-tabs" role="tablist" aria-label="UI 编辑器左栏">
+          {(
+            [
+              ['tree', 'UI 树'],
+              ['elements', '元素库'],
+              ['styles', '样式库'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={leftTab === id}
+              className={`ui-editor-left-tab${leftTab === id ? ' active' : ''}`}
+              onClick={() => setLeftTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="ui-editor-left-body">
+          {leftTab === 'tree' ? (
+            <SceneTreePanel />
+          ) : (
+            <div className="dock-panel-placeholder">
+              {leftTab === 'elements'
+                ? '元素库：M11 接入（基础控件 / 内置元素 / 项目元素 / 预制体）'
+                : '样式库：M11 接入（应用表 / 类列表 / 查找引用）'}
+            </div>
+          )}
+        </div>
+      </aside>
+      <div className="ui-editor-main">
+        <UIEditorPanel />
+      </div>
+    </div>
+  )
 }

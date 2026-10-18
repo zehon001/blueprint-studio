@@ -34,6 +34,7 @@ import { expandPrefabNode, getCachedPrefab } from '@/ui-editor/prefab'
 import { openPrefabTab } from '@/ui-editor/prefabTab'
 import { detachPrefabCommand } from '@/panels/scene-tree/commands'
 import { PropEditor } from './PropEditors'
+import { FlexLayoutSection } from './FlexLayoutSection'
 import {
   PROPTYPE_LABELS,
   anyRowDisabled,
@@ -285,6 +286,8 @@ export function InspectorPanel() {
         ) : null}
       </div>
       <div className="insp-body">
+        {/* v3 T9.5：flex 布局/容器条目（单选） */}
+        {single ? <FlexLayoutSection node={single} /> : null}
         {single?.prefab ? (
           <div className="insp-prefab">
             <div className="insp-prefab-head">

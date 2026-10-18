@@ -662,9 +662,9 @@ test('面板单选：分组组序、doc 悬浮提示、类型徽标、内建事�
     assert.equal(dom.document.querySelector('.insp-title')?.textContent, '提交按钮')
     assert.equal(dom.document.querySelector('.insp-badge')?.textContent, '按钮')
 
-    // 分组组序（button 的组：节点/布局/内容/外观）
+    // 分组组序（v3 T9.5：flex 布局条目在前；button 的组：节点/布局/内容/外观）
     const groupTitles = Array.from(dom.document.querySelectorAll('.insp-group-title')).map((el) => el.textContent)
-    assert.deepEqual(groupTitles, ['节点', '布局', '内容', '外观'])
+    assert.deepEqual(groupTitles, ['布局（flex）', '节点', '布局', '内容', '外观'])
 
     // doc 悬浮提示（title 属性）+ 类型徽标
     const textRow = findRow('文本')!

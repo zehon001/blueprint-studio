@@ -17,7 +17,6 @@ import { listPanels } from './registry'
 import { useDockStore } from './store'
 import { makeTabs, type DockNode } from './tree'
 import { registerFileSystemPanel } from '@/panels/file-system'
-import { registerSceneTreePanel } from '@/panels/scene-tree'
 import { registerInspectorPanel } from '@/panels/inspector'
 import { registerEventsPanel } from '@/panels/events'
 import { registerConsolePanel } from '@/panels/console'
@@ -26,7 +25,6 @@ import { ensureAssetPanelsInLayout, syncWorkspaceFromDock } from './assetPanel'
 
 /* 内置面板 id（跨卡契约：替换实现时保持 id 不变） */
 export const PANEL_ID_FILE_SYSTEM = 'file-system'
-export const PANEL_ID_SCENE_TREE = 'scene-tree'
 export const PANEL_ID_RUNTIME = 'runtime'
 export const PANEL_ID_INSPECTOR = 'inspector'
 export const PANEL_ID_EVENTS = 'events'
@@ -34,7 +32,6 @@ export const PANEL_ID_CONSOLE = 'console'
 
 /* 面板注册（模块副作用；每面板一行） */
 registerFileSystemPanel() // T0.7 文件系统（id: 'file-system'）
-registerSceneTreePanel() // T1.4 UI 树（id: 'scene-tree'；T9.4 内嵌进 UI 编辑器后移除）
 registerInspectorPanel() // T1.5 / T8.2 统一检视器（id: 'inspector'）
 registerEventsPanel() // T5.2 事件面板（id: 'events'）
 registerConsolePanel() // T1.6 控制台（id: 'console'）
@@ -57,7 +54,7 @@ export function buildDefaultLayout(): DockNode {
         dir: 'h',
         sizes: [1, 3, 1],
         children: [
-          { kind: 'split', dir: 'v', sizes: [1, 1], children: [oneTabs(PANEL_ID_FILE_SYSTEM), oneTabs(PANEL_ID_SCENE_TREE)] },
+          oneTabs(PANEL_ID_FILE_SYSTEM),
           oneTabs(PANEL_ID_RUNTIME),
           { kind: 'split', dir: 'v', sizes: [1, 1], children: [oneTabs(PANEL_ID_INSPECTOR), oneTabs(PANEL_ID_EVENTS)] },
         ],

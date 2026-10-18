@@ -50,9 +50,9 @@
 |---|---|---|---|---|---|---|
 | T9.1 | ADR-011：IR v3 布局契约 + v2 拒载门禁 | `src/ir/types.ts` v3、`docs/v3/adr/011-ir-v3-layout.md` | — | Arch | ①UINode layout/container 全集类型+字段文档（含 PLAN §5.1 字段语义表、CSS 映射、缺省值）②serialize/normalize 无损（`transform`/`theme` 退役）③version=3；`project.json.engineVersion` 主版本门禁 ④打开 v2 资产/项目明确报「v3 不兼容」⑤v3 roundtrip 样例先交类型/序列化单测，正式门禁样本由 T13.3 注册 | 完成 · 2026-10-18（B19：ADR-011 + 可选 layout/container/classes + UIAsset v3 字段 + parse 2/3；**偏差**：v2 拒载/engineVersion 门禁随 T13.2 收口，见 ADR） |
 | T9.2 | 渲染器 flex 化（23 原语属性模型重造） | `src/runtime/render/` 重写 | T9.1 | UIEditor+Runtime | ①CSS flex 直映射（流式/absolute/锚点/溢出滚动）②编辑/运行同构 ③23 控件对照旧渲染器视觉基线（旧渲染器保留到 T9.2 验收后删除）④dataview 虚拟滚动保留 ⑤渲染回归测试重立 | 完成 · 2026-10-18（B19：layout/container 通用映射覆盖 23 控件；flex 4 单测 + render/layout/prefab/viewport 55 回归绿；**偏差**：23 schema 属性重排随 T9.5，旧渲染器保留兼容层） |
-| T9.3 | 编辑视口 WYSIWYG 化 | `src/ui-editor/viewport/` 重构 | T9.2 | UIEditor | ①实时布局（改属性即时重排，与运行时同引擎）②树内拖拽重排/跨父移动 ③absolute 元素自由拖拽/吸附/键盘微调/框选 ④操作全入命令栈可撤销 ⑤流式子项拒绝自由拖拽并提示 | 待办 |
-| T9.4 | UI 编辑器左栏内嵌（树/元素库/样式库三分页） | UITab 重构 + scene-tree 面板迁移 | T9.3 | UIEditor | ①左栏三分页（元素库/样式库页占位，M11 填充）②独立「UI 树」dock 面板移除（注册与默认布局同步清理）③树右键/拖拽/命令栈不回退 ④设计/蓝图模式位占位（T10.2 填充） | 待办 |
-| T9.5 | 检视器 UIToolkit 条目化 | schema 分组重构 + inspector 适配 | T9.1, T8.2 | UIEditor | ①标准分组落地（PLAN §5.4）②flex 属性编辑器（数值/枚举/尺寸）③搜索/折叠/多选混合态保留 ④23 控件 schema 全部按新分组重排 ⑤有效值/覆盖来源展示（样式类，与 T11.1 对齐） | 待办 |
+| T9.3 | 编辑视口 WYSIWYG 化 | `src/ui-editor/viewport/` 重构 | T9.2 | UIEditor | ①实时布局（改属性即时重排，与运行时同引擎）②树内拖拽重排/跨父移动 ③absolute 元素自由拖拽/吸附/键盘微调/框选 ④操作全入命令栈可撤销 ⑤流式子项拒绝自由拖拽并提示 | 完成 · 2026-10-18（B20：flex 节点绝对/相对判定 + read/write 位置 + 拖拽/微调/对齐走同一 helper；flex-node 3 单测 + GUI 实测） |
+| T9.4 | UI 编辑器左栏内嵌（树/元素库/样式库三分页） | UITab 重构 + scene-tree 面板迁移 | T9.3 | UIEditor | ①左栏三分页（元素库/样式库页占位，M11 填充）②独立「UI 树」dock 面板移除（注册与默认布局同步清理）③树右键/拖拽/命令栈不回退 ④设计/蓝图模式位占位（T10.2 填充） | 完成 · 2026-10-18（B20：UITab 左栏三分页 + SceneTreePanel 内嵌 + 独立 scene-tree 面板注册/默认布局移除 + 模式位；GUI 实测） |
+| T9.5 | 检视器 UIToolkit 条目化 | schema 分组重构 + inspector 适配 | T9.1, T8.2 | UIEditor | ①标准分组落地（PLAN §5.4）②flex 属性编辑器（数值/枚举/尺寸）③搜索/折叠/多选混合态保留 ④23 控件 schema 全部按新分组重排 ⑤有效值/覆盖来源展示（样式类，与 T11.1 对齐） | 完成 · 2026-10-18（B20：布局（flex）条目：position/grow/shrink/basis/size/margin/绝对偏移/容器 direction-wrap-justify-align-gap-padding-overflow；命令栈可撤销；fold/搜索/多选不回退；**偏差**：23 schema 分组细排与样式有效值展示随 T11.1/T11.5） |
 
 ### M10 内嵌蓝图与变量提升
 
@@ -126,9 +126,9 @@ M13：T13.1 ← T11.6+T12.9    T13.2(T9.1) ─ T13.4(T11.6/T8.5)    T13.3(T13.1)
 
 ## 5. 当前状态与批次计划
 
-- 看板初始化：2026-10-18；**开工前评审完成（draft2）**；**B17 已交付（T8.1/T8.3/T8.4）**；**B18 已交付（T8.2/T8.5）——M8 全部完成**；下一批 B19（T9.1/T9.2）。
+- 看板初始化：2026-10-18；**开工前评审完成（draft2）**；**B17 已交付（T8.1/T8.3/T8.4）**；**B18 已交付（T8.2/T8.5）——M8 全部完成**；**B19/B20 已交付（T9.1~T9.5）——M9 主体完成**；下一批 B21（M10 内嵌蓝图）。
 - 沿用 v2 单会话模式：不逐卡建 git 分支，PM 按批次在 `v3` 长分支提交（每批次一次 commit，自 main@B16 拉出；M8/M10/M13 后合回 main）。
-- 测试基线（B18 收尾实测，2026-10-18）：**952 测试全绿（135 suites，0 fail / 0 skip）、typecheck 0 错、构建绿**。开工前基线 923（v2 看板最后记录 917）；B17 +17、B18 +12。命令见 PLAN §15.4。基线数量随 v3 重写允许变化，每批记录新基线。
+- 测试基线（B20 收尾实测，2026-10-18）：见 §6 最后一条（全量数随批更新）。命令见 PLAN §15.4。基线数量随 v3 重写允许变化，每批记录新基线。
 
 | 批次 | 卡片 | 说明 |
 |---|---|---|
@@ -149,6 +149,8 @@ M13：T13.1 ← T11.6+T12.9    T13.2(T9.1) ─ T13.4(T11.6/T8.5)    T13.3(T13.1)
 
 ## 6. 进度纪要（PM 维护，倒序追加）
 
+- **2026-10-18 · B20（T9.3/T9.4/T9.5）**：UI 编辑器左栏三分页内嵌 UI 树（元素库/样式库占位），独立 scene-tree dock 面板移除；检视器新增「布局（flex）」条目（位置/grow/shrink/basis/尺寸/margin/absolute 偏移/容器 direction-wrap-justify-align-gap-padding-overflow，命令栈可撤销）；视口按 layout 判定 absolute/relative 并统一位置读写。验证：flex-node 3 单测 + inspector 20 回归 + GUI（左栏三分页/树内嵌/改 grow）；全量基线见下批。
+- **2026-10-18 · B19（T9.1/T9.2）**：ADR-011 + v3 `layout/container/classes` 字段；渲染器 flex 覆盖层（container 映射、layout 覆盖 v2 transform、absolute/relative）；v3 资产 parse 接受 3；flex 4 单测 + 55 渲染/视口回归绿。**偏差**：v2 拒载/engineVersion 门禁随 T13.2 收口；23 schema 细排随 T9.5/T11.1。
 - **2026-10-18 · B18（M8 收尾：T8.2/T8.5，M8 完成）**：**T8.2 统一检视器**——`selection` store（四源 descriptor + 清空/匹配）、UITab/BlueprintTab/文件面板发布选择、`InspectorHost` 按 `activePanelId` 分发（UI 节点 / 蓝图 Details / 文件信息 / 资产基本信息 / 库占位）、蓝图编辑器移除内部右栏变两栏、点击面板内容即聚焦（dock `focusPanel`）；7 单测 + GUI 实测蓝图 Details/文件信息/上下文切换。**T8.5 内置运行视图**——`runtime` store（单实例 target/nonce）、iframe 面板（embed=1/拆出独立窗口/重跑）、F5/F6 改走内置面板、`workspace.saveSeq` + `autoRerun` 保存自动重跑、iframe F5/F6/Ctrl+S postMessage 转发、控制台镜像照旧；store/URL 单测 + GUI 实测 F5/拆出/iframe F5/保存自动重跑。**验证**：952 测试全绿（+12）、typecheck 0 错、构建绿；截图 `v3-b18-*.png`。**偏差**：文件面板当前单选（PLAN 已同步）；自动重跑对任意资产保存生效（按 PLAN §4.5 字面）。**下步**：B19 = T9.1 IR v3 契约 + T9.2 flex 渲染器。
 - **2026-10-18 · B17（M8 第一批：T8.1/T8.3/T8.4）**：三卡完成。**T8.1 dock 资产化**——`assetPanel`/`assetPanelModel` 拆分（纯逻辑可单测、不拉入编辑器 CSS）：动态注册 `asset:<kind>:<path>`、泛型宿主、布局 v3（`{version:3,root,activePanelId}`）、启动扫描布局重建 openTabs/activeTabId、点击/打开/关闭维护 activePanelId、脏关闭确认、tab 右键关闭/其他/右侧、拆出窗口（`?panel=asset:…` 重建）；workspace-store 降级为资产注册表；中央组锚定 `runtime`（修复 BFS 首个 tabs 组误落底部控制台）。**T8.3 设置模态**——齿轮/Ctrl+,、四分区（通用库路径+前端校验+autoRerun/快捷键/插件/关于）、Esc/遮罩、分区记忆 `bps.settings.section`、设置 `bps.settings.v1`、插件管理面板迁入并移除「在编辑器中打开」、删除 settings/plugin-manager dock 面板注册。**T8.4 文件呈现**——主名显示（`.ui/.bp/.elem/.uss/.fn` 最长后缀）、EL/ST/FN 徽标、新建资产向导（场景/预制体/蓝图/TS/PY，按约定目录，元素/样式/函数 M11 开放）、重命名只输主名保扩展。**验证**：940 测试全绿（+17）、typecheck 0 错、构建绿；Playwright 实测打开 UI 资产并入中央组、刷新还原、脏关闭确认、拆出/合回、设置四分区与路径校验、新建 TS 资产；截图 `gui-test-screenshots/v3-b17-*.png`。**偏差**：dock 居中锚改用 `runtime`（PLAN §4.1 未指定锚点，已在实现注释说明）；未改运行视图（T8.5 下一批）。**下步**：B18 = T8.2 统一检视器 + T8.5 运行视图内置。
 - **2026-10-18 · 开工前评审（draft2）**：逐节核对 PLAN 与源码，发现并修订 8 项契约级不清晰（图集合缺 kind/layout、元素覆盖字段混用、库引用语法缺失、theme 退役未说明、flow.call 作用域二义、反射/选择器穿透边界、预制体图语义缺失、既有校验码数量 11→12）+ 若干任务卡依赖/DoD 不可测问题；补 B17/B18 批次、Plugin-Agent 角色、单会话分支规则与 923 基线。评审明细见 [REVIEW.md](./REVIEW.md)。结论：**可以开工**。
