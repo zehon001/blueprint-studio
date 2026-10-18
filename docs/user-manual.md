@@ -1,6 +1,7 @@
-# Blueprint Studio v2 · 用户手册
+# Blueprint Studio v3 · 用户手册
 
-> 面向工具使用者（UE5 / Godot 背景）。基准版本：2026-10-17（v2 分支 B12 批次后实现）。
+> 面向工具使用者（UE5 / Godot 背景）。基准版本：2026-10-18（v3 长分支，M8~M13 增量；v2 行为仍兼容）。
+> v3 新增能力速查见文末「附录 B · v3 增量」。
 > 本手册所有节点名、引脚名、API 与行为均逐项对照源码核对（`src/nodes/`、`src/runtime/`、`src/script/`）。
 > 与设计稿（`docs/v2/PLAN.md` §9.2 示例等）不一致处以实现为准，差异集中列在 §11。
 
@@ -12,7 +13,7 @@ Blueprint Studio 是一个**工具制作引擎**（网页版）：外观与操�
 
 - **做工具**：只有 UI 相关能力（控件、布局、事件），没有物理 / 角色 / 动画。
 - **蓝图 ⇄ 脚本**：同一份逻辑资产两个视图（`.bp.json` 蓝图 / `.ts` 脚本），互转无损。
-- **独立运行窗口**：F5 / F6 弹出浏览器窗口运行，编辑器里能实时看到节点高亮、连线流动、端口实时值。
+- **内置运行视图**：F5 / F6 在编辑器「运行」tab 内以 iframe 运行（可拆出独立窗口），编辑器里能实时看到节点高亮、连线流动、端口实时值；保存成功可自动重跑。
 - **插件**：外部 CLI（adb、feishu 等）的检测 / 安装 / 更新 + 节点封装。
 
 词汇对齐（全局统一，不叫「场景 / 信号」）：
@@ -457,3 +458,22 @@ F5 运行：与模板蓝图等价——列表显示解析后的日志行，控�
 - **协作调度边界（ADR-010）**：让出派发仅顶层一次——被派发事件的链内再遇无限循环仍会阻塞其后的派发（嵌套不派发守卫，回落阻塞语义）。
 - **「调试」顶栏按钮为占位**（观察通道由打开蓝图视图自动接入）。
 - 其余与设计稿的差异见 §5.6 与《插件开发指南》§11。
+
+---
+
+## 附录 B · v3 增量（M8~M13 已落地部分）
+
+- **dock 统一**：每个打开的资产是独立 dock 面板（`asset:<kind>:<path>`），可拖拽分屏/合并/tab 切换/拆出独立窗口；布局持久化 `bps.dockLayout.v3`，刷新还原。关闭脏面板会确认。
+- **统一检视器**：按当前激活面板显示 UI 节点属性、蓝图 Details、文件基本信息、资产基本信息；蓝图编辑器不再有内部右栏。
+- **设置模态**：右上角齿轮 / `Ctrl+,`；通用（库路径、保存自动重跑）、快捷键、插件、关于四分区；原设置/插件 dock 面板移除。
+- **内置运行视图**：F5/F6 打开中央「运行」tab（iframe，`embed=1` 隐藏运行页 chrome）；「拆出独立窗口」保留；Ctrl+S 保存成功自动重跑（设置可关）；iframe 内 F5/F6/Ctrl+S 会转发父窗。
+- **flex 布局**：UINode 支持 `layout`/`container`/`classes`；检视器「布局（flex）」条目可改 position/grow/shrink/basis/尺寸/margin/absolute 偏移与容器 direction/wrap/justify/align/gap/padding/overflow；流式子项不可自由拖拽，absolute 可拖拽/对齐。
+- **UI 编辑器左栏**：UI 树 / 元素库 / 样式库三分页；元素库含 23 基础控件与项目元素（点击入树）；样式库展示应用表/类，选中节点后可挂载/移除类并查看引用数。
+- **样式库**：`.uss.json` 类选择器；`asset.styles` 声明；合并顺序为 schema 默认 → styles 数组序 → 表内声明序 → 节点内联。
+- **元素系统**：`.elem.json`（子树 + 自定义属性 + traits + 内嵌图）；`type:'__element'` 实例 + `props` 覆盖；预取/循环检测/占位；元素编辑器复用 UI 编辑器（设计/蓝图双模式）。
+- **内嵌蓝图**：UI 资产 `graphs/variables/events/layout`；UI tab「设计 | 蓝图」；保存整资产一次落盘；运行期 `embedded` 分支把整棵树路由到类级图；检视器「变量（提升）」区。
+- **资源库**：dock「资源库」面板（内置库/项目库 × 元素/样式/函数），新建/重命名/删除/导出 zip/导入（冲突跳过）；服务端库根默认 `%USERPROFILE%\.blueprint-studio\library`，`BP_LIBRARY_ROOT` 可覆盖；REST `/api/library/*` + SSE watch。
+- **函数三档**：`flow.call` 支持 `function` + `scope(auto|blueprint|project|global)`；运行期加载项目 `library/functions/*.fn.json` 或内置库函数并注入执行；资产内函数进入右键搜索「函数」分组。
+- **节点增强**：`ui.getProp` / `ui.setProp` / `ui.setText`；`ui.setValue/listSetItems/setTitle` 声明 traits；`var.get/set` 变量名为下拉选择器。
+- **校验**：新增引用完整性码 `ref-node-missing / ref-variable-missing / ref-function-missing / ref-style-missing / ref-library-missing / ref-element-boundary`（`validateUIAssetRefs`）。
+- **仍待完成**（见 TASKBOARD）：函数编辑器 UI、项目/全局函数检索、UiHandle 类型族/PinDrag 过滤、ui.get 子节点选择器、反射「设计器」右键分组、改名级联与校验入口接线、log-analyzer v3 模板、v2 拒载收口、roundtrip/e2e v3 全量重写、TA.4 人工勾验。
