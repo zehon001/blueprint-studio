@@ -239,6 +239,13 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
       st.closeMenu();
       return;
     }
+    if (specId.startsWith('fncall:')) {
+      const target = specId.slice('fncall:'.length);
+      const id = st.addNode('flow.call', st.menu.flow);
+      if (id) st.setNodeParams(id, { graph: target });
+      st.closeMenu();
+      return;
+    }
     st.addNode(specId, st.menu.flow);
     st.closeMenu();
   }, []);
@@ -366,9 +373,23 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
 
   const searchEntries = useMemo<SpecEntry[]>(() => {
     const entries: SpecEntry[] = [...specs.values()].map((spec) => ({ spec, pin: null }));
+    // v3 T12.3：本资产函数图作为「函数」分组伪条目（pick 时建 flow.call 并预填 graph）
+    const fnEntries: SpecEntry[] = Object.keys(asset.graphs ?? {})
+      .filter((name) => name !== asset.entry)
+      .map((name) => ({
+        spec: {
+          id: `fncall:${name}`,
+          title: `调用 ${name}`,
+          category: '函数',
+          keywords: ['函数', 'call', '调用', name],
+          inputs: [],
+          outputs: [],
+        },
+        pin: null,
+      }));
     // 「添加注释」伪条目追加在分类浏览尾部（搜索「注释」可直达；pick 在 searchPick 拦截）
-    return [...entries, { spec: COMMENT_MENU_SPEC, pin: null }];
-  }, [specs]);
+    return [...entries, ...fnEntries, { spec: COMMENT_MENU_SPEC, pin: null }];
+  }, [specs, asset]);
 
   const commentList = useBlueprintStore(
     (s) => s.asset?.graphs[s.graphName]?.comments ?? NO_COMMENTS,

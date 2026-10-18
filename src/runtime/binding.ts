@@ -49,6 +49,7 @@ import {
 import type { UIRenderEvent, UIRenderHandle } from './render/render';
 import { updateUI } from './render/render';
 import { createRuntime, type DebugEvent, type RuntimeHandle } from './interpreter';
+import { resolveExternalFunctions } from './functions';
 import { createEventBus, runtimeEventSink, type EventBus } from './events';
 import { DebugWsClient } from '@/shell/debug/debug-ws';
 import type { DebugClientMessage } from '@/shell/debug/protocol';
@@ -798,6 +799,14 @@ export class BindingRunner {
           ir = kind === 'script-ts' ? await this.loadScriptIR(binding.path, text) : deserializeIR(text);
         }
         if (this.stopped) return;
+        // v3 T12.9：三档函数解析（项目库 / 内置库 → 注入图并改写 flow.call 目标）
+        const fnResolved = await resolveExternalFunctions(ir, {
+          project: this.opts.project,
+          fetchImpl: this.opts.fetchImpl,
+          onPrint: (line) => this.print(line),
+        });
+        for (const err of fnResolved.errors) this.print(`[错误] ${err}`);
+        ir = fnResolved.asset;
         // T6.4：按需并入插件节点 specs（资产含未知节点类型才拉取注册表），再注入片段 spec
         const assetBase = needsPluginSpecs(ir, base, NON_PLUGIN_RUNTIME_TYPES)
           ? await ensurePluginSpecs()

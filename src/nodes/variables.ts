@@ -15,7 +15,7 @@ export const get = defineNode({
   keywords: ['get', 'getvar', '获取变量', '读取', '变量'],
   doc: '按 varName 读取资产变量（未声明变量返回 null）；可在检视器直接填变量名。',
   pure: true,
-  params: [{ id: 'varName', label: '变量名', type: 'string', default: '' }],
+  params: [{ id: 'varName', label: '变量名', type: 'variable', default: '' }],
   inputs: [],
   outputs: [dataOut('value', 'any', '值')],
   run: (ctx) => {
@@ -33,7 +33,7 @@ export const set = defineNode({
   doc: '把 value 写入 varName 指定的资产变量，并从 value 出口透传（便于链式书写）。暴露变量的写入会同步到绑定 UI。',
   inputs: [execIn(), { id: 'value', type: 'any', label: '值', defaultValue: null }],
   outputs: [execOut(), dataOut('value', 'any', '值')],
-  params: [{ id: 'varName', label: '变量名', type: 'string', default: '' }],
+  params: [{ id: 'varName', label: '变量名', type: 'variable', default: '' }],
   run: (ctx, inputs) => {
     const value = inputs.value === undefined ? null : inputs.value;
     ctx.setVar(strOf(ctx.params.varName), value);

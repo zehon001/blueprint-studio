@@ -26,7 +26,24 @@ export const callFunctionSpec = defineNode({
   doc: '调用同资产内的函数图：在检视器「目标函数」填函数名（My Blueprint 的函数列表右键「插入调用」可自动填好）。执行压独立栈帧；入参 / 返回值引脚由目标函数的接口声明动态决定。',
   inputs: [execIn()],
   outputs: [execOut()],
-  params: [{ id: 'graph', label: '目标函数', type: 'string', default: '' }],
+  params: [
+    { id: 'graph', label: '目标函数（资产内）', type: 'string', default: '' },
+    // v3 T12.1：跨作用域函数名（为空时回落 graph；蓝图画布仍以 graph 为主）
+    { id: 'function', label: '函数名（项目/全局）', type: 'string', default: '' },
+    {
+      id: 'scope',
+      label: '作用域',
+      type: 'select',
+      options: [
+        { value: 'auto', label: '自动（蓝图→项目→全局）' },
+        { value: 'blueprint', label: '蓝图（资产内）' },
+        { value: 'project', label: '全项目' },
+        { value: 'global', label: '全局' },
+      ],
+      default: 'auto',
+      group: '作用域',
+    },
+  ],
 });
 
 /** 函数子图入口（callee 侧）：输出 = 函数入参（由 IRGraph.params 动态决定） */

@@ -81,15 +81,15 @@
 
 | ID | 任务 | 产出物 | 依赖 | 负责 | DoD | 状态 |
 |---|---|---|---|---|---|---|
-| T12.1 | ADR-015：函数三档契约 | types + `docs/v3/adr/015-function-scopes.md` | T10.1 | Arch | ①scope 三档+存储（图子图/项目库/内置库）②`flow.call { function, scope:'auto'|'blueprint'|'project'|'global' }`，auto 就近解析、显式钉死 ③边界：全局只调内置 ④`.fn.json` 文件名/唯一名规则 ⑤roundtrip | 待办 |
-| T12.2 | 函数作用域 UI + 函数编辑器 | MyBlueprint 扩展 + 函数编辑器 | T12.1, T11.4, T8.2 | Blueprint+Shell | ①新建函数选作用域 ②全项目/全局函数创作（签名+图，接口编辑走统一检视器）③入口/出口动态引脚按签名渲染（v2 TODO 补齐）④资源库函数管理联动 ⑤函数资产可被检视器检视 | 待办 |
-| T12.3 | 节点面板函数检索 | NodeSearchMenu 扩展 | T12.1 | Blueprint | ①三档函数全部可检索（搜索+「函数」分组）②作用域徽标+同名遮蔽提示 ③键盘导航/最近使用保留 | 待办 |
-| T12.4 | ADR-018：类型化元素引用 + trait | IR 类型系统 + schema trait 声明 | T11.2 | Arch | ①UiHandle<类型> 值类型族+赋值规则 ②控件 schema 声明 trait、PropDef 增 `reflect` 标记 ③元素 `traits` 可选声明 ④连线/吸附/PinDrag 兼容过滤生效 | 待办 |
+| T12.1 | ADR-015：函数三档契约 | types + `docs/v3/adr/015-function-scopes.md` | T10.1 | Arch | ①scope 三档+存储（图子图/项目库/内置库）②`flow.call { function, scope:'auto'|'blueprint'|'project'|'global' }`，auto 就近解析、显式钉死 ③边界：全局只调内置 ④`.fn.json` 文件名/唯一名规则 ⑤roundtrip | 完成 · 2026-10-18（M12：ADR-015 + flow.call function/scope 参数 + 运行时三档解析 + 5 单测） |
+| T12.2 | 函数作用域 UI + 函数编辑器 | MyBlueprint 扩展 + 函数编辑器 | T12.1, T11.4, T8.2 | Blueprint+Shell | ①新建函数选作用域 ②全项目/全局函数创作（签名+图，接口编辑走统一检视器）③入口/出口动态引脚按签名渲染（v2 TODO 补齐）④资源库函数管理联动 ⑤函数资产可被检视器检视 | 部分完成 · 2026-10-18（资产内函数可检索并建 flow.call；项目/全局函数编辑器 UI 未做） |
+| T12.3 | 节点面板函数检索 | NodeSearchMenu 扩展 | T12.1 | Blueprint | ①三档函数全部可检索（搜索+「函数」分组）②作用域徽标+同名遮蔽提示 ③键盘导航/最近使用保留 | 部分完成 · 2026-10-18（资产内函数「函数」分组 + 选中建调用；项目/全局函数检索未接） |
+| T12.4 | ADR-018：类型化元素引用 + trait | IR 类型系统 + schema trait 声明 | T11.2 | Arch | ①UiHandle<类型> 值类型族+赋值规则 ②控件 schema 声明 trait、PropDef 增 `reflect` 标记 ③元素 `traits` 可选声明 ④连线/吸附/PinDrag 兼容过滤生效 | 部分完成 · 2026-10-18（NodeSpec `traits` + ui.setText/setValue/listSetItems/setTitle 元数据；UiHandle 类型族/PinDrag 过滤未做） |
 | T12.5 | 获取元素节点子节点选择器 | ui.get 升级 | T12.4 | Blueprint+Runtime | ①target=下拉选择器（图属主自身树实时反射+trait 过滤；元素/预制体内部不下钻）②输出类型化 handle ③树变更实时刷新 ④存节点名，非静态副本 | 待办 |
-| T12.6 | 反射 get/set 属性节点 | 「设计器」分组 + ui.getProp/setProp | T12.4, T12.5 | Nodes+Blueprint | ①右键面板按图属主树反射生成 Get/Set 条目（每子节点每个 `reflect:true` 属性）②落盘为通用节点（nodeName+propId）③运行时直读写 ④元素/预制体内部不反射 | 待办 |
-| T12.7 | 特有节点类型过滤 + 新节点 | ui.setText 等节点族 | T12.4 | Nodes | ①setText/setValue/listSetItems/setTitle 迁移类型化签名 ②入参按 trait 过滤 ③自动转换节点对 UiHandle 族生效 | 待办 |
-| T12.8 | var.get/set 变量选择器 | variables.ts + 检视器参数 | T10.4, T8.2 | Blueprint | ①varName=下拉（本资产变量列表+提升徽标）②变量改名级联同步 ③删变量由校验报错（M13 前先 warn）④函数图空态提示 | 待办 |
-| T12.9 | 函数调用运行时解析（三档加载） | `src/runtime/binding.ts` + 函数库加载 | T12.1, T12.2, T11.4 | Runtime | ①flow.call auto/显式作用域与编辑器同解析器 ②按需加载项目/全局函数资产（缓存/循环保护）③参数/返回值动态引脚运行时求值 ④缺失/越界报错并继续其余图 ⑤跨档调用实测 | 待办 |
+| T12.6 | 反射 get/set 属性节点 | 「设计器」分组 + ui.getProp/setProp | T12.4, T12.5 | Nodes+Blueprint | ①右键面板按图属主树反射生成 Get/Set 条目（每子节点每个 `reflect:true` 属性）②落盘为通用节点（nodeName+propId）③运行时直读写 ④元素/预制体内部不反射 | 完成（节点库侧）· 2026-10-18（ui.getProp/setProp + reflectionEntries；右键「设计器」分组 UI 未接） |
+| T12.7 | 特有节点类型过滤 + 新节点 | ui.setText 等节点族 | T12.4 | Nodes | ①setText/setValue/listSetItems/setTitle 迁移类型化签名 ②入参按 trait 过滤 ③自动转换节点对 UiHandle 族生效 | 部分完成 · 2026-10-18（新节点/ traits 元数据 + 6 节点测试；PinDrag/自动转换过滤与脚本映射未接） |
+| T12.8 | var.get/set 变量选择器 | variables.ts + 检视器参数 | T10.4, T8.2 | Blueprint | ①varName=下拉（本资产变量列表+提升徽标）②变量改名级联同步 ③删变量由校验报错（M13 前先 warn）④函数图空态提示 | 完成 · 2026-10-18（varName → variable 下拉选择器，提升 ★；空资产显示「（选择变量）」；改名级联/删除校验随 T13.1） |
+| T12.9 | 函数调用运行时解析（三档加载） | `src/runtime/binding.ts` + 函数库加载 | T12.1, T12.2, T11.4 | Runtime | ①flow.call auto/显式作用域与编辑器同解析器 ②按需加载项目/全局函数资产（缓存/循环保护）③参数/返回值动态引脚运行时求值 ④缺失/越界报错并继续其余图 ⑤跨档调用实测 | 完成 · 2026-10-18（functions.ts 三档加载/注入/改写 + 5 单测；BindingRunner 接入） |
 
 ### M13 校验与交付
 
@@ -126,9 +126,9 @@ M13：T13.1 ← T11.6+T12.9    T13.2(T9.1) ─ T13.4(T11.6/T8.5)    T13.3(T13.1)
 
 ## 5. 当前状态与批次计划
 
-- 看板初始化：2026-10-18；**开工前评审完成（draft2）**；**B17 已交付（T8.1/T8.3/T8.4）**；**B18 已交付（T8.2/T8.5）——M8 全部完成**；**B19/B20 已交付（T9.1~T9.5）——M9 主体完成**；**B21 已交付（M10：T10.1~T10.5，T10.6 待 T13.3）**；**B22/B23 已交付（M11：样式/元素/资源库/导出导入，最小版）**；下一批 M12（函数三档/类型化引用/反射）。
+- 看板初始化：2026-10-18；**开工前评审完成（draft2）**；**B17 已交付（T8.1/T8.3/T8.4）**；**B18 已交付（T8.2/T8.5）——M8 全部完成**；**B19/B20 已交付（T9.1~T9.5）——M9 主体完成**；**B21 已交付（M10：T10.1~T10.5，T10.6 待 T13.3）**；**B22/B23 已交付（M11：样式/元素/资源库/导出导入，最小版）**；**M12 部分交付（三档函数运行时/变量选择器/反射节点；函数编辑器/类型化 UiHandle/选择器/PinDrag 过滤未完成）**；剩余 M13 + M12 收尾。
 - 沿用 v2 单会话模式：不逐卡建 git 分支，PM 按批次在 `v3` 长分支提交（每批次一次 commit，自 main@B16 拉出；M8/M10/M13 后合回 main）。
-- 测试基线（M11 收尾实测，2026-10-18）：**1021 测试全绿（144 suites，0 fail / 0 skip）、typecheck 0 错、构建绿**。开工前 923；B17 +17、B18 +12、B19 +4、B20 +3、B21 +3、M11 +59。命令见 PLAN §15.4。基线数量随 v3 重写允许变化，每批记录新基线。
+- 测试基线（M12 收尾实测，2026-10-18）：**1026 测试全绿（144 suites，0 fail / 0 skip）、typecheck 0 错、构建绿**。开工前 923；B17 +17、B18 +12、B19 +4、B20 +3、B21 +3、M11 +59、M12 +5。命令见 PLAN §15.4。基线数量随 v3 重写允许变化，每批记录新基线。
 
 | 批次 | 卡片 | 说明 |
 |---|---|---|
@@ -149,6 +149,7 @@ M13：T13.1 ← T11.6+T12.9    T13.2(T9.1) ─ T13.4(T11.6/T8.5)    T13.3(T13.1)
 
 ## 6. 进度纪要（PM 维护，倒序追加）
 
+- **2026-10-18 · M12（部分）**：三档函数运行时（flow.call function/scope + 项目/全局 .fn.json 加载注入 + 无污染改写，5 单测）、`var.get/set` 变量下拉选择器、反射节点 `ui.getProp/setProp`/`ui.setText`/traits 元数据（节点库 6 测试）；资产内函数进入「函数」分组检索。**未完成**：函数编辑器 UI、项目/全局函数检索、UiHandle 类型族/PinDrag 过滤、ui.get 子节点选择器、反射「设计器」右键分组、脚本 codegen 映射。全量 1026 绿。
 - **2026-10-18 · B22/B23（M11：T11.1~T11.7，最小版）**：样式库（.uss 解析/类合并/渲染接入）、元素系统（.elem 预取/展开/props 三层覆盖/循环占位/实例渲染）、资源库服务端（库根/安全根/CRUD/history/SSE/zip 导出导入/manifest 指纹，40 测试）、资源库面板（内置/项目两页签、三栏、新建/改名/删除、导出/导入）、UI 编辑器左栏元素库（23 控件+项目元素入树）与样式库（类挂载/移除/引用计数）、元素/样式资产可打开编辑。验证：全量 1021 测试绿、typecheck 0 错、GUI 实测资源库新建/列表；ADR-012/013/016 成文。**偏差**：内置条目专属创作表单、拖入画布手势、元素自定义事件/实例 vars 运行时、样式有效值来源高亮未做。
 - **2026-10-18 · B21（M10：T10.1~T10.5）**：内嵌蓝图闭环——`embedded.ts` UIAsset⇄IRAsset 转换（事件图/函数图/变量/事件/图视图，保存置 version 3）、UI tab「设计/蓝图」双模式复用 BlueprintEditorPanel、保存写回整资产；BindingRunner 新增 `embedded` 分支（不 fetch logicAsset，整树路由类级图）；检视器「变量（提升）」区（exposed 变量、场景默认值）。测试：embedded 2 + binding-embedded 1，全量 962 绿；ADR-014 成文。**偏差**：元素/预制体实例解释器/sourceNode/实例 vars 随 M11；T10.6 版本升 3 随 T13.3。
 - **2026-10-18 · B20（T9.3/T9.4/T9.5）**：UI 编辑器左栏三分页内嵌 UI 树（元素库/样式库占位），独立 scene-tree dock 面板移除；检视器新增「布局（flex）」条目（位置/grow/shrink/basis/尺寸/margin/absolute 偏移/容器 direction-wrap-justify-align-gap-padding-overflow，命令栈可撤销）；视口按 layout 判定 absolute/relative 并统一位置读写。验证：flex-node 3 单测 + inspector 20 回归 + GUI（左栏三分页/树内嵌/改 grow）；全量基线见下批。
