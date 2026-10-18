@@ -478,6 +478,8 @@ export interface BindingRunnerOptions {
   asset: UIAsset;
   /** v3 T10.3：UI 资产内嵌蓝图（给出时不再按 logicAsset 路径加载；整棵树路由到该 IR） */
   embedded?: IRAsset;
+  /** v3 调试观察：内嵌蓝图的真实资产路径（缺省 '__embedded__'；运行窗口应传 uiPath） */
+  debugAssetPath?: string;
   /** 渲染句柄（UiHandle 直改 DOM 的查找根 + refresh 的 updateUI 凭据） */
   renderHandle: UIRenderHandle;
   /** fetch 替身（测试用；缺省全局 fetch） */
@@ -842,7 +844,11 @@ export class BindingRunner {
           },
           // 自定义事件 → 总线回灌（零侵入 T2.6 模式）：总线按 target 路由到其它实例；
           // T5.4：注入 debugProbe 时同一回调追加推入观察通道（独立小函数，不碰加载分支）
-          onDebug: composeDebugSink(runtimeEventSink(tag, bus), this.opts.debugProbe, binding.path),
+          onDebug: composeDebugSink(
+            runtimeEventSink(tag, bus),
+            this.opts.debugProbe,
+            this.opts.debugAssetPath ?? binding.path,
+          ),
           vars: varsFromIR(ir),
         });
         bus.register({

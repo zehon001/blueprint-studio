@@ -56,11 +56,14 @@ test('embedded：不发起 fetch，event.start 执行内嵌图并输出 print', 
   const asset = uiAsset()
   const handle = renderUI(asset, { mode: 'runtime' })
   const printed: string[] = []
+  const debugPaths: string[] = []
   let fetched = 0
   const runner = new BindingRunner({
     project: 'P',
     asset,
     embedded: embedded(),
+    debugAssetPath: 'ui/main.ui.json',
+    debugProbe: { push: (path) => debugPaths.push(path) },
     renderHandle: handle,
     fetchImpl: (async () => {
       fetched++
@@ -75,4 +78,6 @@ test('embedded：不发起 fetch，event.start 执行内嵌图并输出 print', 
   assert.equal(fetched, 0)
   assert.ok(printed.some((l) => l.includes('内嵌蓝图')), '应打印内嵌蓝图加载日志')
   assert.ok(printed.some((l) => l.includes('[蓝图:main]')), '解释器 print 应走内嵌图通道')
+  assert.ok(debugPaths.length > 0, '调试观察应有事件')
+  assert.ok(debugPaths.every((p) => p === 'ui/main.ui.json'), '内嵌图调试通道应使用 UI 资产路径（编辑器叠加层匹配依据）')
 })

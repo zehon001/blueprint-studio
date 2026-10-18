@@ -395,6 +395,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
         project,
         asset: app.asset,
         embedded: runtimeEmbeddedBlueprint(app.asset) ?? undefined,
+        debugAssetPath: app.uiPath ?? undefined,
         renderHandle: handle,
         fetchImpl: propsRef.current.fetchImpl ?? fetch,
         onPrint: appendConsole,
