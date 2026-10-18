@@ -39,13 +39,16 @@ function missingUi(ctx: NodeRunContext): void {
 export const get = defineNode({
   id: 'ui.get', title: '获取UI节点', category: '界面',
   keywords: ['ui', 'get', '获取节点', '查找节点', '节点对象'],
-  doc: '按 name 在绑定 UI 子树中查找节点，输出该节点对象；找不到输出 null。',
+  doc: '按 name 在绑定 UI 子树中查找节点，输出该节点对象；找不到输出 null。v3：target 为子节点选择器（未连线 name 时使用）。',
+  // v3 T12.5：子节点选择器参数（Details 下拉，列出图属主自身树节点名）
+  params: [{ id: 'target', label: '子节点', type: 'nodeSelector', default: '' }],
   inputs: [dataIn('name', 'string', '节点名', '')],
   outputs: [dataOut('object', 'any', '节点对象')],
   run: (ctx, inputs) => {
     const ui = probeUi(ctx);
     if (!ui) { missingUi(ctx); return { outputs: { object: null } }; }
-    const found = ui.find(strOf(inputs.name));
+    const name = strOf(inputs.name) || strOf(ctx.params.target);
+    const found = ui.find(name);
     return { outputs: { object: found === undefined ? null : found } };
   },
 });

@@ -16,7 +16,7 @@ import type { IRGraph, IRNode, NodeSpec, ParamSpec, PinSpec } from '../../ir/typ
  * ============================================================ */
 
 /** 检视器值编辑器种类（ParamType → 控件；未知种类回落 text） */
-export type EditorKind = 'bool' | 'number' | 'text' | 'select' | 'color' | 'variable';
+export type EditorKind = 'bool' | 'number' | 'text' | 'select' | 'color' | 'variable' | 'nodeSelector';
 
 /**
  * ParamSpec → 编辑器控件种类（DoD：number/string/bool/select/color/…）：
@@ -37,6 +37,8 @@ export function paramEditorKindOf(param: ParamSpec): EditorKind {
       return 'text';
     case 'variable':
       return 'variable';
+    case 'nodeSelector':
+      return 'nodeSelector';
     default:
       return 'text';
   }
