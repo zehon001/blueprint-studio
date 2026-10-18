@@ -1,0 +1,79 @@
+{
+  "version": 3,
+  "kind": "element",
+  "name": "StatCard",
+  "props": [
+    {
+      "id": "value",
+      "label": "数值",
+      "type": "string",
+      "default": "0"
+    }
+  ],
+  "events": [],
+  "traits": [],
+  "styles": [],
+  "root": {
+    "id": "stat_root",
+    "name": "root",
+    "type": "vbox",
+    "layout": {
+      "size": {
+        "w": 160,
+        "h": 64
+      }
+    },
+    "container": {
+      "direction": "column",
+      "gap": 2
+    },
+    "transform": {
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "size": {
+        "w": 160,
+        "h": 64
+      },
+      "rotation": 0
+    },
+    "theme": {},
+    "props": {},
+    "children": [
+      {
+        "id": "stat_value",
+        "name": "value",
+        "type": "label",
+        "transform": {
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "size": {
+            "w": 160,
+            "h": 32
+          },
+          "rotation": 0
+        },
+        "theme": {
+          "fontSize": 18
+        },
+        "props": {
+          "text": "0"
+        },
+        "children": []
+      }
+    ]
+  },
+  "graphs": {
+    "event": {
+      "kind": "event",
+      "nodes": [],
+      "edges": [],
+      "comments": []
+    }
+  },
+  "variables": [],
+  "layout": {}
+}

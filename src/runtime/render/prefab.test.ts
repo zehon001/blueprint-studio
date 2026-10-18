@@ -54,7 +54,7 @@ function makeNode(opt: Partial<UINode> & { id: string }): UINode {
 }
 
 function assetOf(root: UINode, name = '预制体'): UIAsset {
-  return { version: 2, name, root };
+  return { version: 3, name, root };
 }
 
 /** happy-dom 与 DOM lib 的类型桥（仅类型通道，无运行时差异）：按 uid 取节点元素（断言存在） */

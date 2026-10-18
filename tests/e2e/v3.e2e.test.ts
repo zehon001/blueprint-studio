@@ -103,6 +103,71 @@ test('v3 项目：新建 → 写 flex UI → 读回 version3/layout/container', 
   assert.equal(asset.root.container?.direction, 'column')
 })
 
+test('v3 模板资产：样式表 + 元素 + UI 引用可写读', { skip: serverUp ? false : SKIP }, async () => {
+  const name = `${PROJECT}-assets`
+  const create = await api('/api/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, template: 'empty' }),
+  })
+  assert.equal(create.json.ok, true)
+  created.push(name)
+  const style = JSON.stringify({ version: 1, classes: { card: { props: { text: 'x' } } } })
+  const element = JSON.stringify({
+    version: 3,
+    kind: 'element',
+    name: 'Card',
+    props: [{ id: 'title', default: 'hi' }],
+    root: {
+      id: 'r',
+      name: 'r',
+      type: 'vbox',
+      transform: { position: { x: 0, y: 0 }, size: { w: 0, h: 0 }, rotation: 0 },
+      theme: {},
+      props: {},
+      children: [],
+    },
+  })
+  for (const [file, content] of [
+    ['ui/styles/app.uss.json', style],
+    ['ui/elements/Card.elem.json', element],
+  ] as const) {
+    const w = await api('/api/file', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: `${name}/${file}`, content }),
+    })
+    assert.equal(w.json.ok, true)
+  }
+  const ui = JSON.parse(v3Ui()) as {
+    styles: string[]
+    root: { classes?: string[]; children: Array<Record<string, unknown>> }
+  }
+  ui.styles = ['ui/styles/app.uss.json']
+  ui.root.classes = ['card']
+  ui.root.children.push({
+    id: 'card1',
+    name: 'card1',
+    type: '__element',
+    element: 'ui/elements/Card.elem.json',
+    transform: { position: { x: 0, y: 0 }, size: { w: 0, h: 0 }, rotation: 0 },
+    theme: {},
+    props: {},
+    children: [],
+  })
+  const w = await api('/api/file', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: `${name}/ui/main.ui.json`, content: JSON.stringify(ui) }),
+  })
+  assert.equal(w.json.ok, true)
+  const read = await api(`/api/file?path=${encodeURIComponent(`${name}/ui/main.ui.json`)}`)
+  const back = JSON.parse(String(read.json.content)) as typeof ui
+  assert.deepEqual(back.styles, ['ui/styles/app.uss.json'])
+  assert.deepEqual(back.root.classes, ['card'])
+  assert.equal(back.root.children[1].type, '__element')
+})
+
 test('资源库：write → list → read → export(zip) → import(skip)', { skip: serverUp ? false : SKIP }, async () => {
   const content = JSON.stringify({
     version: 3,

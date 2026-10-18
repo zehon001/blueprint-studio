@@ -31,7 +31,7 @@ import type { ProjectFile } from '../src/ir/types'
  * ============================================================ */
 
 /** 引擎版本（模板 project.json 的 engineVersion 默认值；与 package.json version 对齐） */
-export const ENGINE_VERSION = '0.2.0'
+export const ENGINE_VERSION = '3.0.0'
 
 /** 项目标准子目录（PLAN §4.1）：新建项目时确保全部存在 */
 export const PROJECT_DIRS = ['ui', 'logic', 'assets', 'plugins', '.history'] as const

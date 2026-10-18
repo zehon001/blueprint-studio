@@ -61,7 +61,7 @@ function makeNode(opt: Partial<UINode> & { id: string; name?: string; type?: str
 }
 
 function assetOf(root: UINode, name = '预制体'): UIAsset {
-  return { version: 2, name, root }
+  return { version: 3, name, root }
 }
 
 /** 简单表解析器：路径 → 资产（Map 即 resolver） */

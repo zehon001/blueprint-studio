@@ -193,6 +193,9 @@ describe('模板与项目', () => {
       assert.equal(list.logicAsset, undefined)
       assert.ok(ui.graphs?.event, 'v3 模板应内嵌事件图')
       assert.equal(ui.graphs.event.nodes[0].type, 'event.start')
+      // v3：示例样式表 + 示例元素随模板分发
+      assert.ok(fs.existsSync(path.join(p, 'ui', 'styles', 'app.uss.json')))
+      assert.ok(fs.existsSync(path.join(p, 'ui', 'elements', 'StatCard.elem.json')))
 
       const ir = JSON.parse(fs.readFileSync(path.join(p, 'logic', 'main.bp.json'), 'utf8')) as {
         version: number

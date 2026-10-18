@@ -2,11 +2,12 @@
   "version": 3,
   "kind": "scene",
   "name": "main",
-  "styles": [],
+  "styles": ["ui/styles/app.uss.json"],
   "root": {
     "id": "ui_root",
     "name": "root",
     "type": "vbox",
+    "classes": ["app-root"],
     "layout": {
       "position": "relative",
       "size": {

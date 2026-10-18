@@ -350,7 +350,8 @@ async function fetchPrefabAsset(path: string): Promise<UIAsset | null> {
     const json = (await r.json()) as { ok?: boolean; content?: string; message?: string };
     if (!json.ok || typeof json.content !== 'string') return null;
     const raw = JSON.parse(json.content) as Partial<UIAsset>;
-    if (!raw || raw.version !== 2 || !raw.root) return null;
+    // v3 门禁（T13.2）：预制体资产同样只接受 version 3
+  if (!raw || raw.version !== 3 || !raw.root) return null;
     return raw as UIAsset;
   } catch {
     return null;

@@ -48,7 +48,7 @@ const { useDockStore } = await import('../shell/dock/store')
 /** 最小 UI 资产（vbox > button），parseUIAsset 可直接解析 */
 function assetText(): string {
   return JSON.stringify({
-    version: 2,
+    version: 3,
     name: 'main',
     root: {
       id: 'ui_root',

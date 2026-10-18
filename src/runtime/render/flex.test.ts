@@ -167,4 +167,5 @@ test('v3 asset parse: version=3 accepted; unknown version rejected', () => {
   assert.equal(parsed.version, 3)
   assert.equal(parsed.root.id, 'r')
   assert.throws(() => parseUIAsset('{"version":9,"root":{}}'), /版本不识别/)
+  assert.throws(() => parseUIAsset('{"version":2,"root":{}}'), /已停用 v2/)
 })

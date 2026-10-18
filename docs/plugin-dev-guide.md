@@ -1,4 +1,4 @@
-# Blueprint Studio v2 · 插件开发指南
+# Blueprint Studio v3 · 插件开发指南
 
 > 面向插件作者：如何为外部 CLI / 自定义能力编写插件清单，让节点出现在蓝图里。
 > 契约真源：`src/ir/types.ts`（PluginManifest / PluginNodeSpec）· ADR-004（含 T6.1/T6.6 追认记录）。
@@ -201,3 +201,11 @@
 - `download-zip` 为占位策略；无远程注册表 / 插件市场；`executor.cjs` 自定义执行器协议尚未落地（custom 插件调用走通用 `__cmd` 通道）。
 - Windows 中文环境 CLI 输出 UTF-8 尽力解码 + GBK 兜底，仍可能残留乱码行；`shellQuoteText` 的引用策略为尽力而为（加固需 ADR）。
 - 持续流的「清单声明即自动推送」依赖插件专属执行器实现（现仅 phone-log）；且**蓝图内 event 节点尚无「自动启动流」接线**——推送消费可用 `监听事件`（事件名 `line` / `close`），启动流需直达 invoke（见 §8 现状注记）。事件节点在无执行器插件上按一次性拉取降级（控制台提示）。
+
+## 12. v3 增量（2026-10-18）
+
+- 插件管理不再是 dock 面板：入口统一到「设置 → 插件」分区（组件复用，四态徽标 / SSE 日志不变）；dock 面板注册已移除。
+- 新建/打开项目可经 dock 资产面板与「面板 ▾」菜单；插件节点仍通过 `src/nodes/dynamic.ts` 动态注册，运行时按需拉取 `/api/plugins`。
+- 资源库（内置库/项目库）与插件清单是两套独立机制：前者存元素/样式/函数，后者仍只存 CLI 插件 manifest（`plugins-registry/*.json`）。
+- 设置项 `bps.settings.v1` 含库路径、保存自动重跑；插件启用状态仍在项目 `project.json.plugins` 与服务端注册表。
+- 运行视图改为编辑器内 iframe（F5/F6），插件节点调试输出仍经运行控制台 / 调试观察协议。
