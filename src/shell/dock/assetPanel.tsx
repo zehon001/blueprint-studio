@@ -15,6 +15,7 @@ import { useWorkspaceStore, type OpenTabKind } from '@/shell/workspace-store'
 import { UITab } from '@/shell/workspace/UITab'
 import { BlueprintTab } from '@/shell/workspace/BlueprintTab'
 import { ScriptTab } from '@/script/editor'
+import { FunctionTab } from '@/ui-editor/functionTab'
 import {
   assetBadge,
   assetPanelId,
@@ -43,6 +44,8 @@ function AssetPanelHost({ panelId }: { panelId: string }) {
     case 'element':
       // 元素编辑器 = UI 编辑器同款（kind=element 保留；T11.3）
       return <UITab assetPath={ref.path} panelId={panelId} />
+    case 'function':
+      return <FunctionTab path={ref.path} panelId={panelId} />
     default:
       return (
         <div className="dock-panel-placeholder">

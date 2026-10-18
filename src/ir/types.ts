@@ -524,9 +524,9 @@ export interface PinSpec {
 }
 
 /** UI 访问器（ADR-005：解释器注入到 NodeRunContext.ui；缺失时节点须降级不抛错） */
-export interface UiHandle {
+export interface UiHandle<T = unknown> {
   /** 按名查找绑定 UI 子树中的节点（找到返回节点对象，找不到返回 null） */
-  find(name: string): unknown;
+  find(name: string): T | null;
   /** 读 UI 节点属性值（attr 如 text / value / checked / items / visible） */
   read(name: string, attr: string): unknown;
   /** 写 UI 节点属性值 */

@@ -194,7 +194,7 @@ export function LibraryPanel() {
     }
     if (selected.kind === 'elements') openAssetPanel('element', selected.path)
     else if (selected.kind === 'styles') window.alert('样式表编辑器随 T11.5 完整版接入。')
-    else window.alert('函数编辑器随 T12.2 接入。')
+    else openAssetPanel('function', selected.path)
   }
 
   const onExport = async (): Promise<void> => {

@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { registerShortcut } from '../../shell/keymap/registry';
+import { useWorkspaceStore } from '../../shell/workspace-store';
 import { serializeIR, validateIR } from '../../ir/validate';
 import type { ValidationIssue } from '../../ir/validate';
 import type { IRAsset, IRComment, NodeSpec } from '../../ir/types';
@@ -240,9 +241,12 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
       return;
     }
     if (specId.startsWith('fncall:')) {
-      const target = specId.slice('fncall:'.length);
+      const parts = specId.split(':');
       const id = st.addNode('flow.call', st.menu.flow);
-      if (id) st.setNodeParams(id, { graph: target });
+      if (id) {
+        if (parts.length >= 3) st.setNodeParams(id, { function: parts[2], scope: parts[1] });
+        else st.setNodeParams(id, { graph: parts[1] });
+      }
       st.closeMenu();
       return;
     }
@@ -371,6 +375,37 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
 
   /* ---------------- 渲染 ---------------- */
 
+  /* v3 T12.3：项目库/内置库函数清单（进入「函数」分组检索） */
+  const [externalFns, setExternalFns] = useState<Array<{ name: string; scope: 'project' | 'global' }>>([]);
+  const projectPath = useWorkspaceStore((s) => s.currentProject?.path ?? null);
+  useEffect(() => {
+    let alive = true;
+    const load = async (): Promise<void> => {
+      const out: Array<{ name: string; scope: 'project' | 'global' }> = [];
+      if (projectPath) {
+        try {
+          const r = await fetch(`/api/tree?path=${encodeURIComponent(`${projectPath}/library/functions`)}`);
+          const j = (await r.json()) as { ok?: boolean; tree?: { children?: Array<{ name?: string; type?: string }> } };
+          for (const c of j.tree?.children ?? []) {
+            if (c.type === 'file' && typeof c.name === 'string' && c.name.toLowerCase().endsWith('.fn.json')) {
+              out.push({ name: c.name.replace(/\.fn\.json$/i, ''), scope: 'project' });
+            }
+          }
+          const lr = await fetch('/api/library/list?kind=functions');
+          const lj = (await lr.json()) as { ok?: boolean; entries?: Array<{ name?: string }> };
+          for (const e of lj.entries ?? []) if (e.name) out.push({ name: e.name, scope: 'global' });
+        } catch {
+          /* 库不可用时仅显示资产内函数 */
+        }
+      }
+      if (alive) setExternalFns(out);
+    };
+    void load();
+    return () => {
+      alive = false;
+    };
+  }, [projectPath]);
+
   const searchEntries = useMemo<SpecEntry[]>(() => {
     const entries: SpecEntry[] = [...specs.values()].map((spec) => ({ spec, pin: null }));
     // v3 T12.3：本资产函数图作为「函数」分组伪条目（pick 时建 flow.call 并预填 graph）
@@ -387,9 +422,20 @@ function BlueprintEditorInner({ asset, assetPath, onSave, className }: Blueprint
         },
         pin: null,
       }));
+    const externalEntries: SpecEntry[] = externalFns.map((f) => ({
+      spec: {
+        id: `fncall:${f.scope}:${f.name}`,
+        title: `${f.scope === 'project' ? '全项目' : '全局'} · ${f.name}`,
+        category: '函数',
+        keywords: ['函数', 'call', '调用', f.name],
+        inputs: [],
+        outputs: [],
+      },
+      pin: null,
+    }));
     // 「添加注释」伪条目追加在分类浏览尾部（搜索「注释」可直达；pick 在 searchPick 拦截）
-    return [...entries, ...fnEntries, { spec: COMMENT_MENU_SPEC, pin: null }];
-  }, [specs, asset]);
+    return [...entries, ...fnEntries, ...externalEntries, { spec: COMMENT_MENU_SPEC, pin: null }];
+  }, [specs, asset, externalFns]);
 
   const commentList = useBlueprintStore(
     (s) => s.asset?.graphs[s.graphName]?.comments ?? NO_COMMENTS,
