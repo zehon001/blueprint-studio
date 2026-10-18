@@ -412,7 +412,12 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
   const activePopped = activePanelId !== undefined && poppedPanelIds.has(activePanelId)
 
   const onTabDown = (e: ReactPointerEvent<HTMLDivElement>, panelId: string, index: number): void => {
+    const prevActive = useDockStore.getState().activePanelId
     setTabActive(node.id, index)
+    // 检视器 tab 只切换显示，不夺走「被检视面板」；否则点它自身也会清空内容
+    if (panelId === 'inspector' && prevActive && prevActive !== 'inspector') {
+      useDockStore.getState().focusPanel(prevActive)
+    }
     if (e.button === 0) {
       // 指针捕获：快速拖出窗口也能持续收到 pointermove/up（事件仍冒泡到 window）
       e.currentTarget.setPointerCapture(e.pointerId)
