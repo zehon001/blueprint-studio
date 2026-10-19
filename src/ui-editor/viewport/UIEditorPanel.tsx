@@ -23,6 +23,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Minus, Plus } from 'lucide-react';
 import { Icon } from '@/shell/ui/Icon';
 import { schemaIconFor, uiCategoryColor } from '@/shell/ui/icons';
+import { useStatusStore } from '@/shell/status-store';
 import type { UIAsset, UINode, Vec2 } from '../../ir/types';
 import { renderUI, updateUI, type UIRenderHandle } from '../../runtime/render/render';
 import { NODE_CATEGORIES, searchUISchemas, type UINodeSchema } from '../schema';
@@ -163,6 +164,11 @@ export function UIEditorPanel() {
 
   /* —— 视口状态 —— */
   const [view, setView] = useState<ViewTransform>({ x: 0, y: 0, scale: 1 });
+  // 状态栏只读同步：当前缩放
+  useEffect(() => {
+    useStatusStore.getState().setZoom(view.scale);
+  }, [view.scale]);
+  useEffect(() => () => useStatusStore.getState().setZoom(null), []);
   const [snapOn, setSnapOn] = useState(true);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const [marquee, setMarquee] = useState<Rect | null>(null);

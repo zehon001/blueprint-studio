@@ -23,7 +23,7 @@
  * 与 render/style.ts 同理，node:test + tsx 无法加载 css，组件需保持可直接单测。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, Boxes, RefreshCw, TriangleAlert } from 'lucide-react'
 import { Icon } from '../shell/ui/Icon'
 import { renderUI, updateUI, type UIRenderEvent, type UIRenderHandle } from './render/render'
 import { BindingRunner } from './binding'
@@ -424,6 +424,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
     <div className={`runtime-root${embed ? ' runtime-root--embed' : ''}`}>
       {app.phase === 'error' ? (
         <div className="runtime-error" role="alert">
+          <Icon icon={TriangleAlert} size={40} className="runtime-error-icon" />
           <div className="runtime-error-title">运行失败</div>
           <div className="runtime-error-msg">{app.message}</div>
           <button type="button" className="runtime-btn" onClick={retry} disabled={!canRetry}>
@@ -434,12 +435,24 @@ export default function RuntimeApp(props: RuntimeAppProps) {
         <>
           {!embed ? (
             <div className="runtime-topbar">
+              <span className="runtime-brand">
+                <Icon icon={Boxes} size={14} />
+                Blueprint Studio
+              </span>
+              <span className="runtime-topbar-divider" aria-hidden />
               <span className="runtime-topbar-item">项目：{app.params?.project ?? '—'}</span>
               <span className="runtime-topbar-item">资产：{uiName}</span>
               <span className="runtime-topbar-item">模式：{modeLabel}</span>
               <span className="runtime-topbar-spacer" />
-              <button type="button" className="runtime-btn" onClick={retry} disabled={!canRetry}>
-                刷新
+              <button
+                type="button"
+                className="runtime-btn runtime-btn--icon"
+                title="刷新运行视图"
+                aria-label="刷新运行视图"
+                onClick={retry}
+                disabled={!canRetry}
+              >
+                <Icon icon={RefreshCw} size={13} />
               </button>
             </div>
           ) : null}

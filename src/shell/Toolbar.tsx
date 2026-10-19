@@ -1,18 +1,17 @@
 /**
- * 顶栏（T0.3 · PLAN §6.2）
+ * 顶栏（T0.3 · PLAN §6.2 · UI-REDESIGN P5）
  *
- * 左：logo「Blueprint Studio」+ 当前项目名（workspace-store，?project= 初始化）；
- * 中：运行(F5) / 运行当前(F6)（runtime-launch，T1.6）、调试开关（占位 disabled，T5.4 接入）、
- *     保存(Ctrl+S)——触发 keymap 注册的 file.save（本期空实现，dirty 标记在 workspace-store）；
- * 右：撤销/重做（命令栈，tooltip 显示最近命令 label）、「面板 ▾」下拉（列出全部注册面板）、
- *     「重置布局」（恢复默认布局）。
+ * 左：Logo（Boxes + 字标）+ 项目 chip（点击返回项目管理器切换项目）；
+ * 中：运行（实心强调）/ 运行当前（outline）/ 调试（ghost）/ 分隔线 / 保存（附带脏状态点）；
+ * 右：撤销 / 重做 IconButton、面板菜单（统一 Menu）、重置布局、设置。
  * F5/F6 快捷键注册在入口 main.tsx（attachKeyboard 已 preventDefault，不触发浏览器刷新）。
  */
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import {
   Boxes,
   Bug,
-  ChevronDown,
+  Eye,
+  EyeOff,
   LayoutDashboard,
   Package,
   Play,
@@ -23,8 +22,6 @@ import {
   Settings,
   Undo2,
 } from 'lucide-react'
-import { Icon } from '@/shell/ui/Icon'
-import { IconButton } from '@/shell/ui/IconButton'
 import {
   redo,
   undo,
@@ -41,6 +38,9 @@ import { useDockStore } from '@/shell/dock/store'
 import { findTabsByPanel } from '@/shell/dock/tree'
 import { requestClosePanel } from '@/shell/dock/assetPanelModel'
 import { openSettings } from '@/shell/settings'
+import { Icon } from '@/shell/ui/Icon'
+import { IconButton } from '@/shell/ui/IconButton'
+import { Menu, type MenuItem } from '@/shell/ui/Menu'
 
 /** 顶栏栈顶命令摘要选择器（tooltip 显示 label 用） */
 function topUndo(s: { undoStack: CommandEntry[] }): CommandEntry | undefined {
@@ -52,32 +52,31 @@ function topRedo(s: { redoStack: CommandEntry[] }): CommandEntry | undefined {
 
 export default function Toolbar() {
   const projectName = useWorkspaceStore((s) => s.currentProject?.name ?? null)
+  const dirty = useWorkspaceStore((s) => s.openTabs.some((t) => t.dirty))
   const canUndo = useCanUndo()
   const canRedo = useCanRedo()
   const undoTop = useEditorStore(topUndo)
   const redoTop = useEditorStore(topRedo)
   const panels = usePanels()
-  const root = useDockStore((s) => s.root)
-  const openPanel = useDockStore((s) => s.openPanel)
   const resetLayout = useDockStore((s) => s.resetLayout)
+  const [panelMenu, setPanelMenu] = useState<{ x: number; y: number } | null>(null)
 
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
-
-  // 菜单打开时点击外部关闭
-  useEffect(() => {
-    if (!menuOpen) return
-    const onDown = (e: PointerEvent): void => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
-    }
-    window.addEventListener('pointerdown', onDown)
-    return () => window.removeEventListener('pointerdown', onDown)
-  }, [menuOpen])
-
-  /** 触发 keymap 注册的 file.save（与 Ctrl+S 同一 handler；本期空实现） */
+  /** 触发 keymap 注册的 file.save（与 Ctrl+S 同一 handler） */
   const onSave = (): void => {
     getBindings('file.save')[0]?.handler()
   }
+
+  const panelItems: MenuItem[] = panels.map((p) => {
+    const open = findTabsByPanel(useDockStore.getState().root, p.id) !== null
+    return {
+      label: `${open ? '关闭' : '打开'}「${p.title}」`,
+      icon: open ? EyeOff : Eye,
+      onSelect: () => {
+        if (open) requestClosePanel(p.id)
+        else useDockStore.getState().openPanel(p.id, p.defaultArea)
+      },
+    }
+  })
 
   return (
     <div className="toolbar">
@@ -86,10 +85,17 @@ export default function Toolbar() {
           <Icon icon={Boxes} size={16} />
           <span>Blueprint Studio</span>
         </span>
-        <span className="toolbar-project" title="当前项目">
+        <button
+          type="button"
+          className="toolbar-project"
+          title={projectName ? `当前项目：${projectName}（点击切换项目）` : '未打开项目'}
+          onClick={() => {
+            window.location.href = '/'
+          }}
+        >
           <Icon icon={Package} size={13} />
-          <span>{projectName ?? '未打开项目'}</span>
-        </span>
+          <span className="toolbar-project-name">{projectName ?? '未打开项目'}</span>
+        </button>
       </div>
 
       <div className="toolbar-spacer" />
@@ -97,7 +103,7 @@ export default function Toolbar() {
       <div className="toolbar-center">
         <button
           type="button"
-          className="toolbar-btn"
+          className="toolbar-btn toolbar-primary"
           onClick={() => launchRuntimeMain()}
           title="运行主 UI（F5）—— 内置运行视图（可拆出独立窗口），ui 取 project.json.mainUI"
         >
@@ -107,7 +113,7 @@ export default function Toolbar() {
         </button>
         <button
           type="button"
-          className="toolbar-btn"
+          className="toolbar-btn toolbar-outline"
           onClick={() => launchRuntimeCurrent()}
           title="运行当前 UI（F6）—— 内置运行视图运行激活的 .ui.json 资产"
         >
@@ -119,72 +125,59 @@ export default function Toolbar() {
           <Icon icon={Bug} size={13} />
           调试
         </button>
+        <span className="toolbar-divider" aria-hidden />
         <button type="button" className="toolbar-btn" onClick={onSave} title="保存（Ctrl+S）">
           <Icon icon={Save} size={13} />
           保存
           <kbd className="toolbar-kbd">Ctrl+S</kbd>
+          <span
+            className="toolbar-status-dot"
+            data-dirty={dirty || undefined}
+            title={dirty ? '有未保存修改' : '已保存'}
+            aria-label={dirty ? '有未保存修改' : '已保存'}
+          />
         </button>
       </div>
 
       <div className="toolbar-spacer" />
 
       <div className="toolbar-right">
-        <button
-          type="button"
-          className="toolbar-btn"
+        <IconButton
+          icon={Undo2}
+          label={undoTop ? `撤销：${undoTop.label}` : '撤销'}
+          shortcut="Ctrl+Z"
           disabled={!canUndo}
           onClick={() => undo()}
-          title={undoTop ? `撤销：${undoTop.label}` : '撤销（无可撤销命令）'}
-          aria-label={undoTop ? `撤销：${undoTop.label}` : '撤销'}
-        >
-          <Icon icon={Undo2} size={14} />
-        </button>
+        />
+        <IconButton
+          icon={Redo2}
+          label={redoTop ? `重做：${redoTop.label}` : '重做'}
+          shortcut="Ctrl+Shift+Z"
+          disabled={!canRedo}
+          onClick={() => redo()}
+        />
+
         <button
           type="button"
           className="toolbar-btn"
-          disabled={!canRedo}
-          onClick={() => redo()}
-          title={redoTop ? `重做：${redoTop.label}` : '重做（无可重做命令）'}
-          aria-label={redoTop ? `重做：${redoTop.label}` : '重做'}
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect()
+            setPanelMenu({ x: Math.max(8, rect.right - 200), y: rect.bottom + 4 })
+          }}
+          title="打开 / 关闭面板"
+          aria-haspopup="menu"
         >
-          <Icon icon={Redo2} size={14} />
+          <Icon icon={LayoutDashboard} size={13} />
+          面板
         </button>
-
-        <div className="toolbar-menu-wrap" ref={menuRef}>
-          <button
-            type="button"
-            className="toolbar-btn"
-            onClick={() => setMenuOpen((v) => !v)}
-            title="打开 / 关闭面板"
-          >
-            <Icon icon={LayoutDashboard} size={13} />
-            面板
-            <Icon icon={ChevronDown} size={12} />
-          </button>
-          {menuOpen ? (
-            <div className="toolbar-menu">
-              {panels.map((p) => {
-                const open = findTabsByPanel(root, p.id) !== null
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className="toolbar-menu-item"
-                    onClick={() => {
-                      setMenuOpen(false)
-                      if (open) requestClosePanel(p.id)
-                      else openPanel(p.id, p.defaultArea)
-                    }}
-                    title={open ? `关闭「${p.title}」` : `打开「${p.title}」`}
-                  >
-                    <span className={`toolbar-menu-dot${open ? ' on' : ''}`} />
-                    {p.title}
-                  </button>
-                )
-              })}
-            </div>
-          ) : null}
-        </div>
+        {panelMenu ? (
+          <Menu
+            x={panelMenu.x}
+            y={panelMenu.y}
+            items={panelItems}
+            onClose={() => setPanelMenu(null)}
+          />
+        ) : null}
 
         <IconButton icon={RotateCcw} label="重置布局" onClick={resetLayout} />
         <IconButton

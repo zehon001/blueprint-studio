@@ -30,6 +30,7 @@ import type { IRAsset, IRComment, NodeSpec } from '../../ir/types';
 import { NODE_CATEGORIES } from '../../nodes';
 import { reflectionEntries, type ReflectTargetNode } from '../../nodes/reflect';
 import { useSceneTreeDomain } from '../../ui-editor/store';
+import { useStatusStore } from '../../shell/status-store';
 import { getUISchema, type PropDef } from '../../ui-editor/schema';
 import { BPGraphCanvas, headVariantFor, nodeSizeFor } from '../view';
 import type { FlowEdge, FlowNode } from '../view';
@@ -129,6 +130,11 @@ function BlueprintEditorInner({
   panelId,
 }: BlueprintEditorPanelProps) {
   const rf = useReactFlow<FlowNode, FlowEdge>();
+  // 状态栏只读同步：画布缩放
+  useEffect(() => {
+    useStatusStore.getState().setZoom(rf.getZoom());
+    return () => useStatusStore.getState().setZoom(null);
+  }, [rf]);
   const interactions = useCanvasInteractions();
 
   // store 状态订阅（编辑命令经 store action，本组件不直接改状态）
@@ -684,6 +690,7 @@ function BlueprintEditorInner({
             <BPGraphCanvas
               nodes={viewNodes}
               edges={viewEdges}
+              onViewportChange={(zoom) => useStatusStore.getState().setZoom(zoom)}
               {...canvasHandlers}
             >
               {/* T2.7 注释框图层：视口内最底层（ViewportPortal），节点点击 / 框选不受影响 */}

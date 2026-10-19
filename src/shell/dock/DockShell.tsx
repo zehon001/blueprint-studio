@@ -24,7 +24,8 @@ import { Icon } from '@/shell/ui/Icon'
 import { assetIconFor } from '@/shell/ui/icons'
 import { CommandPalette } from '@/shell/ui/CommandPalette'
 import { Toaster } from 'sonner'
-import { Maximize2, Minimize2, X } from 'lucide-react'
+import { Maximize2, Minimize2, X, LayoutDashboard } from 'lucide-react'
+import { StatusBar } from '@/shell/StatusBar'
 import { computeDropSide, type Rect } from './dropZone'
 import { getPanel } from './registry'
 import { useDockStore } from './store'
@@ -237,7 +238,11 @@ function DockRoot() {
         {root ? (
           <DockNodeView node={root} path={[]} dragPanelId={drag?.panelId ?? null} />
         ) : (
-          <div className="dock-empty">没有打开的面板 —— 可经顶栏「面板」菜单重新打开。</div>
+          <div className="dock-empty">
+            <Icon icon={LayoutDashboard} size={40} className="dock-empty-icon" />
+            <div className="dock-empty-title">没有打开的面板</div>
+            <div className="dock-empty-desc">从顶栏「面板」菜单重新打开，或按 Ctrl+K 搜索节点与命令。</div>
+          </div>
         )}
         {overlayStyle ? <div className="dock-drop-overlay" style={overlayStyle} /> : null}
       </div>
@@ -562,6 +567,7 @@ export default function DockShell() {
     <div className="shell">
       <Toolbar />
       <DockRoot />
+      <StatusBar />
       <CommandPalette />
       <Toaster
         theme="dark"

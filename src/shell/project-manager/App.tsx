@@ -11,6 +11,8 @@
  * 移除只从最近列表删除，不触碰磁盘文件。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Boxes, Check, FolderOpen, FolderPlus, ListTree } from 'lucide-react'
+import { Icon } from '@/shell/ui/Icon'
 import { ApiError, projectsApi, type ProjectSummary } from './api'
 
 /* ============================================================
@@ -237,10 +239,15 @@ export default function ProjectManager() {
     <div className="pm-page">
       <header className="pm-header">
         <div className="pm-header-title">
-          <h1>Blueprint Studio</h1>
+          <div className="pm-brand">
+            <Icon icon={Boxes} size={24} />
+            <h1>Blueprint Studio</h1>
+          </div>
           <span className={`pm-badge ${online === true ? 'ok' : online === false ? 'off' : 'wait'}`}>
+            <span className="pm-service-dot" aria-hidden />
             {online === true ? '本地服务已连接' : online === false ? '本地服务离线' : '正在连接…'}
           </span>
+          <span className="pm-version">v0.2.0</span>
         </div>
         <p className="pm-subtitle">工具制作引擎 · 项目管理器</p>
       </header>
@@ -252,9 +259,9 @@ export default function ProjectManager() {
           {projectsRoot && <div className="pm-root" title="项目安全根目录">安全根：{projectsRoot}</div>}
           {recents.length === 0 ? (
             <div className="pm-empty">
-              还没有打开过任何项目。
-              <br />
-              从右侧新建或导入一个项目开始使用。
+              <Icon icon={FolderOpen} size={48} className="pm-empty-icon" />
+              <div className="pm-empty-title">还没有打开过项目</div>
+              <div className="pm-empty-desc">从右侧新建或导入一个项目开始使用。</div>
             </div>
           ) : (
             <ul className="pm-recent-list">
@@ -327,8 +334,18 @@ export default function ProjectManager() {
                 className={`pm-template${template === t.id ? ' selected' : ''}`}
                 onClick={() => setTemplate(t.id)}
               >
-                <span className="pm-template-name">{t.title}</span>
-                <span className="pm-template-desc">{t.desc}</span>
+                <span className="pm-template-icon" aria-hidden>
+                  <Icon icon={t.id === 'empty' ? FolderPlus : ListTree} size={16} />
+                </span>
+                <span className="pm-template-text">
+                  <span className="pm-template-name">{t.title}</span>
+                  <span className="pm-template-desc">{t.desc}</span>
+                </span>
+                {template === t.id ? (
+                  <span className="pm-template-check" aria-hidden>
+                    <Icon icon={Check} size={13} />
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>

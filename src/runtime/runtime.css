@@ -28,8 +28,36 @@
   color: var(--text-dim);
   user-select: none;
 }
+.runtime-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.runtime-topbar-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+}
+
 .runtime-topbar-item {
   white-space: nowrap;
+}
+
+.runtime-btn--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.runtime-error-icon {
+  color: var(--error);
 }
 .runtime-topbar-spacer {
   flex: 1;

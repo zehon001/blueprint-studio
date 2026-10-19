@@ -70,6 +70,8 @@ export interface BPGraphCanvasProps {
   onNodeDoubleClick?: NodeMouseHandler<FlowNode>;
   /** 视口移动开始（关闭弹出菜单） */
   onMoveStart?: OnMoveStart;
+  /** 视口移动（状态栏缩放只读同步） */
+  onViewportChange?: (zoom: number) => void;
   /** 连线吸附预检（exec↔data 不互吸 / 重复线 / 同节点） */
   isValidConnection?: IsValidConnection<FlowEdge>;
   /** 平移激活键（UE 习惯：按住空格拖拽平移；默认 'Space'） */
@@ -103,6 +105,7 @@ export function BPGraphCanvas({
   onEdgeContextMenu,
   onNodeDoubleClick,
   onMoveStart,
+  onViewportChange,
   isValidConnection,
   panActivationKeyCode = 'Space',
   multiSelectionKeyCode = 'Shift',
@@ -127,6 +130,7 @@ export function BPGraphCanvas({
         onEdgeContextMenu={onEdgeContextMenu}
         onNodeDoubleClick={onNodeDoubleClick}
         onMoveStart={onMoveStart}
+        onMove={(_event, viewport) => onViewportChange?.(viewport.zoom)}
         isValidConnection={isValidConnection}
         panActivationKeyCode={panActivationKeyCode}
         minZoom={0.2}

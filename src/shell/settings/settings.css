@@ -1,4 +1,4 @@
-/* 设置模态弹窗（v3 T8.3） */
+/* 设置模态弹窗（v3 T8.3 · UI-REDESIGN P5） */
 .settings-overlay {
   position: fixed;
   inset: 0;
@@ -7,6 +7,7 @@
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
 }
 
 .settings-modal {
@@ -14,12 +15,13 @@
   width: min(860px, calc(100vw - 48px));
   height: min(620px, calc(100vh - 72px));
   min-height: 380px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dialog);
   overflow: hidden;
   outline: none;
+  animation: ui-dialog-in var(--dur-normal) ease;
 }
 
 .settings-side {
@@ -47,6 +49,7 @@
 }
 
 .settings-nav-item {
+  position: relative;
   text-align: left;
   padding: var(--space-2);
   background: transparent;
@@ -59,13 +62,24 @@
 }
 
 .settings-nav-item:hover {
-  background: var(--bg-input);
+  background: var(--bg-hover);
   color: var(--text);
 }
 
 .settings-nav-item.active {
-  background: var(--bg-input);
-  color: var(--accent);
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.settings-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
 }
 
 .settings-content {
@@ -95,7 +109,7 @@
 .settings-close:hover {
   color: var(--text);
   border-color: var(--border);
-  background: var(--bg-input);
+  background: var(--bg-hover);
 }
 
 .settings-section {
