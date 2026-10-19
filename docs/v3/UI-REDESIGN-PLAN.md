@@ -443,7 +443,7 @@ npm run typecheck              # 基线全绿
 - `npx tsx --test $(find src server tests -name '*.test.ts')`：**1046 通过 / 0 失败**
 - `npm run roundtrip`：通过
 - `npm run build`：绿（仅既有 chunk 体积提示）
-- 截图：`gui-test-screenshots/ui-redesign/p0…p6-*.png`（项目管理器 / 编辑器 / 命令面板 / 文件树 / 检视器 / 运行视图 / 蓝图画布）
+- 截图：`gui-test-screenshots/ui-redesign/p0…p6-*.png`（项目管理器 / 编辑器 / 命令面板 / 文件树 / 检视器 / 运行视图 / 蓝图画布 / 节点搜索菜单）
 
 ### 8.3 与方案的偏差（均已在代码注释说明）
 
@@ -461,7 +461,7 @@ npm run typecheck              # 基线全绿
 6. **额外修复**（全量测试暴露的既有跨平台问题，非 UI 逻辑）：
    - `templates/log-analyzer/assets/sample.log` 补齐 10 行（模板/蓝图/e2e 一直引用但仓库缺失）。
    - `server/fs.ts` watch：用「监视起点已知路径集」区分 add/change，兼容 macOS FSEvents
-     对覆盖写也报 rename 的行为；快照文件名排序改为「基础时间戳 + 同毫秒序号」数值序。
+     对覆盖写也报 rename 的行为；快照文件名排序（fs / library 两处）改为「基础时间戳 + 同毫秒序号」数值序。
    - `server/plugins/phone-log.test.ts`：mock adb 跨平台（Windows .cmd / Unix sh）。
    - `script/editor` 测试：Mod-s 在 happy-dom 下的平台映射不稳定，改为按钮触发保存链路
      （命令层 `makeSaveCommand` 仍由单测覆盖）；脏标记断言跟进新 DOM。
