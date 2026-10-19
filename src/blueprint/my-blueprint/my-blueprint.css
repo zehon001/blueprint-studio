@@ -67,16 +67,17 @@
 .bp-mb-header {
   flex: none;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-2);
   height: var(--panel-header-h);
-  padding: 0 var(--space-2);
+  padding: 0 var(--space-3);
   background: var(--bg-panel-header);
   border-bottom: 1px solid var(--border);
   user-select: none;
 }
 
 .bp-mb-header-title {
+  font-size: var(--font-sm);
   font-weight: 600;
 }
 
@@ -101,8 +102,8 @@
 .bp-mb-section-head {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  height: 26px;
+  gap: var(--space-2);
+  height: 30px;
   padding: 0 var(--space-2);
   background: var(--bg-panel-header);
   border-bottom: 1px solid var(--border);
@@ -111,42 +112,66 @@
 }
 
 .bp-mb-section-head:hover {
-  background: var(--bg-input);
+  background: var(--bg-hover);
 }
 
 .bp-mb-caret {
   flex: none;
+  display: inline-flex;
   color: var(--text-dim);
   font-size: var(--font-xs);
 }
 
+.bp-mb-section-icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--text-dim);
+}
+
 .bp-mb-section-title {
   flex: 1;
+  font-size: var(--font-sm);
   font-weight: 600;
 }
 
 .bp-mb-count {
-  padding: 0 var(--space-1);
-  font-size: var(--font-xs);
+  flex: none;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--bg-input);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
   color: var(--text-dim);
 }
 
 .bp-mb-add {
   flex: none;
-  width: 18px;
-  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   padding: 0;
   background: transparent;
   border: 0;
   border-radius: var(--radius-sm);
   color: var(--text-dim);
-  font-size: var(--font-sm);
   line-height: 1;
   cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.bp-mb-section-head:hover .bp-mb-add,
+.bp-mb-section-head:focus-within .bp-mb-add {
+  opacity: 1;
 }
 
 .bp-mb-add:hover {
-  background: var(--selection);
+  background: var(--bg-active);
   color: var(--text);
 }
 
@@ -157,21 +182,26 @@
 /* —— 条目行 —— */
 
 .bp-mb-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 2px var(--space-3);
-  min-height: 22px;
+  margin: 0 var(--space-1);
+  padding: 0 var(--space-2);
+  height: 28px;
+  min-height: 28px;
+  border-radius: var(--radius-sm);
   cursor: default;
   user-select: none;
 }
 
 .bp-mb-row:hover {
-  background: var(--bg-input);
+  background: var(--bg-hover);
 }
 
 .bp-mb-row--current {
   background: var(--selection);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .bp-mb-row-name {
@@ -205,13 +235,13 @@
 /* 类型徽标：文字用引脚色（UE 类型配色，--pin-color 由行内样式注入） */
 .bp-mb-type {
   flex: none;
-  padding: 0 4px;
-  font-size: var(--font-xs);
+  padding: 1px 5px;
+  font-size: 10px;
   font-family: var(--font-mono);
   color: var(--pin-color, var(--text-dim));
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--pin-color, var(--border-strong)) 45%, transparent);
   border-radius: var(--radius-sm);
-  background: var(--bg-input);
+  background: color-mix(in srgb, var(--pin-color, var(--bg-input)) 12%, var(--bg-input));
 }
 
 .bp-mb-cat {
@@ -227,10 +257,19 @@
 /* 拖入图占位（TODO(T2.3+)：HTML5 drag 拖入画布生成 Get/Set） */
 .bp-mb-row-drag {
   flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  border: 1px dashed var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 20px;
+  color: var(--text-disabled);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.bp-mb-row:hover .bp-mb-row-drag {
+  opacity: 1;
 }
 
 .bp-mb-empty {

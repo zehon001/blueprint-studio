@@ -14,7 +14,19 @@
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { Check, ChevronDown, ChevronRight, Plus, X } from 'lucide-react';
+import {
+  Braces,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  FunctionSquare,
+  GripVertical,
+  MessageSquare,
+  Plus,
+  X,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react';
 import { Icon } from '../../shell/ui/Icon';
 import type { IRComment, IRParamSpec, IRValueType } from '../../ir/types';
 import { pinColor } from '../../shell/theme/tokens';
@@ -86,6 +98,7 @@ function InlineNameEditor(props: {
 
 function Section(props: {
   title: string;
+  icon?: LucideIcon;
   count?: number;
   addTitle?: string;
   collapsed: boolean;
@@ -107,6 +120,11 @@ function Section(props: {
         <span className="bp-mb-caret" aria-hidden>
           <Icon icon={props.collapsed ? ChevronRight : ChevronDown} size={12} />
         </span>
+        {props.icon ? (
+          <span className="bp-mb-section-icon" aria-hidden>
+            <Icon icon={props.icon} size={14} />
+          </span>
+        ) : null}
         <span className="bp-mb-section-title">{props.title}</span>
         {props.count !== undefined ? <span className="bp-mb-count">{props.count}</span> : null}
         {props.onAdd ? (
@@ -465,6 +483,7 @@ export function MyBlueprint({
         {/* ---------------- 变量 ---------------- */}
         <Section
           title="变量"
+          icon={Braces}
           count={asset.variables.length}
           addTitle="新建变量"
           collapsed={collapsed.vars}
@@ -516,7 +535,9 @@ export function MyBlueprint({
                 title="拖入图画布生成 Get / Set（本期：右键行 → 插入 Get / Set）"
                 aria-hidden
                 data-drag-todo="T2.3+"
-              />
+              >
+                <Icon icon={GripVertical} size={12} />
+              </span>
             </div>
           ))}
           {adding === 'vars' ? (
@@ -530,6 +551,7 @@ export function MyBlueprint({
         {/* ---------------- 函数 ---------------- */}
         <Section
           title="函数"
+          icon={FunctionSquare}
           count={functionNames.length}
           addTitle="新建函数"
           collapsed={collapsed.fns}
@@ -569,6 +591,7 @@ export function MyBlueprint({
         {/* ---------------- 事件 ---------------- */}
         <Section
           title="事件"
+          icon={Zap}
           count={asset.events.length}
           addTitle="新建事件"
           collapsed={collapsed.events}
@@ -598,6 +621,7 @@ export function MyBlueprint({
         {/* ---------------- 注释（T2.7：当前资产全部图的注释框；双击画布定位） ---------------- */}
         <Section
           title="注释"
+          icon={MessageSquare}
           count={commentRows.length}
           addTitle="新建注释"
           collapsed={collapsed.comments}

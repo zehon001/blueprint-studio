@@ -13,6 +13,7 @@ import {
   Background,
   BackgroundVariant,
   ConnectionLineType,
+  MiniMap,
   ReactFlow,
   type EdgeMouseHandler,
   type EdgeTypes,
@@ -163,6 +164,15 @@ export function BPGraphCanvas({
           gap={22}
           size={1.6}
           color={rawToken('--bp-grid-dot')}
+        />
+        <MiniMap
+          className="bp-minimap"
+          position="bottom-right"
+          pannable
+          zoomable={false}
+          nodeColor={() => rawToken('--node-bg')}
+          nodeStrokeColor={() => rawToken('--border-strong')}
+          maskColor="rgba(8, 9, 11, 0.72)"
         />
         {/* 画布内部叠加层（T2.7 注释框图层；渲染进 pane → 自行经 ViewportPortal 入视口） */}
         {children}

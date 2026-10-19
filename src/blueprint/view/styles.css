@@ -14,7 +14,9 @@
 }
 
 .bp-canvas .react-flow {
-  background: var(--bg-canvas);
+  background:
+    radial-gradient(circle at 50% 38%, #12141a 0%, var(--bg-canvas) 68%),
+    var(--bg-canvas);
 }
 
 /* 框选矩形（selectionOnDrag）与平移抓手 */
@@ -34,21 +36,25 @@
   min-width: 170px;
   background: var(--node-bg);
   border: 1px solid var(--node-border);
+  border-left: 3px solid var(--bp-head-color, var(--node-border));
   border-radius: var(--radius-md);
-  box-shadow: 0 3px 10px var(--node-border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
   cursor: grab;
 }
 
 /* 悬停微亮 */
 .bp-node:hover {
-  filter: brightness(1.08);
+  filter: brightness(1.06);
 }
 
-/* 选中：琥珀描边（prop 与 ReactFlow .selected 双通道） */
+/* 选中：强调色描边 + 外发光（prop 与 ReactFlow .selected 双通道） */
 .bp-node--selected,
 .react-flow__node.selected .bp-node {
   border-color: var(--node-selected);
-  box-shadow: 0 0 0 1.5px var(--node-selected), 0 3px 10px var(--node-border);
+  box-shadow:
+    0 0 0 2px var(--node-selected),
+    0 0 0 6px rgba(91, 140, 255, 0.18),
+    0 4px 12px rgba(0, 0, 0, 0.35);
 }
 
 /* ============ 节点头（§8.1：分类配色 + 图标 + 标题/副标题） ============ */
@@ -74,8 +80,9 @@
 }
 
 .bp-node-title {
-  font-size: var(--font-sm);
+  font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
@@ -176,6 +183,7 @@
 }
 
 .bp-pin-label {
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -193,6 +201,15 @@
   border: none;
   border-radius: 0;
   background: var(--pin-any);
+  transition:
+    transform var(--dur-fast) ease,
+    box-shadow var(--dur-fast) ease;
+}
+
+.bp-canvas .react-flow__handle.bp-handle:hover {
+  transform: translateY(-50%) scale(1.3);
+  box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.25);
+  z-index: 5;
 }
 
 .bp-pin-row .bp-handle--in {
@@ -226,20 +243,22 @@
 /* ---- 内联默认值编辑框（未连线数据输入引脚；§8.1） ---- */
 
 .bp-pin-default {
-  height: 17px;
+  height: 18px;
   width: 64px;
-  padding: 0 4px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-strong);
+  padding: 0 5px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: var(--font-xs);
+  font-size: 11px;
   line-height: 1;
 }
 
 .bp-pin-default:focus {
-  outline: 1px solid var(--focus-ring);
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(91, 140, 255, 0.18);
 }
 
 .bp-pin-default--bool {
@@ -288,6 +307,19 @@
   white-space: nowrap;
 }
 
+/* ============ MiniMap（P6） ============ */
+.bp-canvas .bp-minimap {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  overflow: hidden;
+}
+
+.bp-canvas .bp-minimap .react-flow__minimap-mask {
+  fill: rgba(8, 9, 11, 0.6);
+}
+
 /* ============ 连线（§8.1：exec 实线白 + 三角端头；数据彩虚线；贝塞尔） ============ */
 
 .bp-edge-path {
@@ -296,24 +328,32 @@
 
 .bp-edge-exec {
   stroke: var(--edge-exec);
-  stroke-width: 2.4px;
+  stroke-width: 2px;
+  stroke-opacity: 0.85;
+  stroke-linecap: round;
 }
 
 .bp-edge-data {
   stroke: var(--bp-edge-color, var(--edge-data-default));
-  stroke-width: 1.8px;
+  stroke-width: 2px;
+  stroke-opacity: 0.75;
+  stroke-linecap: round;
   stroke-dasharray: 7 5;
 }
 
-/* 选中连线：黄绿高亮（压过类型色，靠选择器特异性） */
+/* 选中连线：强调色高亮 + 光晕（压过类型色，靠选择器特异性） */
 .react-flow__edge.selected .bp-edge-path {
   stroke: var(--edge-selected);
-  stroke-width: 2.8px;
+  stroke-opacity: 1;
+  stroke-width: 2.6px;
+  filter: drop-shadow(0 0 4px rgba(91, 140, 255, 0.6));
 }
 
-/* 悬停加粗 */
+/* 悬停加粗 + 光晕 */
 .react-flow__edge:hover .bp-edge-path {
-  stroke-width: 3px;
+  stroke-width: 2.6px;
+  stroke-opacity: 1;
+  filter: drop-shadow(0 0 3px rgba(91, 140, 255, 0.4));
 }
 
 /* 运行时流动动画钩子（T5.4 激活：data.flowing = true 时挂 .bp-edge--flow） */

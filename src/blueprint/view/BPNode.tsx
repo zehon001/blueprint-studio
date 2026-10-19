@@ -11,8 +11,10 @@
  */
 import { memo, useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { FunctionSquare, GitBranch, Puzzle, Sigma, TriangleAlert, Zap, type LucideIcon } from 'lucide-react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { IRNode, NodeSpec, PinSpec, UINode } from '../../ir/types';
+import { Icon } from '../../shell/ui/Icon';
 import { PIN_COLORS, pinColor } from '../../shell/theme/tokens';
 import type { DebugHighlightKind } from '../../shell/debug/overlay-state';
 import { useSceneTreeDomain } from '../../ui-editor/store';
@@ -43,6 +45,24 @@ function debugClassOf(data: BPNodeData): string {
 /** CSS 自定义属性内联样式（React 类型不含任意 --var，集中收口） */
 function cssVars(vars: Record<string, string>): CSSProperties {
   return vars as CSSProperties;
+}
+
+/** 节点头图标（Lucide；替代 headIconFor 的 Unicode 字形） */
+function headIconOf(variant: Parameters<typeof headIconFor>[0]): LucideIcon {
+  switch (variant) {
+    case 'event':
+      return Zap;
+    case 'function':
+      return FunctionSquare;
+    case 'pure':
+      return Sigma;
+    case 'flow':
+      return GitBranch;
+    case 'plugin':
+      return Puzzle;
+    default:
+      return TriangleAlert;
+  }
 }
 
 /* ============================================================
@@ -364,10 +384,13 @@ function RegularNodeView({ nodeId, data, selected }: { nodeId: string; data: BPN
   const inputPins = mergePins(spec.inputs, data.dynamicPins?.inputs);
   const outputPins = mergePins(spec.outputs, data.dynamicPins?.outputs);
   return (
-    <div className={`bp-node bp-variant-${variant}${selected ? ' bp-node--selected' : ''}${debugClassOf(data)}`}>
+    <div
+      className={`bp-node bp-variant-${variant}${selected ? ' bp-node--selected' : ''}${debugClassOf(data)}`}
+      style={cssVars({ '--bp-head-color': headColorFor(variant) })}
+    >
       <div className="bp-node-head" style={{ background: headColorFor(variant) }}>
         <span className="bp-node-icon" aria-hidden="true">
-          {headIconFor(variant)}
+          <Icon icon={headIconOf(variant)} size={12} />
         </span>
         <span className="bp-node-titles">
           <span className="bp-node-title">{title}</span>
@@ -443,10 +466,13 @@ function VarNodeView({ data, selected }: { data: BPNodeData; selected: boolean }
 function UnknownNodeView({ data, selected }: { data: BPNodeData; selected: boolean }) {
   const { node, variant } = data;
   return (
-    <div className={`bp-node bp-variant-unknown${selected ? ' bp-node--selected' : ''}${debugClassOf(data)}`}>
+    <div
+      className={`bp-node bp-variant-unknown${selected ? ' bp-node--selected' : ''}${debugClassOf(data)}`}
+      style={cssVars({ '--bp-head-color': headColorFor(variant) })}
+    >
       <div className="bp-node-head" style={{ background: headColorFor(variant) }}>
         <span className="bp-node-icon" aria-hidden="true">
-          {headIconFor(variant)}
+          <Icon icon={headIconOf(variant)} size={12} />
         </span>
         <span className="bp-node-titles">
           <span className="bp-node-title">{node.title ?? node.type}</span>

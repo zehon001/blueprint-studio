@@ -20,6 +20,42 @@
   user-select: none;
 }
 
+.st-header {
+  flex: none;
+  padding: var(--space-2);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+}
+
+.st-searchwrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+}
+
+.st-searchwrap:focus-within {
+  border-color: var(--accent);
+}
+
+.st-search {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  outline: none;
+}
+
 .st-scroll {
   flex: 1;
   min-height: 0;
@@ -41,22 +77,38 @@
 /* ===== 树行（缩进 = padding-left 按 depth 推导，见组件内联样式） ===== */
 
 .st-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  height: var(--space-5);
-  padding-right: var(--space-2);
+  gap: 6px;
+  height: 30px;
+  margin: 0 var(--space-1);
+  padding-right: var(--space-1);
   white-space: nowrap;
   cursor: default;
   border-radius: var(--radius-sm);
 }
 
 .st-row:hover {
-  background: var(--bg-input);
+  background: var(--bg-hover);
 }
 
 .st-row.selected {
   background: var(--selection);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.st-grip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-disabled);
+  opacity: 0;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.st-row:hover .st-grip {
+  opacity: 1;
 }
 
 /* 拖拽中的行半透明（源视觉弱化） */

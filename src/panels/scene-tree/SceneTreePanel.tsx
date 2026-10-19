@@ -18,7 +18,7 @@
  */
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, GripVertical, Link2, Search } from 'lucide-react'
 import { Icon } from '@/shell/ui/Icon'
 import { schemaIconFor, uiCategoryColor } from '@/shell/ui/icons'
 import { Menu, type MenuItem } from '@/panels/file-system/Menu'
@@ -96,6 +96,7 @@ export function SceneTreePanel() {
 
   /* —— 本地交互态 —— */
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  const [query, setQuery] = useState('')
   const [menu, setMenu] = useState<{ x: number; y: number; targetId: string } | null>(null)
   const [addMenu, setAddMenu] = useState<AddMenuState | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -333,6 +334,17 @@ export function SceneTreePanel() {
    * ============================================================ */
 
   const rows: FlatRow[] = asset ? flattenTree(asset.root, expanded) : []
+  const trimmedQuery = query.trim().toLowerCase()
+  const visibleRows = trimmedQuery
+    ? rows.filter((row) => {
+        const schema = getUISchema(row.node.type)
+        return (
+          row.node.name.toLowerCase().includes(trimmedQuery) ||
+          row.node.type.toLowerCase().includes(trimmedQuery) ||
+          (schema?.title ?? '').toLowerCase().includes(trimmedQuery)
+        )
+      })
+    : rows
 
   function renderRow(row: FlatRow): ReactNode {
     const { node, depth, hasChildren } = row
@@ -471,10 +483,13 @@ export function SceneTreePanel() {
           )}
           {node.prefab ? (
             <span className="st-prefab" title={`预制体：${node.prefab}（双击进入编辑）`}>
-              ⧉ {prefabLabelOf(node.prefab)}
+              <Icon icon={Link2} size={10} /> {prefabLabelOf(node.prefab)}
             </span>
           ) : null}
           <span className="st-type">{schema?.title ?? node.type}</span>
+          <span className="st-grip" aria-hidden>
+            <Icon icon={GripVertical} size={12} />
+          </span>
         </div>
       </Fragment>
     )
@@ -492,9 +507,26 @@ export function SceneTreePanel() {
         if (e.target === e.currentTarget) useUIEditorStore.getState().clearSelection()
       }}
     >
+      <div className="st-header">
+        <div className="st-searchwrap">
+          <Icon icon={Search} size={12} />
+          <input
+            className="st-search"
+            type="text"
+            value={query}
+            placeholder="搜索节点…"
+            spellCheck={false}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+      </div>
       <div className="st-scroll">
         {asset ? (
-          rows.map(renderRow)
+          visibleRows.length > 0 ? (
+            visibleRows.map(renderRow)
+          ) : (
+            <div className="st-empty">无匹配节点</div>
+          )
         ) : (
           <div className="st-empty">
             {status === 'loading'

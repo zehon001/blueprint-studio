@@ -135,6 +135,23 @@ function BlueprintEditorInner({
     useStatusStore.getState().setZoom(rf.getZoom());
     return () => useStatusStore.getState().setZoom(null);
   }, [rf]);
+
+  // 首次可见时重新 fitView：dock 页签隐藏期间挂载的编辑器画布尺寸为 0，
+  // ReactFlow 初始 fitView 会落到 minZoom（20%）。容器首次获得实际尺寸后补一次取景。
+  const canvasRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let fitted = false;
+    const ro = new ResizeObserver(() => {
+      if (fitted || el.clientWidth < 120 || el.clientHeight < 120) return;
+      fitted = true;
+      void rf.fitView({ padding: 0.2, duration: 0 });
+      ro.disconnect();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [rf]);
   const interactions = useCanvasInteractions();
 
   // store 状态订阅（编辑命令经 store action，本组件不直接改状态）
@@ -662,7 +679,7 @@ function BlueprintEditorInner({
         {/* 中部：图签 + 画布（叠加层以画布区为定位基准） */}
         <div className="bp-editor-main">
           <GraphTabs allowAdd={!hideFunctionSection} />
-          <div className="bp-editor-canvas">
+          <div className="bp-editor-canvas" ref={canvasRef}>
             {/* T5.4 观察开关（画布右上）：默认开，localStorage 记忆；WS 未连接 / 无运行实例静默降级 */}
             <button
               type="button"
