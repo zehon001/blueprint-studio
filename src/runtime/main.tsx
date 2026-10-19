@@ -10,6 +10,7 @@
  */
 import '@/shell/theme/theme.css'
 import '@/shell/theme/base.css'
+import '@/shell/ui/ui.css'
 import '@fontsource-variable/inter'
 import './runtime.css'
 import { createRoot } from 'react-dom/client'

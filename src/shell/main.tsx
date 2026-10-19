@@ -17,6 +17,8 @@
  */
 import '@/shell/theme/theme.css'
 import '@/shell/theme/base.css'
+import '@/shell/ui/ui.css'
+import '@/shell/ui/command-palette.css'
 import '@fontsource-variable/inter'
 import { createRoot } from 'react-dom/client'
 import {

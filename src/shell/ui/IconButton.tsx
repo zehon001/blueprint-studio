@@ -9,7 +9,6 @@ import type { ButtonHTMLAttributes } from 'react'
 import { Tooltip } from 'radix-ui'
 import type { LucideIcon } from 'lucide-react'
 import { Icon } from './Icon'
-import './ui.css'
 
 export interface IconButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'title'> {

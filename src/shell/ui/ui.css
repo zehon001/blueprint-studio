@@ -258,3 +258,159 @@
     transform: translateY(0) scale(1);
   }
 }
+
+/* ===== Field 控件 ===== */
+.insp-number {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  cursor: ew-resize;
+}
+
+.insp-number:focus {
+  cursor: text;
+}
+
+.insp-hex {
+  font-family: var(--font-mono);
+}
+
+.insp-switch {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-input);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+}
+
+.insp-switch[data-state='checked'] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.insp-switch[data-state='mixed'] {
+  background: var(--bg-active);
+  border-color: var(--accent);
+}
+
+.insp-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.insp-switch-thumb {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transform: translateX(2px);
+  transition: transform var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+
+.insp-switch[data-state='checked'] .insp-switch-thumb {
+  transform: translateX(18px);
+  background: #fff;
+}
+
+.insp-switch[data-state='mixed'] .insp-switch-thumb {
+  transform: translateX(10px);
+  background: var(--accent);
+}
+
+.insp-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  text-align: left;
+  cursor: pointer;
+}
+
+.insp-select-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.insp-select-caret {
+  flex: none;
+  display: inline-flex;
+  color: var(--text-dim);
+}
+
+.insp-select-content {
+  position: fixed;
+  z-index: 10000;
+  padding: var(--space-1);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+}
+
+.insp-select-viewport {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.insp-select-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--font-sm);
+  outline: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.insp-select-item[data-highlighted] {
+  background: var(--bg-hover);
+}
+
+.insp-select-check {
+  display: inline-flex;
+  margin-left: auto;
+  color: var(--accent);
+}
+
+.insp-asset-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.insp-asset-thumb {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-dim);
+}
+
+.insp-asset-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

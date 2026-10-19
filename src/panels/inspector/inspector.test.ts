@@ -582,8 +582,8 @@ const EXPECTED_DOM: Record<string, Array<readonly [string, number]>> = {
   number: [['input[type=number]', 1]],
   int: [['input[type=number]', 1]],
   string: [['input[type=text]', 1]],
-  bool: [['input[type=checkbox]', 1]],
-  select: [['select', 1]],
+  bool: [['[role=switch]', 1]],
+  select: [['[aria-haspopup=listbox]', 1]],
   color: [
     ['input[type=color]', 1],
     ['input[type=text]', 1],
@@ -831,7 +831,7 @@ test('面板修改入栈：数字草稿态 Enter 才入栈（含小数与钳制�
     doUndo()
 
     // 布尔（可见）：即改即提交
-    const visible = findRow('可见')!.querySelector<HTMLInputElement>('input[type=checkbox]')!
+    const visible = findRow('可见')!.querySelector<HTMLButtonElement>('[role=switch]')!
     act(() => {
       visible.click()
     })

@@ -13,6 +13,7 @@
  */
 import { registerPanel, type PanelApi } from '@/shell/dock/registry'
 import { InspectorHost } from './InspectorHost'
+import '@/shell/ui/ui.css'
 import '@/blueprint/details/details.css'
 import './inspector.css'
 

@@ -20,7 +20,7 @@
  * 挂载冒烟）；inspector.css 由 index.ts 引入。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, MousePointerClick, RotateCcw, Search } from 'lucide-react'
 import { Icon } from '@/shell/ui/Icon'
 import { schemaIconFor, uiCategoryColor } from '@/shell/ui/icons'
 import type { ElementAsset, UIAsset, UINode } from '@/ir/types'
@@ -87,6 +87,10 @@ function PropRow(props: {
       : source?.kind === 'inline'
         ? '内联'
         : null
+  const defaultValue = row.def.default
+  const differsFromDefault =
+    defaultValue !== undefined &&
+    (row.mixed || !sameValue(row.value, defaultValue))
   return (
     <div
       className={`insp-row${disabled ? ' insp-row--disabled' : ''}${
@@ -113,9 +117,30 @@ function PropRow(props: {
             {sourceLabel}
           </span>
         ) : null}
+        {!disabled && differsFromDefault ? (
+          <button
+            type="button"
+            className="insp-reset"
+            title="重置为默认值"
+            aria-label={`重置 ${row.def.label}`}
+            onClick={() => props.onCommit(row.def, defaultValue)}
+          >
+            <Icon icon={RotateCcw} size={11} />
+          </button>
+        ) : null}
       </span>
     </div>
   )
+}
+
+/** 值比较（标量全等；对象 / 数组按 JSON 结构比较） */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  try {
+    return JSON.stringify(a) === JSON.stringify(b)
+  } catch {
+    return false
+  }
 }
 
 /** 事件行（内建 / 自定义共用）：显示名 + 事件名 + 跳转按钮（占位 toast） */
@@ -280,14 +305,17 @@ export function InspectorPanel() {
             {asset.kind === 'element' ? <ElementSettingsSection /> : null}
             <VariableSection />
             <div className="insp-empty">
+              <Icon icon={MousePointerClick} size={40} className="insp-empty-icon" />
               <div className="insp-empty-title">未选中节点</div>
-              <div>资产：{asset.name}</div>
-              <div>节点数：{collectUINodeIds(asset.root).length}</div>
+              <div className="insp-empty-desc">
+                资产：{asset.name} · 节点数：{collectUINodeIds(asset.root).length}
+              </div>
               <div className="insp-empty-hint">在 2D 视口或 UI 树面板中选择节点以编辑属性</div>
             </div>
           </div>
         ) : (
           <div className="insp-empty">
+            <Icon icon={MousePointerClick} size={40} className="insp-empty-icon" />
             <div className="insp-empty-title">未打开 UI 资产</div>
             <div className="insp-empty-hint">在文件系统面板双击 *.ui.json 打开</div>
           </div>
@@ -319,8 +347,8 @@ export function InspectorPanel() {
           {single.name}
         </span>
         <span className="insp-badge">{firstSchema?.title ?? single.type}</span>
-        <span className="insp-id" title={`节点 id：${single.id}`}>
-          {single.id}
+        <span className="insp-id" title={`资产：${asset?.name ?? '—'} · 节点 id：${single.id}`}>
+          {asset?.name ?? '—'} · {single.id}
         </span>
       </div>
     ) : (
@@ -334,14 +362,17 @@ export function InspectorPanel() {
     <div className="insp-panel">
       {header}
       <div className="insp-toolbar">
-        <input
-          className="insp-search"
-          type="text"
-          placeholder="搜索属性…"
-          value={search}
-          spellCheck={false}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <div className="insp-searchwrap">
+          <Icon icon={Search} size={12} />
+          <input
+            className="insp-search"
+            type="text"
+            placeholder="搜索属性…"
+            value={search}
+            spellCheck={false}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
         {nodes.length > 1 ? (
           <div className="insp-hint">显示共同属性 · 值不同以 — 显示 · 修改将批量应用到全部选中节点</div>
         ) : null}

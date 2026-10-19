@@ -42,8 +42,6 @@ import { openSettings } from '@/shell/settings'
 import { useBlueprintStore } from '@/blueprint/store/blueprint-store'
 import { Icon } from './Icon'
 import { assetIconFor, nodeCategoryColor, nodeCategoryIcon } from './icons'
-import './ui.css'
-import './command-palette.css'
 
 interface PaletteState {
   open: boolean

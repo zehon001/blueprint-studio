@@ -28,34 +28,36 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: var(--panel-header-h);
-  padding: 0 var(--space-2);
+  min-height: calc(var(--panel-header-h) + var(--space-1));
+  padding: 0 var(--space-3);
   background: var(--bg-panel-header);
   border-bottom: 1px solid var(--border);
 }
 
 .insp-icon {
   flex: none;
+  display: inline-flex;
   font-size: var(--font-md);
 }
 
 .insp-title {
   flex: none;
-  max-width: 45%;
+  max-width: 46%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--font-md);
   font-weight: 600;
 }
 
 .insp-badge {
   flex: none;
-  padding: 0 var(--space-1);
+  padding: 1px var(--space-2);
   font-size: var(--font-xs);
   color: var(--accent-hover);
-  border: 1px solid var(--border-strong);
+  border: 1px solid rgba(91, 140, 255, 0.35);
   border-radius: var(--radius-sm);
-  background: var(--bg-input);
+  background: rgba(91, 140, 255, 0.1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -64,9 +66,9 @@
 .insp-id {
   flex: 1;
   min-width: 0;
-  font-size: var(--font-xs);
+  font-size: 10px;
   font-family: var(--font-mono);
-  color: var(--text-disabled);
+  color: var(--text-dim);
   text-align: right;
   white-space: nowrap;
   overflow: hidden;
@@ -80,24 +82,37 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: var(--space-2) var(--space-2) var(--space-1);
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 
-.insp-search {
-  width: 100%;
-  min-width: 0;
-  padding: 2px var(--space-2);
+.insp-searchwrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 30px;
+  padding: 0 var(--space-2);
   background: var(--bg-input);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  color: var(--text);
-  font-family: var(--font-ui);
-  font-size: var(--font-xs);
+  color: var(--text-dim);
 }
 
-.insp-search:focus {
-  outline: 1px solid var(--focus-ring);
+.insp-searchwrap:focus-within {
+  border-color: var(--accent);
+}
+
+.insp-search {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  outline: none;
 }
 
 .insp-hint {
@@ -105,43 +120,46 @@
   color: var(--text-disabled);
 }
 
-/* ===== 分组（组序 PROP_GROUP_ORDER；组头折叠） ===== */
+/* ===== 分组卡片（组序 PROP_GROUP_ORDER；组头折叠） ===== */
 
 .insp-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-2) var(--space-2) var(--space-6);
+  padding: var(--space-2);
+  background: var(--bg-app);
 }
 
 .insp-group {
-  margin-bottom: 0;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  overflow: hidden;
 }
 
 .insp-group-head {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   width: 100%;
-  height: 22px;
-  padding: 0 var(--space-1);
+  height: 32px;
+  padding: 0 var(--space-2);
   background: transparent;
   border: 0;
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   cursor: pointer;
 }
 
 .insp-group-head:hover {
-  background: var(--bg-input);
+  background: var(--bg-hover);
 }
 
 .insp-caret {
   flex: none;
+  display: inline-flex;
   color: var(--text-dim);
   font-size: var(--font-xs);
 }
@@ -149,27 +167,41 @@
 .insp-group-title {
   flex: 1;
   text-align: left;
-  font-weight: 400;
-  color: var(--text-dim);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text);
 }
 
 .insp-count {
-  font-size: var(--font-xs);
+  flex: none;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--bg-input);
   color: var(--text-dim);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
 }
 
 .insp-group-body {
-  padding: var(--space-1) var(--space-2) var(--space-2);
+  padding: 0 var(--space-2) var(--space-2);
 }
 
 /* ===== 属性行（标签 + 类型徽标 + 控件；置灰行） ===== */
 
 .insp-row {
   display: flex;
-  align-items: flex-start;
-  gap: var(--space-1);
-  min-height: 24px;
-  padding: 1px 0;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+}
+
+.insp-row:hover {
+  background: var(--bg-hover);
 }
 
 .insp-row--disabled .insp-label,
@@ -179,9 +211,9 @@
 
 .insp-label {
   flex: none;
-  width: 76px;
-  padding-top: 3px;
-  font-size: var(--font-xs);
+  width: 96px;
+  padding-top: 0;
+  font-size: var(--font-sm);
   color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;
@@ -207,41 +239,44 @@
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 1px 0;
+  padding: 0;
 }
 
-/* ===== 控件（紧凑暗色，对齐 T2.4 观感） ===== */
+/* ===== 控件（紧凑暗色） ===== */
 
 .insp-input,
 .insp-select {
   width: 100%;
   min-width: 0;
-  padding: 1px 4px;
+  height: 22px;
+  padding: 0 6px;
   background: var(--bg-input);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
 }
 
 .insp-input:focus,
 .insp-select:focus,
 .insp-textarea:focus {
-  outline: 1px solid var(--focus-ring);
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(91, 140, 255, 0.18);
 }
 
 .insp-textarea {
   width: 100%;
   min-width: 0;
   resize: vertical;
-  padding: 2px 4px;
+  padding: 4px 6px;
   background: var(--bg-input);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   line-height: 1.5;
 }
 
@@ -264,12 +299,40 @@
 .insp-color {
   flex: none;
   width: 32px;
-  height: 20px;
+  height: 22px;
   padding: 0;
   background: var(--bg-input);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   cursor: pointer;
+}
+
+/* 重置为默认值（仅值 ≠ 默认时出现；悬停行 / 键盘聚焦时可见） */
+.insp-reset {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.insp-row:hover .insp-reset,
+.insp-row:focus-within .insp-reset,
+.insp-reset:focus-visible {
+  opacity: 1;
+}
+
+.insp-reset:hover {
+  background: var(--bg-active);
 }
 
 /* 向量 / 尺寸（x/y、宽/高 双输入） */
@@ -460,26 +523,40 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   padding: var(--space-6);
-  color: var(--text-disabled);
+  color: var(--text-dim);
   text-align: center;
-  line-height: 1.8;
+  line-height: 1.7;
+}
+
+.insp-empty-icon {
+  color: var(--text-disabled);
 }
 
 .insp-empty-title {
   font-size: var(--font-md);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.insp-empty-desc {
+  font-size: var(--font-xs);
   color: var(--text-dim);
 }
 
 .insp-empty-hint {
+  max-width: 240px;
   font-size: var(--font-xs);
+  color: var(--text-disabled);
+  line-height: 1.6;
 }
 
 .insp-empty-inline {
   padding: var(--space-3) var(--space-2);
   font-size: var(--font-xs);
   color: var(--text-disabled);
+  text-align: center;
 }
 
 /* ===== toast（占位提示） ===== */
@@ -554,19 +631,20 @@
   width: 100%;
 }
 .insp-flex-group {
-  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-2);
 }
 .insp-flex-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 3px 0;
+  min-height: 28px;
+  padding: 0;
 }
 .insp-flex-label {
   flex: none;
-  width: 92px;
+  width: 96px;
   color: var(--text-dim);
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
 }
 .insp-flex-control {
   flex: 1;
@@ -596,7 +674,7 @@
   flex: 1;
 }
 .insp-vars-group {
-  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-2);
 }
 
 /* v3 T11.5：有效值来源标记 / 样式类区（UIToolkit Matching Selectors 心智） */
@@ -623,9 +701,10 @@
 }
 .insp-style-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-2);
-  padding: 3px 0;
+  min-height: 28px;
+  padding: 0;
 }
 .insp-style-sheets {
   flex: 1;

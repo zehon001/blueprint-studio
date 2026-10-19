@@ -24,6 +24,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { Icon } from '@/shell/ui/Icon'
+import {
+  CodeField,
+  ColorField,
+  NumberField,
+  SelectField,
+  SwitchField,
+  TextField,
+} from '@/shell/ui/Field'
 import type { PropDef } from '@/ui-editor/schema'
 import type { UIAsset } from '@/ir/types'
 import { MIXED_TITLE, parseListColumnsJson, parseOptionsLines } from './inspector-model'
@@ -69,50 +77,22 @@ function useDraft(
  * 基础控件
  * ============================================================ */
 
-/** 数字输入（number / int；min / max / step；非法输入不提交并回退） */
+/** 数字输入（number / int；min / max / step；支持左右拖拽与方向键调节） */
 export function NumberEditor(props: PropEditorProps) {
   const { def } = props
-  const initial = props.mixed
-    ? ''
-    : typeof props.value === 'number' && Number.isFinite(props.value)
-      ? String(props.value)
-      : ''
-  const { draft, setDraft, commit } = useDraft(
-    initial,
-    (d) => d === initial,
-    (d) => {
-      const text = d.trim()
-      if (text === '' || !Number.isFinite(Number(text))) {
-        setDraft(initial) // 空 / 非法：回退显示（不产生命令）
-        return
-      }
-      let n = Number(text)
-      if (def.type === 'int') n = Math.round(n)
-      if (def.min !== undefined) n = Math.max(def.min, n)
-      if (def.max !== undefined) n = Math.min(def.max, n)
-      props.onCommit(n)
-    },
-  )
   return (
-    <input
-      type="number"
-      className="insp-input"
-      step={def.step ?? 'any'}
+    <NumberField
+      value={typeof props.value === 'number' && Number.isFinite(props.value) ? props.value : undefined}
+      mixed={props.mixed}
       min={def.min}
       max={def.max}
-      value={draft}
-      placeholder={props.mixed ? '—' : def.placeholder}
-      title={props.mixed ? MIXED_TITLE : undefined}
+      step={typeof def.step === 'number' ? def.step : 1}
+      integer={def.type === 'int'}
       disabled={props.disabled}
-      onChange={(e) => setDraft(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          commit()
-          e.currentTarget.blur()
-        }
-        e.stopPropagation()
-      }}
-      onBlur={commit}
+      placeholder={def.placeholder}
+      title={`${def.label}（左右拖拽调节；Shift ×10，Alt ×0.1）`}
+      ariaLabel={def.label}
+      onCommit={props.onCommit}
     />
   )
 }
@@ -120,29 +100,14 @@ export function NumberEditor(props: PropEditorProps) {
 /** 单行文本（string；未知类型回落至此） */
 export function TextEditor(props: PropEditorProps) {
   const initial = props.mixed || props.value === undefined || props.value === null ? '' : String(props.value)
-  const { draft, setDraft, commit } = useDraft(
-    initial,
-    (d) => d === initial,
-    (d) => props.onCommit(d),
-  )
   return (
-    <input
-      type="text"
-      className="insp-input"
-      value={draft}
-      placeholder={props.mixed ? '—' : props.def.placeholder}
-      title={props.mixed ? MIXED_TITLE : undefined}
+    <TextField
+      value={initial}
+      mixed={props.mixed}
       disabled={props.disabled}
-      spellCheck={false}
-      onChange={(e) => setDraft(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          commit()
-          e.currentTarget.blur()
-        }
-        e.stopPropagation()
-      }}
-      onBlur={commit}
+      placeholder={props.def.placeholder}
+      title={props.def.label}
+      onCommit={props.onCommit}
     />
   )
 }
@@ -150,40 +115,26 @@ export function TextEditor(props: PropEditorProps) {
 /** 多行文本（textarea） */
 export function TextareaEditor(props: PropEditorProps) {
   const initial = props.mixed || props.value === undefined || props.value === null ? '' : String(props.value)
-  const { draft, setDraft, commit } = useDraft(
-    initial,
-    (d) => d === initial,
-    (d) => props.onCommit(d),
-  )
   return (
-    <textarea
-      className="insp-textarea"
-      rows={4}
-      value={draft}
-      placeholder={props.mixed ? '—' : props.def.placeholder}
-      title={props.mixed ? MIXED_TITLE : undefined}
+    <CodeField
+      value={initial}
       disabled={props.disabled}
-      spellCheck={false}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
+      placeholder={props.mixed ? '—' : props.def.placeholder}
+      rows={4}
+      onCommit={props.onCommit}
     />
   )
 }
 
-/** 布尔勾选框（bool；变更即提交；混合态 indeterminate） */
+/** 布尔开关（bool；变更即提交；混合态显示「—」） */
 export function BoolEditor(props: PropEditorProps) {
-  const checked = props.value === true
   return (
-    <input
-      type="checkbox"
-      className="insp-check"
-      ref={(el) => {
-        if (el) el.indeterminate = props.mixed
-      }}
-      checked={checked}
-      title={props.mixed ? MIXED_TITLE : String(checked)}
+    <SwitchField
+      checked={props.value === true}
+      mixed={props.mixed}
       disabled={props.disabled}
-      onChange={(e) => props.onCommit(e.target.checked)}
+      title={props.def.label}
+      onCommit={props.onCommit}
     />
   )
 }
@@ -191,27 +142,16 @@ export function BoolEditor(props: PropEditorProps) {
 /** 下拉选择（select；混合态显示「—」占位项） */
 export function SelectEditor(props: PropEditorProps) {
   const current = props.mixed || props.value === undefined ? '' : String(props.value)
-  const options = props.def.options ?? []
-  const known = options.some((o) => o.value === current)
   return (
-    <select
-      className="insp-select"
+    <SelectField
       value={current}
-      title={props.mixed ? MIXED_TITLE : undefined}
+      options={props.def.options ?? []}
+      mixed={props.mixed}
       disabled={props.disabled}
-      onChange={(e) => props.onCommit(e.target.value)}
-    >
-      {current === '' || !known ? (
-        <option value="" disabled hidden>
-          —
-        </option>
-      ) : null}
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+      title={props.def.label}
+      ariaLabel={props.def.label}
+      onCommit={props.onCommit}
+    />
   )
 }
 
@@ -219,62 +159,17 @@ export function SelectEditor(props: PropEditorProps) {
  * 颜色（取色器 + hex 文本双向）
  * ============================================================ */
 
-/** hex 文本框：合法（#RRGGBB 或裸 6 位十六进制）才提交，否则回退 */
-function HexInput(props: { hex: string; disabled: boolean; onCommit: (value: string) => void }) {
-  const initial = props.hex
-  const { draft, setDraft, commit } = useDraft(
-    initial,
-    (d) => d === initial,
-    (d) => {
-      const text = d.trim()
-      if (/^[0-9a-fA-F]{6}$/.test(text)) props.onCommit(`#${text}`)
-      else if (/^#[0-9a-fA-F]{6}$/.test(text)) props.onCommit(text)
-      else setDraft(initial)
-    },
-  )
-  return (
-    <input
-      type="text"
-      className="insp-input"
-      value={draft}
-      placeholder="#RRGGBB"
-      disabled={props.disabled}
-      spellCheck={false}
-      onChange={(e) => setDraft(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          commit()
-          e.currentTarget.blur()
-        }
-        e.stopPropagation()
-      }}
-      onBlur={commit}
-    />
-  )
-}
-
 /** 颜色（color）：取色器 + hex 文本；变更即提交；混合态显示「—」 */
 export function ColorEditor(props: PropEditorProps) {
-  if (props.mixed) {
-    return (
-      <span className="insp-mixed-mark" title={MIXED_TITLE}>
-        —
-      </span>
-    )
-  }
-  const hex = typeof props.value === 'string' && /^#[0-9a-fA-F]{6}$/.test(props.value) ? props.value : '#000000'
+  const hex = typeof props.value === 'string' ? props.value : undefined
   return (
-    <span className="insp-ref">
-      <input
-        type="color"
-        className="insp-color"
-        value={hex}
-        title={hex}
-        disabled={props.disabled}
-        onChange={(e) => props.onCommit(e.target.value)}
-      />
-      <HexInput hex={hex} disabled={props.disabled} onCommit={props.onCommit} />
-    </span>
+    <ColorField
+      value={hex}
+      mixed={props.mixed}
+      disabled={props.disabled}
+      title={props.def.label}
+      onCommit={props.onCommit}
+    />
   )
 }
 
