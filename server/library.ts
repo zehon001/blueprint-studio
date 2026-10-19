@@ -342,11 +342,21 @@ function uniqueHistoryTs(dir: string): string {
 }
 
 function listSnapshotNames(dir: string): string[] {
+  const keyOf = (name: string): [string, number] => {
+    const ts = name.slice(0, -'.bak'.length)
+    const m = /^(\d{8}-\d{6}-\d{3})(?:-(\d+))?$/.exec(ts)
+    return m ? [m[1]!, Number(m[2] ?? 0)] : [ts, 0]
+  }
   try {
     return fs
       .readdirSync(dir)
       .filter((n) => n.endsWith('.bak'))
-      .sort()
+      .sort((a, b) => {
+        const [ta, sa] = keyOf(a)
+        const [tb, sb] = keyOf(b)
+        if (ta !== tb) return ta < tb ? -1 : 1
+        return sa - sb
+      })
   } catch {
     return []
   }

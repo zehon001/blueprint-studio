@@ -914,6 +914,8 @@ export function watchPath(
   let timer: NodeJS.Timeout | null = null
   let watcher: fs.FSWatcher | null = null
   let pollTimer: NodeJS.Timeout | null = null
+  /** 原生 watcher 启动初期的补充探测（macOS FSEvents 在负载下可能漏掉首个事件） */
+  let armTimer: NodeJS.Timeout | null = null
   let closed = false
   let lastSnapshot: Map<string, { mtimeMs: number; isDir: boolean }> | null = null
   /** 监视起点已知路径：区分「新建」与「已有文件被 rename 事件伴随修改」（macOS FSEvents） */
@@ -1020,6 +1022,20 @@ export function watchPath(
       lastSnapshot = snapshotDir(absDir)
       startPolling()
     }
+    // 启动 2s 内每 100ms 补扫一次「新增路径」：FSEvents 流建立前的写入可能丢失首个事件。
+    if (watcher) {
+      const armStartedAt = Date.now()
+      armTimer = setInterval(() => {
+        if (closed || Date.now() - armStartedAt > 2000) {
+          if (armTimer) clearInterval(armTimer)
+          armTimer = null
+          return
+        }
+        for (const rel of snapshotDir(absDir).keys()) {
+          if (!known.has(rel)) record(rel, 'rename')
+        }
+      }, 100)
+    }
   }
 
   return {
@@ -1032,6 +1048,10 @@ export function watchPath(
       if (pollTimer) {
         clearInterval(pollTimer)
         pollTimer = null
+      }
+      if (armTimer) {
+        clearInterval(armTimer)
+        armTimer = null
       }
       watcher?.close()
       watcher = null
