@@ -26,6 +26,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
+import { toast } from 'sonner'
 import { Icon } from '@/shell/ui/Icon'
 import { fileIconFor } from '@/shell/ui/icons'
 import { useWorkspaceStore } from '@/shell/workspace-store'
@@ -297,13 +298,6 @@ export interface FileSystemPanelProps {
   api?: FsApi
 }
 
-interface ToastState {
-  kind: FsNoticeKind
-  text: string
-}
-
-/** toast 自动消失时长 */
-const TOAST_MS = 4000
 /** SSE 事件防抖（卡片要求 300ms；change 事件不参与） */
 const WATCH_DEBOUNCE_MS = 300
 
@@ -340,7 +334,6 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   /** 新建资产向导（null = 关闭；值为右键所在目录） */
   const [newAsset, setNewAsset] = useState<{ fromDir: string } | null>(null)
   const [prompt, setPrompt] = useState<PromptState | null>(null)
-  const [toast, setToast] = useState<ToastState | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
   /** 历史快照弹层（T7.4；null = 关闭） */
   const [history, setHistory] = useState<HistoryState | null>(null)
@@ -353,20 +346,12 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
 
   /** 已完成首次加载的项目（切换项目时重置展开/选中） */
   const loadedProjectRef = useRef<string | null>(null)
-  const toastTimerRef = useRef<number | null>(null)
 
   const showToast = useCallback((kind: FsNoticeKind, text: string): void => {
-    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current)
-    setToast({ kind, text })
-    toastTimerRef.current = window.setTimeout(() => setToast(null), TOAST_MS)
+    if (kind === 'success') toast.success(text)
+    else if (kind === 'error') toast.error(text)
+    else toast.info(text)
   }, [])
-
-  useEffect(
-    () => () => {
-      if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current)
-    },
-    [],
-  )
 
   /* —— 树加载 / 刷新 —— */
   const refresh = useCallback(async (): Promise<void> => {
@@ -1020,8 +1005,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
           <div className="fs-empty">正在加载目录树…</div>
         )}
       </div>
-      {menu && <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
-      {newAsset ? (
+      {menu && <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}      {newAsset ? (
         <NewAssetModal
           fromDir={newAsset.fromDir}
           projectPath={projectPath ?? ''}
@@ -1037,7 +1021,6 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
           onRestore={(ts) => void restoreSnapshot(history.node, ts)}
         />
       )}
-      {toast && <div className={`fs-toast ${toast.kind}`}>{toast.text}</div>}
     </div>
   )
 }

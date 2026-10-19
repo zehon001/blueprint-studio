@@ -30,54 +30,101 @@
 
 .bp-menu {
   position: fixed;
-  z-index: 60;
-  min-width: 260px;
-  max-width: 340px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  z-index: 6000;
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-width: calc(100vw - var(--space-4));
+  max-height: 460px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-popover);
   font-family: var(--font-ui);
   font-size: var(--font-sm);
   color: var(--text);
   overflow: hidden;
+  animation: bp-menu-in var(--dur-fast) ease;
+}
+
+@keyframes bp-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.bp-menu--edge {
+  width: 220px;
+  min-width: 220px;
 }
 
 .bp-menu-header {
-  padding: var(--space-1) var(--space-2);
+  flex: none;
+  padding: var(--space-2) var(--space-3);
   font-size: var(--font-xs);
+  font-weight: 500;
   color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.04em;
   user-select: none;
 }
 
-.bp-menu-search {
-  display: block;
-  width: calc(100% - var(--space-4));
-  margin: var(--space-2);
-  padding: 4px 8px;
+.bp-menu-searchwrap {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 32px;
+  margin: 0 var(--space-3) var(--space-2);
+  padding: 0 var(--space-2);
   background: var(--bg-input);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
+  color: var(--text-dim);
+}
+
+.bp-menu-searchwrap:focus-within {
+  border-color: var(--accent);
+}
+
+.bp-menu-search {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
   color: var(--text);
   font-family: var(--font-ui);
   font-size: var(--font-sm);
+  outline: none;
 }
 
-.bp-menu-search:focus {
-  outline: 1px solid var(--focus-ring);
+.bp-menu-kbd {
+  flex: none;
+  color: var(--text-disabled);
+  font-family: var(--font-mono);
+  font-size: 10px;
 }
 
 .bp-menu-list {
-  max-height: 320px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding-bottom: var(--space-1);
+  padding: 0 var(--space-1) var(--space-1);
 }
 
 .bp-menu-section {
-  padding: var(--space-1) var(--space-2) 2px;
+  padding: var(--space-2) var(--space-2) var(--space-1);
   font-size: var(--font-xs);
-  color: var(--text-disabled);
+  font-weight: 500;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   user-select: none;
 }
 
@@ -85,65 +132,97 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 4px var(--space-2);
+  width: 100%;
+  min-height: 36px;
+  padding: 3px var(--space-2);
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
   cursor: pointer;
   user-select: none;
 }
 
-.bp-menu-item--active {
-  background: var(--selection);
+.bp-menu-item:hover {
+  background: var(--bg-hover);
 }
 
-.bp-menu-dot {
+.bp-menu-item--active {
+  background: var(--bg-hover);
+  border-left-color: var(--accent);
+}
+
+.bp-menu-cat {
   flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  color: #fff;
 }
 
 .bp-menu-item-texts {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-width: 0;
+  gap: 1px;
 }
 
 .bp-menu-item-title {
+  font-size: var(--font-sm);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .bp-menu-item-sub {
-  font-size: var(--font-xs);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 10px;
   color: var(--text-dim);
+  font-family: var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .bp-menu-badge {
-  margin-left: var(--space-1);
-  padding: 0 4px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  color: var(--accent-hover);
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-dim);
   font-size: 10px;
+  font-family: var(--font-mono);
 }
+
 .bp-menu-note {
-  margin-left: var(--space-2);
+  margin-left: var(--space-1);
   color: var(--warning);
   font-size: 10px;
 }
 
 .bp-menu-empty {
-  padding: var(--space-3) var(--space-2);
+  padding: var(--space-4) var(--space-2);
   font-size: var(--font-sm);
   color: var(--text-dim);
+  text-align: center;
   user-select: none;
 }
 
 .bp-menu-item--danger {
   color: var(--error);
+}
+
+.bp-menu-item--danger:hover {
+  background: rgba(248, 113, 113, 0.12);
 }
 
 /* ============ 选中工具条（对齐 / 分布，§8.2 第 5 条） ============ */

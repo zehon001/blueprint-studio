@@ -14,6 +14,10 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
+import { Search } from 'lucide-react';
+import { Icon } from '../../shell/ui/Icon';
+import { nodeCategoryIcon } from '../../shell/ui/icons';
 import type { Vec2 } from '../../ir/types';
 // 纯模型层直取（不经 view/index barrel：barrel 含 BPGraphCanvas 及其 .css import，
 // 会让 node:test 环境无法挂载本组件冒烟）
@@ -42,9 +46,9 @@ export interface NodeSearchMenuProps {
   onClose: () => void;
 }
 
-/** 菜单近似尺寸（视口收敛用） */
-const MENU_WIDTH = 300;
-const MENU_HEIGHT = 380;
+/** 菜单尺寸（480px 视口收敛用） */
+const MENU_WIDTH = 420;
+const MENU_HEIGHT = 460;
 
 /** 展开后的扁平列表项（带所属分组标题，渲染时对分组变化插入节头） */
 interface FlatItem {
@@ -138,19 +142,23 @@ export function NodeSearchMenu({
   const pos = clampMenuPosition(screen, MENU_WIDTH, MENU_HEIGHT);
   let lastSection = '';
 
-  return (
+  return createPortal(
     <div ref={rootRef} className="bp-menu" style={{ left: pos.x, top: pos.y }} role="menu">
       <div className="bp-menu-header">{title}</div>
-      <input
-        ref={inputRef}
-        className="bp-menu-search"
-        autoFocus
-        placeholder="搜索节点（名称 / 关键词 / 首字母）"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyDown={onKeyDown}
-        spellCheck={false}
-      />
+      <div className="bp-menu-searchwrap">
+        <Icon icon={Search} size={13} />
+        <input
+          ref={inputRef}
+          className="bp-menu-search"
+          autoFocus
+          placeholder="搜索节点（名称 / 关键词 / 首字母）"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onKeyDown}
+          spellCheck={false}
+        />
+        <kbd className="bp-menu-kbd">Esc</kbd>
+      </div>
       <div className="bp-menu-list">
         {flat.length === 0 ? (
           <div className="bp-menu-empty">没有匹配的节点</div>
@@ -172,10 +180,12 @@ export function NodeSearchMenu({
                   onClick={() => pick(index)}
                 >
                   <span
-                    className="bp-menu-dot"
+                    className="bp-menu-cat"
                     style={{ background: headColorFor(headVariantFor(spec.id, spec)) }}
                     aria-hidden="true"
-                  />
+                  >
+                    <Icon icon={nodeCategoryIcon(spec.category)} size={11} />
+                  </span>
                   <span className="bp-menu-item-texts">
                     <span className="bp-menu-item-title">
                       {item.entry.pin
@@ -184,21 +194,20 @@ export function NodeSearchMenu({
                     </span>
                     <span className="bp-menu-item-sub">
                       {item.entry.pin ? `${spec.id} → ${item.entry.pin.id}` : spec.id}
-                      {item.entry.badge ? (
-                        <span className="bp-menu-badge">{item.entry.badge}</span>
-                      ) : null}
                       {item.entry.note ? (
                         <span className="bp-menu-note">{item.entry.note}</span>
                       ) : null}
                     </span>
                   </span>
+                  {item.entry.badge ? <span className="bp-menu-badge">{item.entry.badge}</span> : null}
                 </button>
               </div>
             );
           })
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -246,9 +255,9 @@ export function EdgeContextMenu({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const pos = clampMenuPosition(screen, 200, 90);
-  return (
-    <div ref={rootRef} className="bp-menu" style={{ left: pos.x, top: pos.y }} role="menu">
+  const pos = clampMenuPosition(screen, 220, 110);
+  return createPortal(
+    <div ref={rootRef} className="bp-menu bp-menu--edge" style={{ left: pos.x, top: pos.y }} role="menu">
       <div className="bp-menu-header">连线</div>
       <button
         type="button"
@@ -256,7 +265,9 @@ export function EdgeContextMenu({
         className="bp-menu-item bp-menu-item--danger"
         onClick={onDisconnectOne}
       >
-        断开
+        <span className="bp-menu-item-texts">
+          <span className="bp-menu-item-title">断开</span>
+        </span>
       </button>
       {edgeSelected && selectedEdgeCount > 1 ? (
         <button
@@ -265,9 +276,12 @@ export function EdgeContextMenu({
           className="bp-menu-item bp-menu-item--danger"
           onClick={onDisconnectSelected}
         >
-          断开选中连线（{selectedEdgeCount} 条）
+          <span className="bp-menu-item-texts">
+            <span className="bp-menu-item-title">断开选中连线（{selectedEdgeCount} 条）</span>
+          </span>
         </button>
       ) : null}
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -8,9 +8,12 @@ import {
   AlignLeft,
   Box,
   Boxes,
+  Braces,
+  Calculator,
   ChevronsUpDown,
   Columns2,
   Columns3,
+  Cpu,
   File,
   FileCode2,
   FileImage,
@@ -21,6 +24,7 @@ import {
   FormInput,
   FunctionSquare,
   Gauge,
+  GitBranch,
   Hash,
   Image as ImageIcon,
   LayoutGrid,
@@ -33,6 +37,8 @@ import {
   PanelTop,
   PanelsTopLeft,
   Plug,
+  Puzzle,
+  RefreshCw,
   Rows3,
   ScrollText,
   SlidersHorizontal,
@@ -42,6 +48,7 @@ import {
   TextCursorInput,
   Type,
   Workflow,
+  Zap,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -136,6 +143,57 @@ export const UI_CATEGORY_COLORS: Readonly<Record<string, string>> = {
 /** 分类色（未知分类回退强调色） */
 export function uiCategoryColor(category: string | undefined): string {
   return (category && UI_CATEGORY_COLORS[category]) || ACCENT
+}
+
+/** 蓝图节点分类图标（右键菜单 / 命令面板 / 节点库共用） */
+export function nodeCategoryIcon(category: string | undefined): LucideIcon {
+  switch (category) {
+    case '流程':
+      return GitBranch
+    case '事件':
+      return Zap
+    case '变量':
+      return Braces
+    case '数学':
+      return Calculator
+    case '字符串':
+      return Type
+    case '容器':
+      return Boxes
+    case '转换':
+      return RefreshCw
+    case '界面':
+      return LayoutGrid
+    case '系统':
+      return Cpu
+    default:
+      return Puzzle
+  }
+}
+
+/** 蓝图节点分类色（图标块底色；与节点头语义色同族） */
+export function nodeCategoryColor(category: string | undefined): string {
+  switch (category) {
+    case '事件':
+      return 'var(--node-head-event)'
+    case '数学':
+    case '容器':
+      return 'var(--node-head-function)'
+    case '转换':
+      return 'var(--node-head-pure)'
+    case '流程':
+      return 'var(--node-head-flow)'
+    case '字符串':
+      return 'var(--pin-string)'
+    case '变量':
+      return 'var(--pin-any)'
+    case '界面':
+      return 'var(--pin-object)'
+    case '系统':
+      return 'var(--node-head-plugin)'
+    default:
+      return 'var(--accent)'
+  }
 }
 
 /** UI 节点类型 → Lucide 图标（替代 schema.icon 的 Unicode 字形） */

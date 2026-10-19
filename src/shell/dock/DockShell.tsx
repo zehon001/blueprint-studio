@@ -22,6 +22,8 @@ import {
 import Toolbar from '@/shell/Toolbar'
 import { Icon } from '@/shell/ui/Icon'
 import { assetIconFor } from '@/shell/ui/icons'
+import { CommandPalette } from '@/shell/ui/CommandPalette'
+import { Toaster } from 'sonner'
 import { Maximize2, Minimize2, X } from 'lucide-react'
 import { computeDropSide, type Rect } from './dropZone'
 import { getPanel } from './registry'
@@ -554,12 +556,28 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
   )
 }
 
-/** 编辑器外壳：顶栏 + dock 区（+ T0.4 全局 toast 容器） */
+/** 编辑器外壳：顶栏 + dock 区（+ T0.4 全局 toast 容器 + P2 命令面板） */
 export default function DockShell() {
   return (
     <div className="shell">
       <Toolbar />
       <DockRoot />
+      <CommandPalette />
+      <Toaster
+        theme="dark"
+        position="bottom-right"
+        richColors
+        closeButton
+        toastOptions={{
+          style: {
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border)',
+            color: 'var(--text)',
+            fontFamily: 'var(--font-ui)',
+            fontSize: 'var(--font-sm)',
+          },
+        }}
+      />
       <ToastHost />
       <SettingsModalHost />
     </div>

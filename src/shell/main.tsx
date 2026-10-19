@@ -43,6 +43,7 @@ import { useSettingsStore } from '@/shell/settings/store'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { useDockStore } from '@/shell/dock/store'
 import { runSaveHandler } from '@/shell/workspace/saveRegistry'
+import { openCommandPalette } from '@/shell/ui/CommandPalette'
 
 // v3 §7.6：库变更即时生效——失效元素/预制体缓存并刷新打开资产的样式与视口（保留草稿）
 watchLibrary(() => {
@@ -111,6 +112,13 @@ registerDefaultShortcut({
   label: '运行当前',
   keys: 'F6',
   handler: () => launchRuntimeCurrent(),
+})
+// P2 命令面板：Ctrl/Cmd+K（与编辑器内输入框共存——attachKeyboard 跳过 defaultPrevented）
+registerDefaultShortcut({
+  id: 'view.commandPalette',
+  label: '命令面板',
+  keys: 'Ctrl+K',
+  handler: () => openCommandPalette(),
 })
 // T7.1 改键持久化：应用用户自定义键位（localStorage bps.keymap.v1；冲突 / 失效条目跳过）
 applyKeymapOverrides(loadKeymapOverrides())

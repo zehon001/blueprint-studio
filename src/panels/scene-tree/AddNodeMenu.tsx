@@ -28,7 +28,7 @@ export interface AddNodeMenuProps {
 /** 视口内边距（钳位时保留的最小间隙） */
 const VIEWPORT_GAP = 4;
 /** 列表最大高度（超出滚动） */
-const LIST_MAX_HEIGHT = 288;
+const LIST_MAX_HEIGHT = 388;
 
 export function AddNodeMenu({ x, y, onPick, onClose }: AddNodeMenuProps) {
   const ref = useRef<HTMLDivElement | null>(null)

@@ -806,7 +806,8 @@ test('DOM 冒烟：MyBlueprint 新建事件（名 + 参数行）', async () => {
       setControlledValue(nameInput, '刷新');
     });
     // 加一个参数行
-    const addParam = [...form!.querySelectorAll('button')].find((b) => b.textContent === '＋参数')! as unknown as HTMLButtonElement;
+    const addParam = form!.querySelector('button[title="添加参数行"]') as unknown as HTMLButtonElement;
+    assert.ok(addParam, '添加参数行按钮存在');
     act(() => {
       addParam.click();
     });
@@ -816,9 +817,8 @@ test('DOM 冒烟：MyBlueprint 新建事件（名 + 参数行）', async () => {
     act(() => {
       setControlledValue(paramInput, 'count');
     });
-    const confirm = [...dom.document.querySelectorAll('.bp-mb-addrow--event button')].find(
-      (b) => b.textContent === '✓',
-    )!;
+    const confirm = form!.querySelector('.bp-mb-btn--ok') as unknown as HTMLButtonElement;
+    assert.ok(confirm, '确认新建按钮存在');
     act(() => {
       (confirm as unknown as HTMLButtonElement).click();
     });

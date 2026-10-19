@@ -309,7 +309,12 @@ function AddEventForm(props: {
           </button>
         </div>
       ))}
-      <button type="button" className="bp-mb-btn bp-mb-btn--wide" onClick={() => setRows([...rows, { name: '', type: 'any' }])}>
+      <button
+        type="button"
+        className="bp-mb-btn bp-mb-btn--wide"
+        title="添加参数行"
+        onClick={() => setRows([...rows, { name: '', type: 'any' }])}
+      >
         <Icon icon={Plus} size={12} /> 参数
       </button>
     </div>

@@ -1,27 +1,56 @@
 /*
- * 通用右键菜单样式（T0.7）—— 颜色 / 间距 / 圆角 / 字号全部引用 theme.css token。
- * 由使用方 import（Menu.tsx 自身不引样式，保证 node:test 可加载）；
- * 类名以 fs- 前缀（文件系统面板首创，通用后沿用）。
+ * 统一菜单样式（UI-REDESIGN P2）—— 全部引用 theme.css token。
+ * 类名沿用 fs- 前缀（文件系统面板首创，测试依赖），视觉按 Linear 浮层规格：
+ * 项高 30px、左图标、右侧快捷键、危险项红色、子菜单悬停展开。
  */
 
 .fs-menu {
   position: fixed;
   z-index: 1000;
-  min-width: 160px;
+  min-width: 180px;
+  max-height: min(70vh, 520px);
   display: flex;
   flex-direction: column;
   padding: var(--space-1);
-  background: var(--bg-panel);
-  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  box-shadow: var(--shadow-popover);
+  overflow: visible;
+  animation: fs-menu-in var(--dur-fast) ease;
+}
+
+@keyframes fs-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.fs-menu-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.fs-menu-item-wrap {
+  position: relative;
+  flex: none;
 }
 
 .fs-menu-item {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
   width: 100%;
-  padding: var(--space-1) var(--space-2);
+  min-height: 30px;
+  padding: 0 var(--space-2);
   font-size: var(--font-sm);
   font-family: var(--font-ui);
   color: var(--text);
@@ -31,14 +60,16 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
   white-space: nowrap;
+  outline: none;
 }
 
-.fs-menu-item:hover:not(:disabled) {
-  background: var(--bg-input);
+.fs-menu-item:hover:not(:disabled),
+.fs-menu-item:focus-visible:not(:disabled) {
+  background: var(--bg-hover);
 }
 
-.fs-menu-item:focus-visible {
-  outline: 1px solid var(--focus-ring);
+.fs-menu-item:active:not(:disabled) {
+  background: var(--bg-active);
 }
 
 .fs-menu-item:disabled {
@@ -50,18 +81,55 @@
   color: var(--error);
 }
 
+.fs-menu-item.danger:hover:not(:disabled),
+.fs-menu-item.danger:focus-visible:not(:disabled) {
+  background: rgba(248, 113, 113, 0.12);
+}
+
+.fs-menu-icon {
+  flex: none;
+  width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+}
+
 .fs-menu-label {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .fs-menu-hint {
-  color: var(--text-disabled);
+  flex: none;
+  color: var(--text-dim);
   font-size: var(--font-xs);
   font-family: var(--font-mono);
+}
+
+.fs-menu-chevron {
+  flex: none;
+  display: inline-flex;
+  color: var(--text-dim);
 }
 
 .fs-menu-sep {
   height: 1px;
   margin: var(--space-1) var(--space-2);
   background: var(--border);
+}
+
+/* 子菜单：默认右侧展开；靠近视口右缘时向左 */
+.fs-submenu {
+  position: absolute;
+  top: calc(-1 * var(--space-1));
+  left: calc(100% + 2px);
+  min-width: 180px;
+}
+
+.fs-submenu--left {
+  left: auto;
+  right: calc(100% + 2px);
 }
