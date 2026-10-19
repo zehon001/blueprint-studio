@@ -294,8 +294,15 @@ describe('phoneLog.read 设备模式（mock adb）', () => {
       'broken garbage line',
     ].join('\r\n')
     fs.writeFileSync(path.join(dir, 'mock-dump.txt'), dump, 'utf8')
-    const adbPath = path.join(dir, 'mock-adb.cmd')
-    fs.writeFileSync(adbPath, ['@echo off', 'type "%~dp0mock-dump.txt"'].join('\r\n'), 'utf8')
+    // 跨平台 mock adb：Windows 用 .cmd + type，类 Unix 用 sh + cat（原实现仅 Windows 可跑）
+    if (process.platform === 'win32') {
+      const adbPath = path.join(dir, 'mock-adb.cmd')
+      fs.writeFileSync(adbPath, ['@echo off', 'type "%~dp0mock-dump.txt"'].join('\r\n'), 'utf8')
+      return { adbPath }
+    }
+    const adbPath = path.join(dir, 'mock-adb')
+    fs.writeFileSync(adbPath, '#!/bin/sh\ncat "$(dirname "$0")/mock-dump.txt"\n', 'utf8')
+    fs.chmodSync(adbPath, 0o755)
     return { adbPath }
   }
 
@@ -370,8 +377,17 @@ describe('phoneLog.read 设备模式（mock adb）', () => {
 describe('phoneLog.onLine 持续流（流管理器 + plugin.push 广播）', () => {
   /** 写输出 3 行后自然退出的 mock adb（40ms 间隔，无 cmd 元字符） */
   function writeStreamMock(dir: string, name: string, script: string): string {
-    const adbPath = path.join(dir, name)
-    fs.writeFileSync(adbPath, ['@echo off', `node -e "${script}"`].join('\r\n'), 'utf8')
+    // 跨平台 mock adb：Windows 写 .cmd，类 Unix 写可执行 sh 包装（原实现仅 Windows 可跑）
+    const jsPath = path.join(dir, `${name}.js`)
+    fs.writeFileSync(jsPath, script, 'utf8')
+    if (process.platform === 'win32') {
+      const adbPath = path.join(dir, name)
+      fs.writeFileSync(adbPath, ['@echo off', `"${process.execPath}" "${jsPath}"`].join('\r\n'), 'utf8')
+      return adbPath
+    }
+    const adbPath = path.join(dir, name.replace(/\.cmd$/, ''))
+    fs.writeFileSync(adbPath, `#!/bin/sh\nexec "${process.execPath}" "${jsPath}"\n`, 'utf8')
+    fs.chmodSync(adbPath, 0o755)
     return adbPath
   }
 

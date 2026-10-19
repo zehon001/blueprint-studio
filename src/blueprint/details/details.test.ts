@@ -518,7 +518,7 @@ test('DOM 冒烟：Details 无选中 → 主图设置 / 函数图接口编辑', 
 
     // ＋入参 → 新行 → 填名 → 失焦提交
     const addBtn = [...dom.document.querySelectorAll('.bp-det-btn--wide')].find(
-      (b) => b.textContent === '＋入参',
+      (b) => b.textContent?.includes('入参'),
     ) as unknown as HTMLButtonElement;
     act(() => {
       addBtn.click();

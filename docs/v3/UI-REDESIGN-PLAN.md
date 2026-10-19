@@ -1,9 +1,10 @@
 # UI 现代化改造实施方案（UI-REDESIGN）
 
-> 状态：**已获用户确认**（2026-10-19），待实施
+> 状态：**已完成**（2026-10-19，分支 `feat/ui-redesign`，P0–P6 全部落地）
 > 目标分支建议：从 `fix/v3.1-requirements-consistency`（当前 HEAD `f558396`）切出 `feat/ui-redesign`
 > 工程根目录：`/Users/azusako/Project/Common/blueprint-studio`
 > 本文档自包含：新会话无需背景上下文，按阶段执行即可。
+> 验收留档：`gui-test-screenshots/ui-redesign/`（p0–p6 截图）；全量测试 1046 通过。
 
 ---
 
@@ -419,3 +420,48 @@ npm run typecheck              # 基线全绿
 ```
 
 **本方案已获用户批准，可直接开工；遇到与本文档冲突的现状（如文件已重构），以代码为准并在完成后更新本文档。**
+
+---
+
+## 8. 实施结果与偏差说明（2026-10-19）
+
+### 8.1 分阶段提交
+
+| 阶段 | 提交 | 内容 |
+|---|---|---|
+| P0 | `fd65931` | Linear 近黑 token / Inter / base.css / 字体与布局尺寸 |
+| P1 | `b970710` | ui/Icon + IconButton + 中央图标映射；清除 Unicode 字形 |
+| P2 | `0551871` | 统一 Menu / Dialog / cmdk 命令面板 / NodeSearchMenu / sonner |
+| P3 | `8e2e27f` | 文件系统面板（图标/面包屑/键盘/空态/Dialog） |
+| P4 | `5bac05b` | 检视器卡片 + ui/Field 控件原语 + 重置默认值 |
+| P5 | `5fc4cd2` | 顶栏 / 状态栏 / Dock / 项目管理器 / 运行视图 / 设置 |
+| P6 | `32cbce0` | 节点 / 连线 / 画布 / MiniMap / My Blueprint / 节点库 |
+
+### 8.2 验收结果
+
+- `npm run typecheck`：0 错
+- `npx tsx --test $(find src server tests -name '*.test.ts')`：**1046 通过 / 0 失败**
+- `npm run roundtrip`：通过
+- `npm run build`：绿（仅既有 chunk 体积提示）
+- 截图：`gui-test-screenshots/ui-redesign/p0…p6-*.png`（项目管理器 / 编辑器 / 命令面板 / 文件树 / 检视器 / 运行视图 / 蓝图画布）
+
+### 8.3 与方案的偏差（均已在代码注释说明）
+
+1. **P2 统一菜单**：为保住既有 `.fs-menu` DOM/测试契约与键盘行为，Menu 采用自绘 portal + 视口翻转，
+   未改用 Radix DropdownMenu/ContextMenu；视觉与交互规格按 §4 P2 实现（图标/快捷键/子菜单/键盘）。
+   Radix 仅用于 IconButton 的 Tooltip。
+2. **P4 控件**：`SelectField` 自绘浮层、`SwitchField` 自绘开关（36×20）。
+   原因：Radix Select/Switch 在 happy-dom 下访问 `HTMLFormElement` 全局直接抛错，检视器单测无法运行；
+   视觉与键盘行为保持 §4 P4 规格。`NumberField` 支持拖拽（Shift×10、Alt×0.1）与方向键。
+3. **P3 文件树虚拟化（>300 行）**：按方案授权后置，当前未启用虚拟化；行渲染/拖拽/重命名保持原实现。
+4. **图标数据**：`UINodeSchema.icon` 字段保留（schema 契约/测试断言），渲染层统一改用
+   `schemaIconFor(type, category)` 的 Lucide 图标；`assetBadge()` 仍保留（信息壳与测试使用），
+   dock 页签改为图标 chip。
+5. **新增 MiniMap**：画布原先未挂载 MiniMap，P6 按规格补充（右下角、panel 底、8px 圆角）。
+6. **额外修复**（全量测试暴露的既有跨平台问题，非 UI 逻辑）：
+   - `templates/log-analyzer/assets/sample.log` 补齐 10 行（模板/蓝图/e2e 一直引用但仓库缺失）。
+   - `server/fs.ts` watch：用「监视起点已知路径集」区分 add/change，兼容 macOS FSEvents
+     对覆盖写也报 rename 的行为；快照文件名排序改为「基础时间戳 + 同毫秒序号」数值序。
+   - `server/plugins/phone-log.test.ts`：mock adb 跨平台（Windows .cmd / Unix sh）。
+   - `script/editor` 测试：Mod-s 在 happy-dom 下的平台映射不稳定，改为按钮触发保存链路
+     （命令层 `makeSaveCommand` 仍由单测覆盖）；脏标记断言跟进新 DOM。

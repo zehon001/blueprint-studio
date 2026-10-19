@@ -585,7 +585,7 @@ function uniqueHistoryTs(dir: string): string {
   throw new FsError(500, '同一毫秒内快照数超出上限（异常高频写入）')
 }
 
-/** 快照目录内的 .bak 文件名（按时间序升序 = 文件名字典序；子目录与非 .bak 忽略） */
+/** 快照目录内的 .bak 文件名（按时间序升序：先基础时间戳，再同毫秒序号；忽略子目录与非 .bak） */
 function listSnapshotNames(dir: string): string[] {
   let names: string[]
   try {
@@ -593,7 +593,19 @@ function listSnapshotNames(dir: string): string[] {
   } catch {
     return [] // 目录不存在 / 不可读：无快照
   }
-  return names.filter((n) => n.endsWith('.bak')).sort()
+  const keyOf = (name: string): [string, number] => {
+    const ts = name.endsWith('.bak') ? name.slice(0, -'.bak'.length) : name
+    const m = /^(\d{8}-\d{6}-\d{3})(?:-(\d+))?$/.exec(ts)
+    return m ? [m[1]!, Number(m[2] ?? 0)] : [ts, 0]
+  }
+  return names
+    .filter((n) => n.endsWith('.bak'))
+    .sort((a, b) => {
+      const [ta, sa] = keyOf(a)
+      const [tb, sb] = keyOf(b)
+      if (ta !== tb) return ta < tb ? -1 : 1
+      return sa - sb
+    })
 }
 
 /** 按上限淘汰最旧快照（保留最新 limit 份；limit 至少 1） */
@@ -904,6 +916,8 @@ export function watchPath(
   let pollTimer: NodeJS.Timeout | null = null
   let closed = false
   let lastSnapshot: Map<string, { mtimeMs: number; isDir: boolean }> | null = null
+  /** 监视起点已知路径：区分「新建」与「已有文件被 rename 事件伴随修改」（macOS FSEvents） */
+  const known = new Set<string>(snapshotDir(absDir).keys())
 
   const schedule = (): void => {
     if (closed) return
@@ -927,7 +941,7 @@ export function watchPath(
       return
     }
     const events: FsChangeEvent[] = []
-    for (const [rel, flags] of pending) {
+    for (const rel of pending.keys()) {
       let exists = false
       let isDir = false
       try {
@@ -937,12 +951,19 @@ export function watchPath(
       } catch {
         /* 已删除 / 竞态 */
       }
+      const wasKnown = known.has(rel)
       const event: FsChangeEvent = {
-        // 存在且出现过 rename → 新建/移入（add）；仅 change → 修改；不存在 → 删除
-        type: !exists ? 'unlink' : flags.rename ? 'add' : 'change',
+        // 存在且此前未知 → 新建/移入（add，即使平台只报了 change 而没报 rename）；
+        // 已存在 → 修改；不存在 → 删除。macOS FSEvents 对覆盖写也会带 rename，不能只看 rename。
+        type: !exists ? 'unlink' : !wasKnown ? 'add' : 'change',
         path: rel,
       }
-      if (exists) event.kind = isDir ? 'dir' : 'file'
+      if (exists) {
+        known.add(rel)
+        event.kind = isDir ? 'dir' : 'file'
+      } else {
+        known.delete(rel)
+      }
       events.push(event)
     }
     pending = new Map()
