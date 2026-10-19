@@ -6,6 +6,8 @@
  */
 import { createRoot } from 'react-dom/client'
 import '../theme/theme.css'
+import '../theme/base.css'
+import '@fontsource-variable/inter'
 import './project-manager.css'
 import ProjectManager from './App'
 

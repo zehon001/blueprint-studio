@@ -43,15 +43,17 @@ async function parseThemeCss(): Promise<{ decls: Map<string, string>; counts: Ma
 
 /** DoD 硬性要求的全部 token 名（任务卡 T0.8 Token 清单 + PLAN §8.1） */
 const REQUIRED_TOKENS = [
-  // 基础（Godot 深色）
+  // 基础（Linear 近黑）
   '--bg-app', '--bg-panel', '--bg-panel-header', '--bg-input', '--bg-canvas',
+  '--bg-elevated', '--bg-hover', '--bg-active',
   '--border', '--border-strong',
   '--text', '--text-dim', '--text-disabled',
   '--accent', '--accent-hover', '--selection', '--focus-ring',
   '--success', '--warning', '--error',
+  '--shadow-popover', '--shadow-dialog', '--dur-fast', '--dur-normal',
   '--space-1', '--space-2', '--space-3', '--space-4',
   '--space-5', '--space-6', '--space-7', '--space-8',
-  '--radius-sm', '--radius-md',
+  '--radius-sm', '--radius-md', '--radius-lg',
   '--font-xs', '--font-sm', '--font-md', '--font-lg', '--font-mono', '--font-ui',
   '--panel-header-h', '--toolbar-h', '--tab-h',
   // UE5 蓝图专用（引脚色）
@@ -135,7 +137,7 @@ test('pinColor：数组类型映射到元素类型色，number 别名归 float�
 
 test('色值格式合法：hex 为 6 位、rgba 四分量、尺寸带 px 单位', async () => {
   const sizeNameRe =
-    /^--(space-[1-8]|radius-(sm|md)|font-(xs|sm|md|lg)|panel-header-h|toolbar-h|tab-h|node-title-h)$/;
+    /^--(space-[1-8]|radius-(sm|md|lg)|font-(xs|sm|md|lg)|panel-header-h|toolbar-h|tab-h|node-title-h)$/;
   for (const [name, value] of Object.entries(TOKENS)) {
     if (value.startsWith('#')) {
       assert.match(value, /^#[0-9a-f]{6}$/, `${name} 应为 6 位小写 hex，实际：${value}`);

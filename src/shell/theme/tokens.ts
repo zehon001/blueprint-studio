@@ -1,5 +1,5 @@
 /**
- * Blueprint Studio v2 —— 主题 token（JS 侧，T0.8）
+ * Blueprint Studio v3 —— 主题 token（JS 侧，UI-REDESIGN P0）
  *
  * 与 src/shell/theme/theme.css 一一对应：
  *   - `TOKENS` 是 TS 侧唯一真源：key = CSS 变量名，value = 原始值（hex / px / rgba）。
@@ -15,24 +15,31 @@
  * 顺序与 theme.css 保持一致，便于对照维护。
  */
 export const TOKENS = {
-  /* 基础层（Godot 深色编辑器） */
-  '--bg-app': '#191919',
-  '--bg-panel': '#1e1e1e',
-  '--bg-panel-header': '#252525',
-  '--bg-input': '#292929',
-  '--bg-canvas': '#141414',
-  '--border': '#2e2e2e',
-  '--border-strong': '#3f3f3f',
-  '--text': '#e0e0e0',
-  '--text-dim': '#9e9e9e',
-  '--text-disabled': '#5c5c5c',
-  '--accent': '#4f8cc9',
-  '--accent-hover': '#63a0dc',
-  '--selection': 'rgba(79, 140, 201, 0.35)',
-  '--focus-ring': '#7fb2e5',
-  '--success': '#67c06b',
-  '--warning': '#e2b34a',
-  '--error': '#e05c5c',
+  /* 基础层（Linear 近黑） */
+  '--bg-app': '#0b0c0e',
+  '--bg-panel': '#111215',
+  '--bg-panel-header': '#15171b',
+  '--bg-input': '#1b1d23',
+  '--bg-canvas': '#0e0f12',
+  '--bg-elevated': '#191b21',
+  '--bg-hover': 'rgba(255, 255, 255, 0.045)',
+  '--bg-active': 'rgba(255, 255, 255, 0.075)',
+  '--border': '#23262e',
+  '--border-strong': '#333845',
+  '--text': '#e6e8ec',
+  '--text-dim': '#9ca3af',
+  '--text-disabled': '#5b6270',
+  '--accent': '#5b8cff',
+  '--accent-hover': '#7ba3ff',
+  '--selection': 'rgba(91, 140, 255, 0.14)',
+  '--focus-ring': '#5b8cff',
+  '--success': '#3ecf8e',
+  '--warning': '#f5b544',
+  '--error': '#f87171',
+  '--shadow-popover': '0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border)',
+  '--shadow-dialog': '0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--border)',
+  '--dur-fast': '120ms',
+  '--dur-normal': '160ms',
   '--space-1': '4px',
   '--space-2': '8px',
   '--space-3': '12px',
@@ -41,19 +48,20 @@ export const TOKENS = {
   '--space-6': '24px',
   '--space-7': '32px',
   '--space-8': '40px',
-  '--radius-sm': '3px',
-  '--radius-md': '6px',
+  '--radius-sm': '4px',
+  '--radius-md': '8px',
+  '--radius-lg': '12px',
   '--font-xs': '11px',
   '--font-sm': '12px',
   '--font-md': '13px',
   '--font-lg': '15px',
   '--font-mono': "'JetBrains Mono', 'Cascadia Code', 'Fira Code', Consolas, 'Courier New', monospace",
-  '--font-ui': "'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif",
-  '--panel-header-h': '28px',
-  '--toolbar-h': '36px',
-  '--tab-h': '30px',
+  '--font-ui': "'Inter Variable', 'Inter', -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif",
+  '--panel-header-h': '32px',
+  '--toolbar-h': '40px',
+  '--tab-h': '32px',
 
-  /* 蓝图层（UE5 蓝图默认配色，PLAN §8.1） */
+  /* 蓝图层（UE5 语义骨架保留，仅调质感） */
   '--pin-exec': '#f2f2f2',
   '--pin-bool': '#a41a1a',
   '--pin-int': '#008f8b',
@@ -66,17 +74,17 @@ export const TOKENS = {
   '--node-head-pure': '#2f9e4f',
   '--node-head-flow': '#6a6a6a',
   '--node-head-plugin': '#8b3fbf',
-  '--node-var-bg': '#262626',
-  '--node-var-border': '#3d3d3d',
+  '--node-var-bg': '#1c1f26',
+  '--node-var-border': '#2e323c',
   '--edge-exec': '#f2f2f2',
   '--edge-data-default': '#9a9a9a',
-  '--edge-selected': '#d4e157',
-  '--bp-grid-dot': '#333333',
+  '--edge-selected': '#5b8cff',
+  '--bp-grid-dot': '#1e2128',
   '--bp-comment-bg': 'rgba(150, 150, 150, 0.1)',
   '--bp-comment-border': 'rgba(150, 150, 150, 0.38)',
-  '--node-bg': '#1f1f1f',
-  '--node-border': '#0f0f0f',
-  '--node-selected': '#d8a03f',
+  '--node-bg': '#181a20',
+  '--node-border': '#2a2d35',
+  '--node-selected': '#5b8cff',
   '--node-title-h': '32px',
 } as const;
 
@@ -171,15 +179,18 @@ export const NODE_COLORS = {
   selected: v('--node-selected'),
 } as const;
 
-/* ============ 基础层（Godot 深色编辑器） ============ */
+/* ============ 基础层（Linear 近黑） ============ */
 
-/** 基础配色：背景层级 / 边框 / 文本 / 强调选中 / 状态 */
+/** 基础配色：背景层级 / 边框 / 文本 / 强调选中 / 状态 / 浮层 */
 export const COLORS = {
   bgApp: v('--bg-app'),
   bgPanel: v('--bg-panel'),
   bgPanelHeader: v('--bg-panel-header'),
   bgInput: v('--bg-input'),
   bgCanvas: v('--bg-canvas'),
+  bgElevated: v('--bg-elevated'),
+  bgHover: v('--bg-hover'),
+  bgActive: v('--bg-active'),
   border: v('--border'),
   borderStrong: v('--border-strong'),
   text: v('--text'),
@@ -194,6 +205,18 @@ export const COLORS = {
   error: v('--error'),
 } as const;
 
+/** 阴影（浮层 / 对话框） */
+export const SHADOWS = {
+  popover: v('--shadow-popover'),
+  dialog: v('--shadow-dialog'),
+} as const;
+
+/** 动效时长 */
+export const MOTION = {
+  fast: v('--dur-fast'),
+  normal: v('--dur-normal'),
+} as const;
+
 /** 间距标尺（4px 基准）与圆角 */
 export const SPACING = {
   space1: v('--space-1'),
@@ -206,6 +229,7 @@ export const SPACING = {
   space8: v('--space-8'),
   radiusSm: v('--radius-sm'),
   radiusMd: v('--radius-md'),
+  radiusLg: v('--radius-lg'),
 } as const;
 
 /** 字号与字体栈 */

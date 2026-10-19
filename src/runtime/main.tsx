@@ -9,6 +9,8 @@
  * （解析参数 → fetch /api/file → parseUIAsset → renderUI 运行态渲染，错误态全屏中文提示）。
  */
 import '@/shell/theme/theme.css'
+import '@/shell/theme/base.css'
+import '@fontsource-variable/inter'
 import './runtime.css'
 import { createRoot } from 'react-dom/client'
 import RuntimeApp from './RuntimeApp'

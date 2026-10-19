@@ -1,0 +1,106 @@
+/*
+ * 全局元素基线（UI-REDESIGN §2.4）
+ *
+ * theme.css 只允许声明 token；字体、焦点、滚动条、选中、表单 reset 等跨组件基线放这里。
+ * 三个入口（编辑器 / 项目管理器 / 运行视图）均在 theme.css 之后 import 本文件。
+ * 约定：只做元素级基线，不做布局；组件样式仍在各自 *.css 中。
+ */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-md);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  height: 100%;
+}
+
+/* —— 表单 / 按钮继承排版（颜色与边框仍由组件样式决定）—— */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+::placeholder {
+  color: var(--text-disabled);
+}
+
+/* —— 键盘焦点 —— */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* —— 文本选中 —— */
+::selection {
+  background: rgba(91, 140, 255, 0.35);
+}
+
+/* —— 细滚动条：默认低调，hover 才显色 —— */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2d35;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a3f4b;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* —— 过渡约定：只给颜色 / 背景 / 边框，不给布局 —— */
+button,
+input,
+select,
+textarea {
+  transition:
+    background-color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+/* —— 数字 / ID / 统计使用等宽数字 —— */
+code,
+kbd,
+pre,
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

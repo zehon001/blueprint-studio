@@ -16,6 +16,8 @@
  *   6. 全局键盘适配 + 渲染 DockShell（顶栏 + dock 布局树）。
  */
 import '@/shell/theme/theme.css'
+import '@/shell/theme/base.css'
+import '@fontsource-variable/inter'
 import { createRoot } from 'react-dom/client'
 import {
   attachKeyboard,
