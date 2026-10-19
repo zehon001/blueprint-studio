@@ -1,6 +1,6 @@
 /*
- * 文件系统面板样式（T0.7）—— 颜色 / 间距 / 圆角 / 字号全部引用 theme.css 的 token，
- * 禁止硬编码色值；结构性尺寸用 calc() 基于 token 推导。类名前缀 fs-。
+ * 文件系统面板样式（UI-REDESIGN P3）—— 颜色 / 间距 / 圆角 / 字号全部引用 theme.css token。
+ * 行高 28px、缩进 14px/级、悬停动作、选中左侧强调条；类名前缀 fs-。
  */
 
 /* ===== 面板骨架（填充 dock 的 tab 页） ===== */
@@ -30,33 +30,39 @@
   border-bottom: 1px solid var(--border);
 }
 
-.fs-header-title {
+.fs-breadcrumb {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-dim);
   font-size: var(--font-xs);
 }
 
-.fs-header-btn {
+.fs-breadcrumb-root {
   flex: none;
-  height: calc(var(--panel-header-h) - var(--space-2));
-  padding: 0 var(--space-2);
-  font-size: var(--font-xs);
-  font-family: var(--font-ui);
-  color: var(--text-dim);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+  color: var(--accent);
 }
 
-.fs-header-btn:hover {
-  background: var(--bg-input);
-  border-color: var(--border);
+.fs-crumb {
+  flex: none;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-dim);
+}
+
+.fs-crumb--current {
   color: var(--text);
+  max-width: 200px;
+}
+
+.fs-crumb-sep {
+  flex: none;
+  color: var(--text-disabled);
 }
 
 .fs-tree {
@@ -64,142 +70,176 @@
   min-height: 0;
   overflow: auto;
   padding: var(--space-1) 0 var(--space-6);
+  outline: none;
 }
 
-.fs-empty {
-  flex: 1;
+/* ===== 空态 / 错误态 ===== */
+
+.fs-empty-state {
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   padding: var(--space-6);
-  color: var(--text-disabled);
+  color: var(--text-dim);
   text-align: center;
-  line-height: 1.8;
+}
+
+.fs-empty-state > svg {
+  color: var(--text-disabled);
+}
+
+.fs-empty-error-icon {
+  color: var(--error) !important;
+}
+
+.fs-empty-title {
+  color: var(--text);
+  font-size: var(--font-md);
+  font-weight: 500;
+}
+
+.fs-empty-desc {
+  max-width: 280px;
+  font-size: var(--font-xs);
+  line-height: 1.6;
+  color: var(--text-dim);
 }
 
 /* ===== 树行 ===== */
 
 .fs-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  height: var(--space-5);
-  padding-right: var(--space-2);
+  gap: 6px;
+  height: 28px;
+  margin: 0 var(--space-1);
+  padding-right: var(--space-1);
   white-space: nowrap;
   cursor: default;
   border-radius: var(--radius-sm);
 }
 
 .fs-row:hover {
-  background: var(--bg-input);
+  background: var(--bg-hover);
 }
 
 .fs-row.selected {
   background: var(--selection);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.fs-row.selected .fs-name {
+  color: var(--text);
 }
 
 /* 目录拖放落点高亮（拖入导入） */
 .fs-row.dragover {
   background: var(--selection);
   outline: 1px dashed var(--accent);
-  outline-offset: -1px;
+  outline-offset: -2px;
 }
 
 .fs-chevron {
   flex: none;
-  width: var(--space-4);
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 20px;
   color: var(--text-dim);
-  font-size: var(--font-xs);
   cursor: pointer;
+}
+
+.fs-chevron--ghost {
+  cursor: default;
 }
 
 .fs-chevron:hover {
   color: var(--text);
 }
 
-/* 扩展名图标字符（等宽小徽标） */
 .fs-icon {
   flex: none;
-  min-width: calc(var(--space-6));
-  text-align: center;
-  font-family: var(--font-mono);
-  font-size: var(--font-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
   color: var(--text-dim);
 }
 
-.fs-icon.dir {
-  color: var(--accent);
-}
-
 .fs-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.fs-type-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-dim);
+}
+
+.fs-row-actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.fs-row:hover .fs-row-actions,
+.fs-row.selected .fs-row-actions,
+.fs-row:focus-within .fs-row-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* 行内重命名编辑框（Enter 确认 Esc 取消） */
 .fs-rename-input {
   flex: 1;
   min-width: 0;
-  height: var(--space-5);
+  height: 22px;
   box-sizing: border-box;
   padding: 0 var(--space-1);
   background: var(--bg-input);
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   color: var(--text);
-  font-family: var(--font-ui);
+  font-family: var(--font-mono);
   font-size: var(--font-sm);
   outline: none;
 }
 
-/* ===== 弹窗输入（小模态） ===== */
+/* ===== 对话框表单 ===== */
 
-.fs-modal-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 900;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* 遮罩用 ::before 单独降透明度（token 无半透明黑，用 bg-app + opacity 组合） */
-.fs-modal-overlay::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--bg-app);
-  opacity: 0.55;
-}
-
-.fs-modal {
-  position: relative;
-  min-width: 240px;
-  max-width: calc(100% - var(--space-8));
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  background: var(--bg-panel);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-}
-
-.fs-modal-title {
-  color: var(--text);
-  font-size: var(--font-md);
+.fs-form-row {
+  margin-bottom: var(--space-3);
 }
 
 .fs-modal-label {
+  display: block;
+  margin-bottom: 6px;
   color: var(--text-dim);
   font-size: var(--font-xs);
+  line-height: 1.5;
 }
 
 .fs-modal-input {
-  height: var(--space-6);
+  width: 100%;
+  height: 30px;
   box-sizing: border-box;
   padding: 0 var(--space-2);
   background: var(--bg-input);
@@ -217,47 +257,28 @@
 
 .fs-modal-input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(91, 140, 255, 0.18);
 }
 
-.fs-modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
+select.fs-modal-input {
+  width: 100%;
+}
+
+.fs-modal-hint {
   margin-top: var(--space-2);
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  line-height: 1.6;
+  word-break: break-all;
 }
 
-.fs-btn {
-  height: var(--space-6);
-  padding: 0 var(--space-3);
-  font-size: var(--font-sm);
-  font-family: var(--font-ui);
-  color: var(--text);
-  background: var(--bg-input);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+.fs-modal-error {
+  margin-top: var(--space-1);
+  color: var(--error);
+  font-size: var(--font-xs);
 }
 
-.fs-btn:hover {
-  border-color: var(--accent);
-}
-
-.fs-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--text);
-}
-
-.fs-btn.primary:hover {
-  background: var(--accent-hover);
-}
-
-/* ===== 历史快照列表弹层（T7.4） ===== */
-
-.fs-history-modal {
-  min-width: 340px;
-  max-height: calc(100% - var(--space-8));
-}
+/* ===== 历史快照列表（T7.4） ===== */
 
 .fs-history-list {
   display: flex;
@@ -271,9 +292,15 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  min-height: 34px;
   padding: var(--space-1) var(--space-2);
   background: var(--bg-input);
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+}
+
+.fs-history-item:hover {
+  border-color: var(--border-strong);
 }
 
 .fs-history-ts {
@@ -298,62 +325,4 @@
   color: var(--text-dim);
   font-size: var(--font-sm);
   line-height: 1.5;
-}
-
-/* ===== toast（面板内浮动提示） ===== */
-
-.fs-toast {
-  position: absolute;
-  left: 50%;
-  bottom: var(--space-4);
-  transform: translateX(-50%);
-  z-index: 950;
-  max-width: calc(100% - var(--space-8));
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--font-sm);
-  line-height: 1.5;
-  background: var(--bg-panel-header);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  color: var(--text);
-  white-space: pre-line;
-}
-
-.fs-toast.success {
-  border-color: var(--success);
-}
-
-.fs-toast.error {
-  border-color: var(--error);
-}
-
-.fs-toast.info {
-  border-color: var(--accent);
-}
-
-/* ===== v3 T8.4：新建资产向导 ===== */
-select.fs-modal-input {
-  width: 100%;
-}
-
-.fs-modal-hint {
-  color: var(--text-dim);
-  font-size: var(--font-xs);
-  line-height: 1.6;
-  word-break: break-all;
-}
-
-.fs-modal-error {
-  color: var(--error);
-  font-size: var(--font-xs);
-}
-
-.fs-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.fs-btn.primary:disabled {
-  background: var(--bg-input);
-  border-color: var(--border);
-  color: var(--text-dim);
 }

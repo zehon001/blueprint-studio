@@ -24,10 +24,32 @@
  * defaultPanels.tsx 替换占位组件那一行即可），本文件不改 dock 代码。
  */
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
-import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import type {
+  DragEvent as ReactDragEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+} from 'react'
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  FilePlus2,
+  FolderOpen,
+  FolderPlus,
+  History,
+  Import,
+  MoreHorizontal,
+  Package,
+  Pencil,
+  RefreshCw,
+  Trash2,
+  TriangleAlert,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { Icon } from '@/shell/ui/Icon'
+import { IconButton } from '@/shell/ui/IconButton'
+import { Dialog } from '@/shell/ui/Dialog'
 import { fileIconFor } from '@/shell/ui/icons'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { assetPanelId, openAssetPanel } from '@/shell/dock/assetPanelModel'
@@ -50,7 +72,6 @@ import {
   dedupeName,
   displayNameOf,
   extensionOf,
-  extLabelOf,
   formatBytes,
   historyTsLabel,
   joinPosix,
@@ -85,42 +106,44 @@ interface PromptState {
 function PromptModal(props: PromptState & { onCancel: () => void }) {
   const [value, setValue] = useState(props.value)
   return (
-    <div
-      className="fs-modal-overlay"
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) props.onCancel()
-      }}
-    >
-      <div
-        className="fs-modal"
-        role="dialog"
-        aria-label={props.title}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') props.onCancel()
-          else if (e.key === 'Enter') props.onConfirm(value.trim())
-        }}
-      >
-        <div className="fs-modal-title">{props.title}</div>
-        <label className="fs-modal-label">{props.label}</label>
-        <input
-          className={`fs-modal-input${props.mono ? ' mono' : ''}`}
-          value={value}
-          placeholder={props.placeholder}
-          spellCheck={false}
-          autoFocus
-          onFocus={(e) => e.target.select()}
-          onChange={(e) => setValue(e.target.value)}
-        />
-        <div className="fs-modal-actions">
-          <button type="button" className="fs-btn" onClick={props.onCancel}>
+    <Dialog
+      title={props.title}
+      width={400}
+      onClose={props.onCancel}
+      footer={
+        <>
+          <button type="button" className="ui-btn" onClick={props.onCancel}>
             取消
           </button>
-          <button type="button" className="fs-btn primary" onClick={() => props.onConfirm(value.trim())}>
+          <button
+            type="button"
+            className="ui-btn"
+            data-variant="primary"
+            onClick={() => props.onConfirm(value.trim())}
+          >
             {props.confirmText}
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <label className="fs-modal-label" htmlFor="fs-prompt-input">
+        {props.label}
+      </label>
+      <input
+        id="fs-prompt-input"
+        className="fs-modal-input"
+        style={props.mono ? { fontFamily: 'var(--font-mono)' } : undefined}
+        value={value}
+        placeholder={props.placeholder}
+        spellCheck={false}
+        autoFocus
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') props.onConfirm(value.trim())
+        }}
+      />
+    </Dialog>
   )
 }
 
@@ -167,24 +190,33 @@ function NewAssetModal(props: {
   const invalid = stem ? validateFileName(fileName) : null
   const canCreate = stem !== '' && invalid === null
   return (
-    <div
-      className="fs-modal-overlay"
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) props.onCancel()
-      }}
+    <Dialog
+      title="新建资产"
+      width={440}
+      onClose={props.onCancel}
+      footer={
+        <>
+          <button type="button" className="ui-btn" onClick={props.onCancel}>
+            取消
+          </button>
+          <button
+            type="button"
+            className="ui-btn"
+            data-variant="primary"
+            disabled={!canCreate}
+            onClick={() => props.onCreate(type, fileName)}
+          >
+            创建
+          </button>
+        </>
+      }
     >
-      <div
-        className="fs-modal"
-        role="dialog"
-        aria-label="新建资产"
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') props.onCancel()
-          else if (e.key === 'Enter' && canCreate) props.onCreate(type, fileName)
-        }}
-      >
-        <div className="fs-modal-title">新建资产</div>
-        <label className="fs-modal-label">资产类型</label>
+      <div className="fs-form-row">
+        <label className="fs-modal-label" htmlFor="fs-new-asset-type">
+          资产类型
+        </label>
         <select
+          id="fs-new-asset-type"
           className="fs-modal-input"
           value={typeId}
           onChange={(e) => setTypeId(e.target.value)}
@@ -196,8 +228,13 @@ function NewAssetModal(props: {
             </option>
           ))}
         </select>
-        <label className="fs-modal-label">主名（自动补 {type.ext}）</label>
+      </div>
+      <div className="fs-form-row">
+        <label className="fs-modal-label" htmlFor="fs-new-asset-name">
+          主名（自动补 {type.ext}）
+        </label>
         <input
+          id="fs-new-asset-name"
           className="fs-modal-input mono"
           value={name}
           placeholder={type.id === 'prefab' ? '如 list-item' : type.id.startsWith('script') ? '如 parser' : '如 main'}
@@ -205,29 +242,19 @@ function NewAssetModal(props: {
           autoFocus
           onFocus={(e) => e.target.select()}
           onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && canCreate) props.onCreate(type, fileName)
+          }}
         />
-        <div className="fs-modal-hint">
-          目标：{joinPosix(props.projectPath, type.dir)}/{fileName || `${'{主名}'}${type.ext}`}
-          {props.fromDir !== joinPosix(props.projectPath, type.dir)
-            ? '（按类型约定目录，不跟随右键目录）'
-            : ''}
-        </div>
-        {invalid ? <div className="fs-modal-error">{invalid}</div> : null}
-        <div className="fs-modal-actions">
-          <button type="button" className="fs-btn" onClick={props.onCancel}>
-            取消
-          </button>
-          <button
-            type="button"
-            className="fs-btn primary"
-            disabled={!canCreate}
-            onClick={() => props.onCreate(type, fileName)}
-          >
-            创建
-          </button>
-        </div>
       </div>
-    </div>
+      <div className="fs-modal-hint">
+        目标：{joinPosix(props.projectPath, type.dir)}/{fileName || `${'{主名}'}${type.ext}`}
+        {props.fromDir !== joinPosix(props.projectPath, type.dir)
+          ? '（按类型约定目录，不跟随右键目录）'
+          : ''}
+      </div>
+      {invalid ? <div className="fs-modal-error">{invalid}</div> : null}
+    </Dialog>
   )
 }
 
@@ -244,48 +271,38 @@ interface HistoryState {
 function HistoryModal(props: { state: HistoryState; onClose: () => void; onRestore: (ts: string) => void }) {
   const { state, onClose, onRestore } = props
   return (
-    <div
-      className="fs-modal-overlay"
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) props.onClose()
-      }}
+    <Dialog
+      title={`历史快照 — ${state.node.name}`}
+      icon={<Icon icon={History} size={15} />}
+      width={460}
+      onClose={onClose}
+      footer={
+        <button type="button" className="ui-btn" onClick={onClose}>
+          关闭
+        </button>
+      }
     >
-      <div
-        className="fs-modal fs-history-modal"
-        role="dialog"
-        aria-label={`历史快照 — ${state.node.name}`}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') onClose()
-        }}
-      >
-        <div className="fs-modal-title">历史快照 — {state.node.name}</div>
-        <div className="fs-modal-label">
-          共 {state.entries.length} 份（新 → 旧）；恢复前会自动为当前内容留存快照，可再次恢复撤销。
-        </div>
-        {state.entries.length === 0 ? (
-          <div className="fs-history-empty">
-            暂无快照（文件被覆盖保存 / 删除时由服务端自动生成，默认每文件保留最近 20 份）
-          </div>
-        ) : (
-          <div className="fs-history-list">
-            {state.entries.map((e) => (
-              <div key={e.ts} className="fs-history-item">
-                <span className="fs-history-ts">{historyTsLabel(e.ts)}</span>
-                <span className="fs-history-size">{formatBytes(e.size)}</span>
-                <button type="button" className="fs-btn primary" onClick={() => onRestore(e.ts)}>
-                  恢复
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="fs-modal-actions">
-          <button type="button" className="fs-btn" onClick={onClose}>
-            关闭
-          </button>
-        </div>
+      <div className="fs-modal-label">
+        共 {state.entries.length} 份（新 → 旧）；恢复前会自动为当前内容留存快照，可再次恢复撤销。
       </div>
-    </div>
+      {state.entries.length === 0 ? (
+        <div className="fs-history-empty">
+          暂无快照（文件被覆盖保存 / 删除时由服务端自动生成，默认每文件保留最近 20 份）
+        </div>
+      ) : (
+        <div className="fs-history-list">
+          {state.entries.map((e) => (
+            <div key={e.ts} className="fs-history-item">
+              <span className="fs-history-ts">{historyTsLabel(e.ts)}</span>
+              <span className="fs-history-size">{formatBytes(e.size)}</span>
+              <button type="button" className="ui-btn" data-variant="primary" onClick={() => onRestore(e.ts)}>
+                恢复
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Dialog>
   )
 }
 
@@ -770,37 +787,47 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     setMenu({ x: e.clientX, y: e.clientY, items })
   }
 
+  function openMenuAtPoint(x: number, y: number, items: MenuItem[]): void {
+    setMenu({ x, y, items })
+  }
+
+  /** 鼠标悬停「更多」按钮：在按钮下方打开与右键相同的菜单 */
+  function openRowMenu(anchor: HTMLElement, items: MenuItem[]): void {
+    const rect = anchor.getBoundingClientRect()
+    openMenuAtPoint(rect.left, rect.bottom + 2, items)
+  }
+
   function fileMenuItems(node: FsNode): MenuItem[] {
     return [
-      { label: '打开', disabled: assetKindOf(node.name) === null, onSelect: () => openFileNode(node) },
-      { label: '历史快照…', onSelect: () => void openHistory(node) },
-      { label: '重命名', onSelect: () => startRename(node.path) },
-      { label: '复制', onSelect: () => void duplicateNode(node) },
+      { label: '打开', icon: FolderOpen, disabled: assetKindOf(node.name) === null, onSelect: () => openFileNode(node) },
+      { label: '历史快照…', icon: History, onSelect: () => void openHistory(node) },
+      { label: '重命名', icon: Pencil, onSelect: () => startRename(node.path) },
+      { label: '复制', icon: Copy, onSelect: () => void duplicateNode(node) },
       { separator: true },
-      { label: '删除', danger: true, onSelect: () => void deleteNode(node) },
+      { label: '删除', icon: Trash2, danger: true, onSelect: () => void deleteNode(node) },
     ]
   }
 
   function dirMenuItems(node: FsNode): MenuItem[] {
     return [
-      { label: '新建资产…', onSelect: () => setNewAsset({ fromDir: node.path }) },
-      { label: '新建文件（自定义扩展名）', onSelect: () => setPrompt(newFilePrompt(node.path)) },
-      { label: '新建文件夹', onSelect: () => void createDir(node.path) },
-      { label: '重命名', onSelect: () => startRename(node.path) },
-      { label: '删除', danger: true, onSelect: () => void deleteNode(node) },
+      { label: '新建资产…', icon: FolderPlus, onSelect: () => setNewAsset({ fromDir: node.path }) },
+      { label: '新建文件（自定义扩展名）', icon: FilePlus2, onSelect: () => setPrompt(newFilePrompt(node.path)) },
+      { label: '新建文件夹', icon: FolderPlus, onSelect: () => void createDir(node.path) },
+      { label: '重命名', icon: Pencil, onSelect: () => startRename(node.path) },
+      { label: '删除', icon: Trash2, danger: true, onSelect: () => void deleteNode(node) },
       { separator: true },
-      { label: '导入文件到此处', onSelect: () => setPrompt(importPrompt(node.path)) },
+      { label: '导入文件到此处', icon: Import, onSelect: () => setPrompt(importPrompt(node.path)) },
     ]
   }
 
   function blankMenuItems(dirPath: string): MenuItem[] {
     return [
-      { label: '新建资产…', onSelect: () => setNewAsset({ fromDir: dirPath }) },
-      { label: '新建文件（自定义扩展名）', onSelect: () => setPrompt(newFilePrompt(dirPath)) },
-      { label: '新建文件夹', onSelect: () => void createDir(dirPath) },
-      { label: '刷新', onSelect: () => void refresh() },
+      { label: '新建资产…', icon: FolderPlus, onSelect: () => setNewAsset({ fromDir: dirPath }) },
+      { label: '新建文件（自定义扩展名）', icon: FilePlus2, onSelect: () => setPrompt(newFilePrompt(dirPath)) },
+      { label: '新建文件夹', icon: FolderPlus, onSelect: () => void createDir(dirPath) },
+      { label: '刷新', icon: RefreshCw, onSelect: () => void refresh() },
       { separator: true },
-      { label: '导入文件', onSelect: () => setPrompt(importPrompt(dirPath)) },
+      { label: '导入文件', icon: Import, onSelect: () => setPrompt(importPrompt(dirPath)) },
     ]
   }
 
@@ -849,10 +876,13 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   if (!project) {
     return (
       <div className="fs-panel">
-        <div className="fs-empty">
-          未打开项目
-          <br />
-          请从项目管理器打开或新建一个项目
+        <div className="fs-empty-state">
+          <Icon icon={FolderOpen} size={48} />
+          <div className="fs-empty-title">未打开项目</div>
+          <div className="fs-empty-desc">请从项目管理器打开或新建一个项目。</div>
+          <button type="button" className="ui-btn" data-variant="primary" onClick={() => { window.location.href = '/' }}>
+            返回项目管理器
+          </button>
         </div>
       </div>
     )
@@ -878,15 +908,98 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     )
   }
 
+  /** 当前可见行（展开态扁平化，键盘导航用） */
+  function visibleTreeNodes(): FsNode[] {
+    const out: FsNode[] = []
+    const walk = (node: FsNode): void => {
+      for (const child of node.children ?? []) {
+        out.push(child)
+        if (child.type === 'dir' && expanded.has(child.path)) walk(child)
+      }
+    }
+    if (tree) walk(tree)
+    return out
+  }
+
+  const treeElRef = useRef<HTMLDivElement | null>(null)
+
+  function focusRow(node: FsNode): void {
+    selectNode(node)
+    window.requestAnimationFrame(() => {
+      const el = treeElRef.current?.querySelector(`[data-fs-path="${CSS.escape(node.path)}"]`)
+      el?.scrollIntoView({ block: 'nearest' })
+    })
+  }
+
+  /** 树键盘导航：↑↓ 选中、←→ 折叠/展开、Enter 打开、Home/End 首尾 */
+  function onTreeKeyDown(e: ReactKeyboardEvent<HTMLDivElement>): void {
+    const target = e.target as HTMLElement
+    if (target.closest('input, textarea, select')) return
+    const rows = visibleTreeNodes()
+    if (rows.length === 0) return
+    const index = selected ? rows.findIndex((r) => r.path === selected) : -1
+    const current = index >= 0 ? rows[index]! : null
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      const next = e.key === 'ArrowDown' ? Math.min(index + 1, rows.length - 1) : Math.max(index - 1, 0)
+      focusRow(rows[next]!)
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault()
+      focusRow(e.key === 'Home' ? rows[0]! : rows[rows.length - 1]!)
+    } else if (e.key === 'ArrowRight' && current?.type === 'dir') {
+      e.preventDefault()
+      if (!expanded.has(current.path)) toggleExpand(current.path)
+      else {
+        const child = current.children?.[0]
+        if (child) focusRow(child)
+      }
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault()
+      if (current?.type === 'dir' && expanded.has(current.path)) toggleExpand(current.path)
+      else if (current) {
+        const parent = findNode(tree!, parentOf(current.path))
+        if (parent && parent.path !== current.path) focusRow(parent)
+      }
+    } else if (e.key === 'Enter' && current) {
+      e.preventDefault()
+      if (current.type === 'dir') toggleExpand(current.path)
+      else openFileNode(current)
+    } else if (e.key === ' ' && current?.type === 'dir') {
+      e.preventDefault()
+      toggleExpand(current.path)
+    }
+  }
+
+  function renderRowActions(node: FsNode, items: MenuItem[]): ReactNode {
+    return (
+      <span className="fs-row-actions">
+        <IconButton
+          icon={MoreHorizontal}
+          label="更多操作"
+          onClick={(e) => {
+            e.stopPropagation()
+            selectNode(node)
+            openRowMenu(e.currentTarget, items)
+          }}
+        />
+      </span>
+    )
+  }
+
   function renderRows(node: FsNode, depth: number): ReactNode {
     if (node.type === 'dir') {
       const isExpanded = expanded.has(node.path)
       const dropTarget = dragOver === node.path
+      const spec = fileIconFor(node.name, { isDir: true, expanded: isExpanded })
       return (
         <Fragment key={node.path}>
           <div
+            role="treeitem"
+            aria-expanded={isExpanded}
+            aria-selected={selected === node.path}
+            data-fs-path={node.path}
             className={`fs-row${selected === node.path ? ' selected' : ''}${dropTarget ? ' dragover' : ''}`}
-            style={{ paddingLeft: `calc(var(--space-2) + ${depth} * var(--space-5))` }}
+            style={{ paddingLeft: `calc(var(--space-2) + ${depth * 14}px)` }}
             title={node.path}
             onClick={() => selectNode(node)}
             onDoubleClick={() => toggleExpand(node.path)}
@@ -920,24 +1033,27 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
             >
               {isExpanded ? <Icon icon={ChevronDown} size={12} /> : <Icon icon={ChevronRight} size={12} />}
             </span>
-            <span className="fs-icon dir" aria-hidden>
-              <Icon
-                icon={fileIconFor(node.name, { isDir: true, expanded: isExpanded }).icon}
-                size={14}
-                style={{ color: fileIconFor(node.name, { isDir: true, expanded: isExpanded }).color }}
-              />
+            <span className="fs-icon" aria-hidden>
+              <Icon icon={spec.icon} size={14} style={{ color: spec.color }} />
             </span>
             {renamingPath === node.path ? renderRenameInput() : <span className="fs-name">{node.name}</span>}
+            {renderRowActions(node, dirMenuItems(node))}
           </div>
           {isExpanded ? node.children.map((c) => renderRows(c, depth + 1)) : null}
         </Fragment>
       )
     }
+    const spec = fileIconFor(node.name)
+    const isBp = /\.bp\.json$/i.test(node.name)
+    const isUi = /\.ui\.json$/i.test(node.name)
     return (
       <div
         key={node.path}
+        role="treeitem"
+        aria-selected={selected === node.path}
+        data-fs-path={node.path}
         className={`fs-row${selected === node.path ? ' selected' : ''}`}
-        style={{ paddingLeft: `calc(var(--space-2) + ${depth} * var(--space-5))` }}
+        style={{ paddingLeft: `calc(var(--space-2) + ${depth * 14}px)` }}
         title={node.path}
         onClick={() => selectNode(node)}
         onDoubleClick={() => openFileNode(node)}
@@ -948,22 +1064,33 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
           openMenuAt(e, fileMenuItems(node))
         }}
       >
-        <span className={`fs-icon ext-${extLabelOf(node.name).replace(/[^a-zA-Z0-9]/g, '')}`} aria-hidden>
-          {extLabelOf(node.name)}
+        <span className="fs-chevron fs-chevron--ghost" aria-hidden />
+        <span className="fs-icon" aria-hidden>
+          <Icon icon={spec.icon} size={14} style={{ color: spec.color }} />
         </span>
         {renamingPath === node.path ? (
           renderRenameInput()
         ) : (
           <span className="fs-name">{displayNameOf(node.name)}</span>
         )}
+        {isBp || isUi ? (
+          <span className="fs-type-chip" title={isBp ? '蓝图资产' : '界面资产'}>
+            <Icon icon={spec.icon} size={11} />
+          </span>
+        ) : null}
+        {renderRowActions(node, fileMenuItems(node))}
       </div>
     )
   }
+
+  const relSelected = selected ? relInProject(selected) : ''
+  const crumbs = [project.name, ...relSelected.split('/').filter(Boolean)]
 
   return (
     <div
       className="fs-panel"
       onContextMenu={(e) => {
+        if ((e.target as HTMLElement).closest('.fs-row')) return
         e.preventDefault()
         openMenuAt(e, blankMenuItems(projectPath ?? ''))
       }}
@@ -983,29 +1110,60 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       }}
     >
       <div className="fs-header">
-        <span className="fs-header-title" title={projectPath ?? undefined}>
-          {project.name}
-        </span>
-        <button type="button" className="fs-header-btn" title="刷新（重新读取目录树）" onClick={() => void refresh()}>
-          刷新
-        </button>
+        <div className="fs-breadcrumb" title={selected ?? projectPath ?? undefined}>
+          <Icon icon={Package} size={13} className="fs-breadcrumb-root" />
+          {crumbs.map((crumb, i) => (
+            <Fragment key={`${crumb}:${i}`}>
+              {i > 0 ? <Icon icon={ChevronRight} size={10} className="fs-crumb-sep" /> : null}
+              <span className={i === crumbs.length - 1 ? 'fs-crumb fs-crumb--current' : 'fs-crumb'}>{crumb}</span>
+            </Fragment>
+          ))}
+        </div>
+        <IconButton icon={RefreshCw} label="刷新目录树" onClick={() => void refresh()} />
       </div>
-      <div className="fs-tree">
+      <div
+        className="fs-tree"
+        ref={treeElRef}
+        role="tree"
+        aria-label="项目文件"
+        tabIndex={0}
+        onKeyDown={onTreeKeyDown}
+      >
         {loadError ? (
-          <div className="fs-empty">
-            目录树加载失败
-            <br />
-            {loadError}
-            <br />
-            （请确认本地服务已启动，右键可刷新）
+          <div className="fs-empty-state">
+            <Icon icon={TriangleAlert} size={32} className="fs-empty-error-icon" />
+            <div className="fs-empty-title">目录树加载失败</div>
+            <div className="fs-empty-desc">{loadError}</div>
+            <button type="button" className="ui-btn" onClick={() => void refresh()}>
+              重试
+            </button>
           </div>
         ) : tree ? (
-          tree.children.map((c) => renderRows(c, 1))
+          tree.children.length === 0 ? (
+            <div className="fs-empty-state">
+              <Icon icon={FolderOpen} size={48} />
+              <div className="fs-empty-title">项目还是空的</div>
+              <div className="fs-empty-desc">新建一个 UI 场景、蓝图或脚本，开始搭建你的工具。</div>
+              <button
+                type="button"
+                className="ui-btn"
+                data-variant="primary"
+                onClick={() => setNewAsset({ fromDir: projectPath ?? '' })}
+              >
+                新建资产
+              </button>
+            </div>
+          ) : (
+            tree.children.map((c) => renderRows(c, 0))
+          )
         ) : (
-          <div className="fs-empty">正在加载目录树…</div>
+          <div className="fs-empty-state">
+            <div className="fs-empty-desc">正在加载目录树…</div>
+          </div>
         )}
       </div>
-      {menu && <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}      {newAsset ? (
+      {menu && <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {newAsset ? (
         <NewAssetModal
           fromDir={newAsset.fromDir}
           projectPath={projectPath ?? ''}
