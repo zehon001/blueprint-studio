@@ -30,6 +30,8 @@
  * 注意：本组件不 import .css（node:test 需直接加载本文件；样式在 index.ts 统一挂）。
  */
 import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { CircleAlert, TriangleAlert } from 'lucide-react'
+import { Icon } from '@/shell/ui/Icon'
 import { registerShortcut, unregisterShortcut } from '@/shell/keymap/registry'
 import { useWorkspaceStore, tabIdOf } from '@/shell/workspace-store'
 import { useBlueprintStore } from '@/blueprint/store/blueprint-store'
@@ -528,7 +530,7 @@ export function ScriptTab({ assetPath, dirtyDebounceMs = 300 }: ScriptTabProps) 
         ) : null}
         {tabDirty ? (
           <span className="script-tab-dirty" role="status">
-            ● 未保存
+            <span className="script-tab-dirty-dot" aria-hidden /> 未保存
           </span>
         ) : null}
         <span className="script-tab-bar-fill" />
@@ -549,7 +551,7 @@ export function ScriptTab({ assetPath, dirtyDebounceMs = 300 }: ScriptTabProps) 
                 className={`script-tab-diag-item${d.severity === 'error' ? ' has-error' : ''}`}
                 onClick={() => jumpToDiagnostic(d)}
               >
-                {d.severity === 'error' ? '✕' : '⚠'} {d.line}:{d.column} {d.message}
+                <Icon icon={d.severity === 'error' ? CircleAlert : TriangleAlert} size={12} /> {d.line}:{d.column} {d.message}
               </button>
             </li>
           ))}
@@ -615,7 +617,7 @@ export function ScriptTab({ assetPath, dirtyDebounceMs = 300 }: ScriptTabProps) 
               <div className="script-tab-bp-diags" role="status">
                 {blueprintDiags.slice(0, 5).map((d, i) => (
                   <div key={i} className={`script-tab-bp-diag${d.severity === 'error' ? ' has-error' : ''}`}>
-                    {d.severity === 'error' ? '✕' : '⚠'} {d.line}:{d.column} {d.message}
+                    <Icon icon={d.severity === 'error' ? CircleAlert : TriangleAlert} size={12} /> {d.line}:{d.column} {d.message}
                   </div>
                 ))}
                 {blueprintDiags.length > 5 ? (

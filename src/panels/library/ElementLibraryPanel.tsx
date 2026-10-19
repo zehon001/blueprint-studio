@@ -7,6 +7,8 @@
  */
 import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import { uiNodeSchemas, NODE_CATEGORIES } from '@/ui-editor/schema'
+import { Icon } from '@/shell/ui/Icon'
+import { schemaIconFor, uiCategoryColor } from '@/shell/ui/icons'
 import { commitAddNode } from '@/ui-editor/viewport/commands'
 import { getSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
 import {
@@ -165,7 +167,9 @@ export function ElementLibraryPanel({ onCreated }: { onCreated?: () => void } = 
                     onDragStart={(e) => dragPayload(e, CONTROL_DRAG_MIME, s.type)}
                     onClick={() => addControl(s.type)}
                   >
-                    <span className="element-library-icon">{s.icon ?? '▦'}</span>
+                    <span className="element-library-icon" style={{ color: uiCategoryColor(s.category) }} aria-hidden>
+                      <Icon icon={schemaIconFor(s.type, s.category)} size={16} />
+                    </span>
                     <span className="element-library-name">{s.title}</span>
                   </button>
                 ))}

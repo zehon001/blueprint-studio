@@ -11,7 +11,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
+import { Search } from 'lucide-react';
 import { NODE_CATEGORIES, searchUISchemas, type UINodeSchema } from '@/ui-editor/schema';
+import { Icon } from '@/shell/ui/Icon';
+import { schemaIconFor, uiCategoryColor } from '@/shell/ui/icons';
 
 export interface AddNodeMenuProps {
   /** 视口坐标（通常取 contextmenu 事件的 clientX / clientY） */
@@ -74,18 +77,21 @@ export function AddNodeMenu({ x, y, onPick, onClose }: AddNodeMenuProps) {
   const style: CSSProperties = { left: pos.x, top: pos.y }
   return createPortal(
     <div ref={ref} className="st-addmenu" role="menu" aria-label="添加节点" style={style}>
-      <input
-        className="st-addmenu-search"
-        value={kw}
-        placeholder="搜索节点…"
-        spellCheck={false}
-        autoFocus
-        onFocus={(e) => e.target.select()}
-        onChange={(e) => setKw(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && results.length > 0) onPick(results[0])
-        }}
-      />
+      <div className="st-addmenu-searchwrap">
+        <Icon icon={Search} size={13} />
+        <input
+          className="st-addmenu-search"
+          value={kw}
+          placeholder="搜索节点…"
+          spellCheck={false}
+          autoFocus
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => setKw(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && results.length > 0) onPick(results[0])
+          }}
+        />
+      </div>
       <div className="st-addmenu-list" style={{ maxHeight: LIST_MAX_HEIGHT }}>
         {groups.map((g) => (
           <div key={g.category} className="st-addmenu-group-wrap">
@@ -99,8 +105,12 @@ export function AddNodeMenu({ x, y, onPick, onClose }: AddNodeMenuProps) {
                 title={s.keywords?.join(' · ')}
                 onClick={() => onPick(s)}
               >
-                <span className="st-addmenu-icon" aria-hidden>
-                  {s.icon ?? '·'}
+                <span
+                  className="st-addmenu-icon"
+                  aria-hidden
+                  style={{ color: uiCategoryColor(s.category), background: 'var(--bg-input)' }}
+                >
+                  <Icon icon={schemaIconFor(s.type, s.category)} size={13} />
                 </span>
                 <span className="st-addmenu-title">{s.title}</span>
                 <span className="st-addmenu-type">{s.type}</span>

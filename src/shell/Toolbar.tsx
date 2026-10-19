@@ -10,6 +10,22 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import {
+  Boxes,
+  Bug,
+  ChevronDown,
+  LayoutDashboard,
+  Package,
+  Play,
+  PlayCircle,
+  Redo2,
+  RotateCcw,
+  Save,
+  Settings,
+  Undo2,
+} from 'lucide-react'
+import { Icon } from '@/shell/ui/Icon'
+import { IconButton } from '@/shell/ui/IconButton'
+import {
   redo,
   undo,
   useCanRedo,
@@ -66,9 +82,13 @@ export default function Toolbar() {
   return (
     <div className="toolbar">
       <div className="toolbar-left">
-        <span className="toolbar-logo">Blueprint Studio</span>
-        <span className="toolbar-project" title="当前项目（?project= 初始化，T0.6 项目管理器接入）">
-          {projectName ?? '未打开项目'}
+        <span className="toolbar-logo">
+          <Icon icon={Boxes} size={16} />
+          <span>Blueprint Studio</span>
+        </span>
+        <span className="toolbar-project" title="当前项目">
+          <Icon icon={Package} size={13} />
+          <span>{projectName ?? '未打开项目'}</span>
         </span>
       </div>
 
@@ -81,7 +101,9 @@ export default function Toolbar() {
           onClick={() => launchRuntimeMain()}
           title="运行主 UI（F5）—— 内置运行视图（可拆出独立窗口），ui 取 project.json.mainUI"
         >
-          ▶ 运行(F5)
+          <Icon icon={Play} size={13} />
+          运行
+          <kbd className="toolbar-kbd">F5</kbd>
         </button>
         <button
           type="button"
@@ -89,13 +111,18 @@ export default function Toolbar() {
           onClick={() => launchRuntimeCurrent()}
           title="运行当前 UI（F6）—— 内置运行视图运行激活的 .ui.json 资产"
         >
-          ▶ 运行当前(F6)
+          <Icon icon={PlayCircle} size={13} />
+          运行当前
+          <kbd className="toolbar-kbd">F6</kbd>
         </button>
         <button type="button" className="toolbar-btn" disabled title="调试开关 —— T5.4 调试观察通道接入">
+          <Icon icon={Bug} size={13} />
           调试
         </button>
-        <button type="button" className="toolbar-btn" onClick={onSave} title="保存（Ctrl+S）—— 保存链路 T0.7 / T1.x 接入">
-          保存(Ctrl+S)
+        <button type="button" className="toolbar-btn" onClick={onSave} title="保存（Ctrl+S）">
+          <Icon icon={Save} size={13} />
+          保存
+          <kbd className="toolbar-kbd">Ctrl+S</kbd>
         </button>
       </div>
 
@@ -108,8 +135,9 @@ export default function Toolbar() {
           disabled={!canUndo}
           onClick={() => undo()}
           title={undoTop ? `撤销：${undoTop.label}` : '撤销（无可撤销命令）'}
+          aria-label={undoTop ? `撤销：${undoTop.label}` : '撤销'}
         >
-          ↶ 撤销
+          <Icon icon={Undo2} size={14} />
         </button>
         <button
           type="button"
@@ -117,8 +145,9 @@ export default function Toolbar() {
           disabled={!canRedo}
           onClick={() => redo()}
           title={redoTop ? `重做：${redoTop.label}` : '重做（无可重做命令）'}
+          aria-label={redoTop ? `重做：${redoTop.label}` : '重做'}
         >
-          ↷ 重做
+          <Icon icon={Redo2} size={14} />
         </button>
 
         <div className="toolbar-menu-wrap" ref={menuRef}>
@@ -128,7 +157,9 @@ export default function Toolbar() {
             onClick={() => setMenuOpen((v) => !v)}
             title="打开 / 关闭面板"
           >
-            面板 ▾
+            <Icon icon={LayoutDashboard} size={13} />
+            面板
+            <Icon icon={ChevronDown} size={12} />
           </button>
           {menuOpen ? (
             <div className="toolbar-menu">
@@ -155,18 +186,13 @@ export default function Toolbar() {
           ) : null}
         </div>
 
-        <button type="button" className="toolbar-btn" onClick={resetLayout} title="恢复默认布局">
-          重置布局
-        </button>
-        <button
-          type="button"
-          className="toolbar-btn toolbar-gear"
+        <IconButton icon={RotateCcw} label="重置布局" onClick={resetLayout} />
+        <IconButton
+          icon={Settings}
+          label="设置"
+          shortcut="Ctrl+,"
           onClick={() => openSettings()}
-          title="设置（Ctrl+,）"
-          aria-label="设置"
-        >
-          ⚙
-        </button>
+        />
       </div>
     </div>
   )

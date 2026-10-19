@@ -18,6 +18,9 @@
  */
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { Icon } from '@/shell/ui/Icon'
+import { schemaIconFor, uiCategoryColor } from '@/shell/ui/icons'
 import { Menu, type MenuItem } from '@/panels/file-system/Menu'
 import { validateFileName } from '@/panels/file-system/paths'
 import { getUISchema, type UINodeSchema } from '@/ui-editor/schema'
@@ -435,13 +438,17 @@ export function SceneTreePanel() {
                 toggleExpand(node.id)
               }}
             >
-              {expanded.has(node.id) ? '▾' : '▸'}
+              {expanded.has(node.id) ? <Icon icon={ChevronDown} size={12} /> : <Icon icon={ChevronRight} size={12} />}
             </span>
           ) : (
             <span className="st-chevron st-chevron--ghost" aria-hidden />
           )}
           <span className="st-icon" aria-hidden>
-            {schema?.icon ?? '·'}
+            <Icon
+              icon={schemaIconFor(node.type, schema?.category)}
+              size={14}
+              style={{ color: uiCategoryColor(schema?.category) }}
+            />
           </span>
           {isRenaming ? (
             <input

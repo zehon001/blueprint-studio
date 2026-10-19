@@ -5,7 +5,9 @@
  * 「查找引用」统计全树挂该类的节点数。样式表文件的编辑/新建随资源库面板（T11.5）接入。
  */
 import { useMemo, useState } from 'react'
+import { Plus, X } from 'lucide-react'
 import { runUICommand, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
+import { Icon } from '@/shell/ui/Icon'
 import type { UIAsset, UINode } from '@/ir/types'
 
 function collectClassRefs(root: UINode, className: string, out: string[] = []): string[] {
@@ -97,7 +99,7 @@ export function StyleLibraryPanel() {
                   title="移除该样式表引用"
                   onClick={() => removeSheet(ref)}
                 >
-                  ×
+                  <Icon icon={X} size={12} />
                 </button>
               </div>
             ))}
@@ -114,7 +116,7 @@ export function StyleLibraryPanel() {
             }}
           />
           <button type="button" className="insp-btn" onClick={addSheet} title="应用样式表">
-            ＋
+            <Icon icon={Plus} size={12} />
           </button>
         </div>
       </div>

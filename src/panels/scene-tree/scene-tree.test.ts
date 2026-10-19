@@ -623,7 +623,7 @@ describe('组件冒烟（SceneTreePanel）', () => {
     initDomain(makeAsset())
     const { unmount } = await mountPanel()
     const row = byNodeId('a')
-    assert.equal(row.querySelector('.st-icon')?.textContent, 'B') // button schema.icon
+    assert.ok(row.querySelector('.st-icon svg'), '行图标渲染为 Lucide 图标')
     assert.equal(row.querySelector('.st-name')?.textContent, 'button')
     assert.equal(row.querySelector('.st-type')?.textContent, '按钮')
     await unmount()

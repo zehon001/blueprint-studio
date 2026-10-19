@@ -20,6 +20,9 @@
  *   <UIEditorPanel />
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { Minus, Plus } from 'lucide-react';
+import { Icon } from '@/shell/ui/Icon';
+import { schemaIconFor, uiCategoryColor } from '@/shell/ui/icons';
 import type { UIAsset, UINode, Vec2 } from '../../ir/types';
 import { renderUI, updateUI, type UIRenderHandle } from '../../runtime/render/render';
 import { NODE_CATEGORIES, searchUISchemas, type UINodeSchema } from '../schema';
@@ -93,14 +96,14 @@ interface HintState {
 
 /** 对齐工具条动作清单（分布需 ≥ 3 个可自由定位节点） */
 const ALIGN_ACTIONS: Array<{ mode: ViewAlignMode; label: string; title: string; min: number }> = [
-  { mode: 'left', label: '⇤ 左对齐', title: '左对齐', min: 2 },
-  { mode: 'hcenter', label: '⇔ 水平居中', title: '水平居中对齐', min: 2 },
-  { mode: 'right', label: '⇥ 右对齐', title: '右对齐', min: 2 },
-  { mode: 'top', label: '⇧ 顶对齐', title: '顶对齐', min: 2 },
-  { mode: 'vcenter', label: '⇕ 垂直居中', title: '垂直居中对齐', min: 2 },
-  { mode: 'bottom', label: '⇩ 底对齐', title: '底对齐', min: 2 },
-  { mode: 'distribute-h', label: '↔ 水平等距', title: '水平等距分布', min: 3 },
-  { mode: 'distribute-v', label: '↕ 垂直等距', title: '垂直等距分布', min: 3 },
+  { mode: 'left', label: '左对齐', title: '左对齐', min: 2 },
+  { mode: 'hcenter', label: '水平居中', title: '水平居中对齐', min: 2 },
+  { mode: 'right', label: '右对齐', title: '右对齐', min: 2 },
+  { mode: 'top', label: '顶对齐', title: '顶对齐', min: 2 },
+  { mode: 'vcenter', label: '垂直居中', title: '垂直居中对齐', min: 2 },
+  { mode: 'bottom', label: '底对齐', title: '底对齐', min: 2 },
+  { mode: 'distribute-h', label: '水平等距', title: '水平等距分布', min: 3 },
+  { mode: 'distribute-v', label: '垂直等距', title: '垂直等距分布', min: 3 },
 ];
 
 /** Flow 布局提示文案（移动被拒） */
@@ -927,11 +930,11 @@ export function UIEditorPanel() {
         <span className="bps-vp__zoom" title={`缩放（范围 ${Math.round(MIN_SCALE * 100)}%~${Math.round(MAX_SCALE * 100)}%，Ctrl+滚轮以光标为中心）`}>
           {Math.round(view.scale * 100)}%
         </span>
-        <button type="button" className="bps-vp__btn" title="缩小" onClick={() => zoomCenter(1 / 1.2)}>
-          －
+        <button type="button" className="bps-vp__btn" title="缩小" aria-label="缩小" onClick={() => zoomCenter(1 / 1.2)}>
+          <Icon icon={Minus} size={13} />
         </button>
-        <button type="button" className="bps-vp__btn" title="放大" onClick={() => zoomCenter(1.2)}>
-          ＋
+        <button type="button" className="bps-vp__btn" title="放大" aria-label="放大" onClick={() => zoomCenter(1.2)}>
+          <Icon icon={Plus} size={13} />
         </button>
         <button type="button" className="bps-vp__btn" title="重置视图（100%，归零平移）" onClick={resetView}>
           重置视图
@@ -1026,7 +1029,9 @@ export function UIEditorPanel() {
                   title={s.keywords?.join(' · ')}
                   onClick={() => addPick(s)}
                 >
-                  <span className="bps-vp__menu-icon">{s.icon ?? '·'}</span>
+                  <span className="bps-vp__menu-icon" style={{ color: uiCategoryColor(s.category) }} aria-hidden>
+                    <Icon icon={schemaIconFor(s.type, s.category)} size={13} />
+                  </span>
                   {s.title}
                 </button>
               ))}

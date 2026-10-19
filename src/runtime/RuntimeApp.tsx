@@ -23,6 +23,8 @@
  * 与 render/style.ts 同理，node:test + tsx 无法加载 css，组件需保持可直接单测。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { Icon } from '../shell/ui/Icon'
 import { renderUI, updateUI, type UIRenderEvent, type UIRenderHandle } from './render/render'
 import { BindingRunner } from './binding'
 import { DebugProbe } from './debug-probe'
@@ -450,7 +452,7 @@ export default function RuntimeApp(props: RuntimeAppProps) {
                 onClick={() => setConsoleOpen((o) => !o)}
               >
                 <span className="runtime-console-caret" aria-hidden>
-                  {consoleOpen ? '▾' : '▸'}
+                  <Icon icon={consoleOpen ? ChevronDown : ChevronRight} size={12} />
                 </span>
                 控制台
                 {consoleLines.length > 0 ? (

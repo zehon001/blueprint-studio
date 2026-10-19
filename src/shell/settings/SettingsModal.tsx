@@ -9,6 +9,8 @@
  * - 本文件不 import CSS（node:test 可加载 store / 校验纯函数）。
  */
 import { useEffect, useRef, useState } from 'react'
+import { X } from 'lucide-react'
+import { Icon } from '@/shell/ui/Icon'
 import { create } from 'zustand'
 import { registerDefaultShortcut } from '@/shell/keymap/registry'
 import { useWorkspaceStore } from '@/shell/workspace-store'
@@ -271,8 +273,14 @@ export function SettingsModalHost() {
           </div>
         </div>
         <div className="settings-content">
-          <button type="button" className="settings-close" title="关闭（Esc）" onClick={close}>
-            ×
+          <button
+            type="button"
+            className="settings-close"
+            title="关闭（Esc）"
+            aria-label="关闭设置"
+            onClick={close}
+          >
+            <Icon icon={X} size={15} />
           </button>
           <SectionBody section={section} />
         </div>

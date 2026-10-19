@@ -16,10 +16,10 @@ export interface SelectionToolbarProps {
 
 /** 工具条按钮清单（分布按钮需 ≥ 3 个节点） */
 const ACTIONS: Array<{ mode: AlignMode; label: string; minNodes: number; title: string }> = [
-  { mode: 'left', label: '⇤ 左对齐', minNodes: 2, title: '左对齐（吸附 10px 网格）' },
-  { mode: 'top', label: '⇧ 上对齐', minNodes: 2, title: '上对齐（吸附 10px 网格）' },
-  { mode: 'distribute-h', label: '↔ 水平分布', minNodes: 3, title: '水平均匀分布（吸附 10px 网格）' },
-  { mode: 'distribute-v', label: '↕ 垂直分布', minNodes: 3, title: '垂直均匀分布（吸附 10px 网格）' },
+  { mode: 'left', label: '左对齐', minNodes: 2, title: '左对齐（吸附 10px 网格）' },
+  { mode: 'top', label: '上对齐', minNodes: 2, title: '上对齐（吸附 10px 网格）' },
+  { mode: 'distribute-h', label: '水平分布', minNodes: 3, title: '水平均匀分布（吸附 10px 网格）' },
+  { mode: 'distribute-v', label: '垂直分布', minNodes: 3, title: '垂直均匀分布（吸附 10px 网格）' },
 ];
 
 export function SelectionToolbar({ nodeCount, onAlign }: SelectionToolbarProps) {

@@ -14,6 +14,8 @@
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
+import { Check, ChevronDown, ChevronRight, Plus, X } from 'lucide-react';
+import { Icon } from '../../shell/ui/Icon';
 import type { IRComment, IRParamSpec, IRValueType } from '../../ir/types';
 import { pinColor } from '../../shell/theme/tokens';
 import { Menu } from '../../panels/file-system/Menu';
@@ -103,7 +105,7 @@ function Section(props: {
         }}
       >
         <span className="bp-mb-caret" aria-hidden>
-          {props.collapsed ? '▸' : '▾'}
+          <Icon icon={props.collapsed ? ChevronRight : ChevronDown} size={12} />
         </span>
         <span className="bp-mb-section-title">{props.title}</span>
         {props.count !== undefined ? <span className="bp-mb-count">{props.count}</span> : null}
@@ -118,7 +120,7 @@ function Section(props: {
               props.onAdd?.();
             }}
           >
-            ＋
+            <Icon icon={Plus} size={12} />
           </button>
         ) : null}
       </div>
@@ -169,10 +171,10 @@ function AddVariableRow(props: { existingNames: readonly string[]; onClose: () =
         ))}
       </select>
       <button type="button" className="bp-mb-btn bp-mb-btn--ok" title="确认新建" disabled={duplicate || draft.trim() === ''} onClick={confirm}>
-        ✓
+        <Icon icon={Check} size={13} />
       </button>
       <button type="button" className="bp-mb-btn" title="取消" onClick={props.onClose}>
-        ✕
+        <Icon icon={X} size={13} />
       </button>
       {duplicate ? <div className="bp-mb-addrow-warn">变量名已存在</div> : null}
     </div>
@@ -230,10 +232,10 @@ function AddFunctionRow(props: {
         <option value="global">全局</option>
       </select>
       <button type="button" className="bp-mb-btn bp-mb-btn--ok" title="确认新建" disabled={duplicate || draft.trim() === ''} onClick={confirm}>
-        ✓
+        <Icon icon={Check} size={13} />
       </button>
       <button type="button" className="bp-mb-btn" title="取消" onClick={props.onClose}>
-        ✕
+        <Icon icon={X} size={13} />
       </button>
       {duplicate ? <div className="bp-mb-addrow-warn">函数名已存在</div> : null}
     </div>
@@ -265,10 +267,10 @@ function AddEventForm(props: {
           onKeyDown={(e) => e.stopPropagation()}
         />
         <button type="button" className="bp-mb-btn bp-mb-btn--ok" title="确认新建" disabled={duplicate || name.trim() === ''} onClick={confirm}>
-          ✓
+          <Icon icon={Check} size={13} />
         </button>
         <button type="button" className="bp-mb-btn" title="取消" onClick={props.onClose}>
-          ✕
+          <Icon icon={X} size={13} />
         </button>
       </div>
       {duplicate ? <div className="bp-mb-addrow-warn">事件名已存在</div> : null}
@@ -303,12 +305,12 @@ function AddEventForm(props: {
             title="删除参数行"
             onClick={() => setRows(rows.filter((_, j) => j !== i))}
           >
-            ✕
+            <Icon icon={X} size={13} />
           </button>
         </div>
       ))}
       <button type="button" className="bp-mb-btn bp-mb-btn--wide" onClick={() => setRows([...rows, { name: '', type: 'any' }])}>
-        ＋参数
+        <Icon icon={Plus} size={12} /> 参数
       </button>
     </div>
   );

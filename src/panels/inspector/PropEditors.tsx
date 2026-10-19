@@ -22,6 +22,8 @@
  * 本文件不 import 样式（node:test 可挂载冒烟）；inspector.css 由 index.ts 引入。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Plus } from 'lucide-react'
+import { Icon } from '@/shell/ui/Icon'
 import type { PropDef } from '@/ui-editor/schema'
 import type { UIAsset } from '@/ir/types'
 import { MIXED_TITLE, parseListColumnsJson, parseOptionsLines } from './inspector-model'
@@ -416,7 +418,7 @@ export function OptionsEditor(props: PropEditorProps) {
         title="在列表末尾追加一项（Enter / 失焦后提交）"
         onClick={() => setDraft((d) => (d.length > 0 && !d.endsWith('\n') ? `${d}\n` : d) + '新选项')}
       >
-        ＋ 添加一项
+        <Icon icon={Plus} size={11} /> 添加一项
       </button>
     </span>
   )

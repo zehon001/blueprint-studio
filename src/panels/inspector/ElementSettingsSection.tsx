@@ -5,7 +5,9 @@
  * 复杂默认值（对象/数组）用 JSON 文本编辑，基础类型直接输入。
  */
 import { useState } from 'react'
+import { ChevronDown, ChevronRight, Plus, X } from 'lucide-react'
 import { runUICommand, useSceneTreeDomain } from '@/ui-editor/store'
+import { Icon } from '@/shell/ui/Icon'
 import type { ElementAsset, ElementPropDef, UIAsset } from '@/ir/types'
 
 type ElementAssetDraft = UIAsset & Partial<Pick<ElementAsset, 'props' | 'traits' | 'events'>>
@@ -104,7 +106,9 @@ export function ElementSettingsSection() {
         onClick={() => setOpen((v) => !v)}
         title={open ? '折叠' : '展开'}
       >
-        <span className="insp-caret">{open ? '▾' : '▸'}</span>
+        <span className="insp-caret">
+          <Icon icon={open ? ChevronDown : ChevronRight} size={12} />
+        </span>
         <span className="insp-group-title">元素设置</span>
         <span className="insp-count">{props.length}</span>
       </button>
@@ -131,7 +135,7 @@ export function ElementSettingsSection() {
             <span className="insp-flex-label">自定义属性</span>
             <span className="insp-flex-control">
               <button type="button" className="insp-btn" onClick={addProp}>
-                ＋ 属性
+                <Icon icon={Plus} size={12} /> 属性
               </button>
             </span>
           </div>
@@ -169,7 +173,7 @@ export function ElementSettingsSection() {
                   onBlur={(e) => updateProp(i, { default: parseDefault(e.target.value, p.type ?? 'string') })}
                 />
                 <button type="button" className="insp-btn" title="删除属性" onClick={() => removeProp(i)}>
-                  ×
+                  <Icon icon={X} size={12} />
                 </button>
               </span>
             </div>
@@ -179,7 +183,7 @@ export function ElementSettingsSection() {
             <span className="insp-flex-label">自定义事件</span>
             <span className="insp-flex-control">
               <button type="button" className="insp-btn" onClick={addEvent}>
-                ＋ 事件
+                <Icon icon={Plus} size={12} /> 事件
               </button>
             </span>
           </div>
@@ -208,7 +212,7 @@ export function ElementSettingsSection() {
                     })
                   }
                 >
-                  ×
+                  <Icon icon={X} size={12} />
                 </button>
               </span>
             </div>

@@ -17,6 +17,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
+import { Pause, Play } from 'lucide-react';
+import { Icon } from '../../shell/ui/Icon';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { registerShortcut, unregisterShortcut } from '../../shell/keymap/registry';
 import { registerSaveHandler } from '../../shell/workspace/saveRegistry';
@@ -669,7 +671,15 @@ function BlueprintEditorInner({
               onClick={toggleObserve}
             >
               <span className="bp-observe-toggle-dot" aria-hidden="true" />
-              {overlay.active ? '观察运行 ▶' : '观察暂停 ⏸'}
+              {overlay.active ? (
+                <>
+                  <Icon icon={Pause} size={11} /> 观察运行
+                </>
+              ) : (
+                <>
+                  <Icon icon={Play} size={11} /> 观察暂停
+                </>
+              )}
             </button>
             <BPGraphCanvas
               nodes={viewNodes}

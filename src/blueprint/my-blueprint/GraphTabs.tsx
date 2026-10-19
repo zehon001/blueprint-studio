@@ -6,6 +6,8 @@
  * 本组件不 import 样式（node:test 可挂载冒烟）：样式在 my-blueprint.css。
  */
 import { useRef, useState } from 'react';
+import { Plus } from 'lucide-react';
+import { Icon } from '../../shell/ui/Icon';
 import { useBlueprintStore } from '../store/blueprint-store';
 import { nextFunctionName, orderedGraphNames } from './model';
 
@@ -97,7 +99,7 @@ export function GraphTabs({
         />
       ) : allowAdd ? (
         <button type="button" className="bp-mb-tab bp-mb-tab--add" title="新建函数" onClick={startAdd}>
-          ＋函数
+          <Icon icon={Plus} size={12} /> 函数
         </button>
       ) : null}
       {duplicate ? <span className="bp-mb-tabs-warn">名称已存在</span> : null}

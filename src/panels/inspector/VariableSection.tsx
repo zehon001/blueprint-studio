@@ -4,7 +4,9 @@
  * 只显示内嵌蓝图里 `exposed: true` 的提升变量；场景自身直接改默认值。
  * 元素/预制体实例的覆盖值（UINode.vars）在 M11 元素系统接入后复用本区。
  */
+import { ChevronDown } from 'lucide-react'
 import { runUICommand, useSceneTreeDomain } from '@/ui-editor/store'
+import { Icon } from '@/shell/ui/Icon'
 import type { IRVariable, UIAsset, UINode } from '@/ir/types'
 
 function valueText(v: unknown): string {
@@ -50,7 +52,9 @@ export function VariableSection({ node }: { node?: UINode }) {
   return (
     <div className="insp-group insp-vars-group">
       <div className="insp-group-head insp-flex-head">
-        <span className="insp-caret">▾</span>
+        <span className="insp-caret">
+          <Icon icon={ChevronDown} size={12} />
+        </span>
         <span className="insp-group-title">变量（提升）</span>
         <span className="insp-count">{vars.length}</span>
       </div>

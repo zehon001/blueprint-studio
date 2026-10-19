@@ -5,7 +5,9 @@
  * v2 节点首次编辑自动补 layout/container（之后渲染器走 flex 引擎）。
  */
 import { useState, type ReactNode } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { findUINode, runUICommand, useSceneTreeDomain, useUIEditorStore } from '@/ui-editor/store'
+import { Icon } from '@/shell/ui/Icon'
 import { getUISchema } from '@/ui-editor/schema'
 import { resolveNodeStyle } from '@/ui-editor/styles'
 import type { UIContainer, UILength, UINode } from '@/ir/types'
@@ -112,7 +114,9 @@ export function FlexLayoutSection({ node }: { node: UINode }) {
         onClick={() => setCollapsed((v) => !v)}
         title={collapsed ? '展开' : '折叠'}
       >
-        <span className="insp-caret">{collapsed ? '▸' : '▾'}</span>
+        <span className="insp-caret">
+          <Icon icon={collapsed ? ChevronRight : ChevronDown} size={12} />
+        </span>
         <span className="insp-group-title">布局</span>
       </button>
       {collapsed ? null : (

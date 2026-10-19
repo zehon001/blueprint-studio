@@ -7,6 +7,8 @@
  * 样式由 BlueprintEditorPanel 统一 import（node:test 环境无法加载 .css）。
  */
 import { useEffect, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { Icon } from '../../shell/ui/Icon';
 import type { ValidationIssue } from '../../ir/validate';
 
 export interface ValidationBarProps {
@@ -60,7 +62,8 @@ export function ValidationBar({ issues, dirty, graphName, onJump, onSave }: Vali
             onClick={() => setExpanded((v) => !v)}
             title={expanded ? '收起明细' : '展开明细'}
           >
-            {expanded ? '▾ 收起' : '▸ 明细'}
+            <Icon icon={expanded ? ChevronDown : ChevronRight} size={12} />
+            {expanded ? '收起' : '明细'}
           </button>
         ) : null}
         <button type="button" className="bp-valbar-btn" onClick={onSave} title="校验并保存（Ctrl+S）">

@@ -25,6 +25,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
+import { X } from 'lucide-react'
+import { Icon } from '@/shell/ui/Icon'
 import { useBlueprintStore } from '@/blueprint/store/blueprint-store'
 import { deserializeIR } from '@/ir/validate'
 import { resolveBoundPath } from '@/runtime/binding'
@@ -459,7 +461,7 @@ export function EventsPanel() {
                 setNotice(null)
               }}
             >
-              ×
+              <Icon icon={X} size={12} />
             </button>
           </div>
         ) : null}

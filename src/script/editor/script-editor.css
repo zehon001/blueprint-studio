@@ -51,9 +51,19 @@
 }
 
 .script-tab-dirty {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: var(--font-xs);
   color: var(--warning);
   flex: none;
+}
+
+.script-tab-dirty-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
 }
 
 .script-tab-bar-fill {

@@ -20,11 +20,13 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 import Toolbar from '@/shell/Toolbar'
+import { Icon } from '@/shell/ui/Icon'
+import { assetIconFor } from '@/shell/ui/icons'
+import { Maximize2, Minimize2, X } from 'lucide-react'
 import { computeDropSide, type Rect } from './dropZone'
 import { getPanel } from './registry'
 import { useDockStore } from './store'
 import {
-  assetBadge,
   assetPanelTitle,
   ensureAssetPanelsInLayout,
   parseAssetPanelId,
@@ -333,16 +335,15 @@ function DockTabLabel({ panelId, fallback }: { panelId: string; fallback: string
   const tabId = ref ? tabIdOf(ref.kind as Parameters<typeof tabIdOf>[0], ref.path) : ''
   const dirty = useWorkspaceStore((s) => (tabId ? s.openTabs.some((t) => t.id === tabId && t.dirty) : false))
   if (!ref) return <span className="dock-tab-label">{fallback}</span>
+  const spec = assetIconFor(ref.kind)
   return (
     <span className="dock-tab-label">
       <span className="dock-tab-badge" aria-hidden>
-        {assetBadge(ref.kind, ref.path)}
+        <Icon icon={spec.icon} size={13} style={{ color: spec.color }} />
       </span>
       <span className="dock-tab-name">{assetPanelTitle(ref.kind, ref.path)}</span>
       {dirty ? (
-        <span className="dock-tab-dirty" title="有未保存修改">
-          ●
-        </span>
+        <span className="dock-tab-dirty" title="有未保存修改" aria-label="有未保存修改" />
       ) : null}
     </span>
   )
@@ -482,11 +483,12 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
               type="button"
               className="dock-btn"
               title={activeDef ? `合回「${activeDef.title}」` : '合回主窗'}
+              aria-label="合回主窗"
               onClick={() => {
                 if (activePanelId !== undefined) recallPopout(activePanelId)
               }}
             >
-              ⊟
+              <Icon icon={Minimize2} size={14} />
             </button>
           ) : (
             <button
@@ -494,11 +496,12 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
               className="dock-btn"
               disabled={activePanelId === undefined}
               title={activeDef ? `拆出「${activeDef.title}」到独立窗口` : '拆出窗口'}
+              aria-label="拆出窗口"
               onClick={() => {
                 if (activePanelId !== undefined) popoutPanel(activePanelId)
               }}
             >
-              ⊞
+              <Icon icon={Maximize2} size={14} />
             </button>
           )}
           <button
@@ -506,11 +509,12 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
             className="dock-btn"
             disabled={activePanelId === undefined}
             title={activeDef ? `关闭「${activeDef.title}」` : '关闭'}
+            aria-label="关闭面板"
             onClick={() => {
               if (activePanelId !== undefined) requestClosePanel(activePanelId)
             }}
           >
-            ×
+            <Icon icon={X} size={14} />
           </button>
         </div>
       </div>

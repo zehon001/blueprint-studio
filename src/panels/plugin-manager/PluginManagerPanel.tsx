@@ -25,6 +25,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { ChevronDown, ChevronRight, Plug, SquareTerminal } from 'lucide-react'
+import { Icon } from '@/shell/ui/Icon'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import type { PluginManifest, PluginNodeSpec } from '@/ir/types'
 import {
@@ -74,8 +76,8 @@ interface ConfirmState {
 }
 
 /** kind 字符图标（cli=终端提示符 / custom=自定义插件标记） */
-function kindIconChar(kind: PluginManifest['kind']): string {
-  return kind === 'cli' ? '›_' : '◆'
+function kindIcon(kind: PluginManifest['kind']) {
+  return kind === 'cli' ? SquareTerminal : Plug
 }
 
 /** 来源徽标文案 */
@@ -408,8 +410,12 @@ export function PluginManagerPanel({ api = defaultPluginApi }: PluginManagerPane
           role="button"
           tabIndex={0}
         >
-          <span className="pm-chevron" aria-hidden>{isOpen ? '▾' : '▸'}</span>
-          <span className={`pm-icon kind-${m.kind}`} aria-hidden>{kindIconChar(m.kind)}</span>
+          <span className="pm-chevron" aria-hidden>
+            <Icon icon={isOpen ? ChevronDown : ChevronRight} size={12} />
+          </span>
+          <span className={`pm-icon kind-${m.kind}`} aria-hidden>
+            <Icon icon={kindIcon(m.kind)} size={14} />
+          </span>
           <span className="pm-name" title={m.id}>{m.name}</span>
           <span className="pm-version" title="当前版本（检测后填入）">{st.version ?? '—'}</span>
           <span className="pm-desc" title={m.description}>{m.description || '（无描述）'}</span>

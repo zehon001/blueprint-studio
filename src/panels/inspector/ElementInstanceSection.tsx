@@ -7,7 +7,9 @@
  *  - traits / events：元素资产对外声明的能力与事件。
  * 结构以元素资产为准，不做断开物化（PLAN §5.4）。
  */
+import { ChevronDown } from 'lucide-react'
 import { runUICommand, useSceneTreeDomain } from '@/ui-editor/store'
+import { Icon } from '@/shell/ui/Icon'
 import { getUISchema, type PropDef, type UIPropType } from '@/ui-editor/schema'
 import type { ElementAsset, ElementPropDef, UINode } from '@/ir/types'
 import { PropEditor } from './PropEditors'
@@ -105,7 +107,9 @@ export function ElementInstanceSection(props: { node: UINode; asset: ElementAsse
   return (
     <div className="insp-group insp-style-group">
       <div className="insp-group-head insp-flex-head">
-        <span className="insp-caret">▾</span>
+        <span className="insp-caret">
+          <Icon icon={ChevronDown} size={12} />
+        </span>
         <span className="insp-group-title">元素</span>
         <span className="insp-count">{(asset.props ?? []).length}</span>
       </div>

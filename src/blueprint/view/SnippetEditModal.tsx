@@ -12,6 +12,8 @@
  *    并回填节点 params.snippet（撤销一步整体还原）。
  */
 import { useState } from 'react';
+import { Plus, X } from 'lucide-react';
+import { Icon } from '../../shell/ui/Icon';
 import type { Draft } from 'immer';
 import { getDomainState, isDomainRegistered, runCommand } from '../../shell/commands';
 import type { IRAsset, IRSnippet, IRSnippetPin } from '../../ir/types';
@@ -119,7 +121,7 @@ export function SnippetEditModal({ snippet, title, onSave, onCancel }: SnippetEd
         <div className="bps-snippet-modal-head">
           <span className="bps-snippet-modal-title">{title}</span>
           <button type="button" className="bps-snippet-modal-close" onClick={onCancel} aria-label="关闭">
-            ×
+            <Icon icon={X} size={14} />
           </button>
         </div>
         <textarea
@@ -136,10 +138,10 @@ export function SnippetEditModal({ snippet, title, onSave, onCancel }: SnippetEd
             <span>引脚声明</span>
             <span>
               <button type="button" onClick={() => addRow('in')} data-testid="snippet-add-in">
-                ＋输入脚
+                <Icon icon={Plus} size={11} /> 输入脚
               </button>
               <button type="button" onClick={() => addRow('out')} data-testid="snippet-add-out">
-                ＋输出脚
+                <Icon icon={Plus} size={11} /> 输出脚
               </button>
             </span>
           </div>

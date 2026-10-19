@@ -5,7 +5,9 @@
  * 每类提供的属性键；对应 UIToolkit Inspector 的 StyleSheet / Style Class List /
  * Matching Selectors 信息架构。
  */
+import { ChevronDown, X } from 'lucide-react'
 import { findUINode, runUICommand, useSceneTreeDomain } from '@/ui-editor/store'
+import { Icon } from '@/shell/ui/Icon'
 import type { StyleResolution, StyleSheet } from '@/ui-editor/styles'
 
 export function StyleClassSection(props: {
@@ -32,7 +34,9 @@ export function StyleClassSection(props: {
   return (
     <div className="insp-group insp-style-group">
       <div className="insp-group-head insp-flex-head">
-        <span className="insp-caret">▾</span>
+        <span className="insp-caret">
+          <Icon icon={ChevronDown} size={12} />
+        </span>
         <span className="insp-group-title">样式类</span>
         <span className="insp-count">{nodeClasses.length}</span>
       </div>
@@ -66,7 +70,7 @@ export function StyleClassSection(props: {
                     title={`移除样式类 .${c}`}
                     onClick={() => removeClass(c)}
                   >
-                    ×
+                    <Icon icon={X} size={10} />
                   </button>
                 </span>
               ))

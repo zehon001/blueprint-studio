@@ -20,6 +20,9 @@
  * 挂载冒烟）；inspector.css 由 index.ts 引入。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { Icon } from '@/shell/ui/Icon'
+import { schemaIconFor, uiCategoryColor } from '@/shell/ui/icons'
 import type { ElementAsset, UIAsset, UINode } from '@/ir/types'
 import {
   collectUINodeIds,
@@ -306,7 +309,11 @@ export function InspectorPanel() {
     single !== null ? (
       <div className="insp-header">
         <span className="insp-icon" aria-hidden>
-          {firstSchema?.icon ?? '?'}
+          <Icon
+            icon={schemaIconFor(single.type, firstSchema?.category)}
+            size={16}
+            style={{ color: uiCategoryColor(firstSchema?.category) }}
+          />
         </span>
         <span className="insp-title" title={single.name}>
           {single.name}
@@ -418,7 +425,9 @@ export function InspectorPanel() {
                   title={isCollapsed ? '展开' : '折叠'}
                   onClick={() => setCollapsed((c) => ({ ...c, [group]: !isCollapsed }))}
                 >
-                  <span className="insp-caret">{isCollapsed ? '▸' : '▾'}</span>
+                  <span className="insp-caret">
+                    <Icon icon={isCollapsed ? ChevronRight : ChevronDown} size={12} />
+                  </span>
                   <span className="insp-group-title">{group}</span>
                   <span className="insp-count">{groupRows.length}</span>
                 </button>

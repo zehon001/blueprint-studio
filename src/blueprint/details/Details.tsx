@@ -14,6 +14,8 @@
  * 本组件不 import 样式（node:test 可挂载冒烟）：details.css 由 BlueprintEditorPanel 引入。
  */
 import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, Plus, X } from 'lucide-react';
+import { Icon } from '../../shell/ui/Icon';
 import type { IRAsset, IRGraph, IRNode, IRParamSpec, IRValueType, NodeSpec } from '../../ir/types';
 import { useBlueprintStore } from '../store/blueprint-store';
 import { VARIABLE_TYPES } from '../my-blueprint/model';
@@ -30,7 +32,7 @@ function CollapsibleGroup(props: { title: string; badge?: string; children: Reac
     <div className="bp-det-group">
       <button type="button" className="bp-det-group-head" onClick={() => setOpen(!open)}>
         <span className="bp-det-caret" aria-hidden>
-          {open ? '▾' : '▸'}
+          <Icon icon={open ? ChevronDown : ChevronRight} size={12} />
         </span>
         <span className="bp-det-group-title">{props.title}</span>
         {props.badge ? <span className="bp-det-count">{props.badge}</span> : null}
@@ -94,7 +96,7 @@ function InterfaceRow(props: {
         ))}
       </select>
       <button type="button" className="bp-det-btn" title="删除该行" onClick={props.onRemove}>
-        ✕
+        <Icon icon={X} size={12} />
       </button>
     </div>
   );
@@ -122,7 +124,7 @@ function InterfaceRows(props: {
         className="bp-det-btn bp-det-btn--wide"
         onClick={() => props.onChange([...props.rows, { name: '', type: 'any' }])}
       >
-        {props.addText}
+        <Icon icon={Plus} size={12} /> {props.addText}
       </button>
     </>
   );
@@ -176,14 +178,14 @@ function GraphSettingsSection(props: {
       <CollapsibleGroup title="入参" badge={`${paramRows.length}`}>
         <InterfaceRows
           rows={paramRows}
-          addText="＋入参"
+          addText="入参"
           onChange={(rows) => useBlueprintStore.getState().setGraphParams(graphName, rows)}
         />
       </CollapsibleGroup>
       <CollapsibleGroup title="返回值" badge={`${returnRows.length}`}>
         <InterfaceRows
           rows={returnRows}
-          addText="＋返回值"
+          addText="返回值"
           onChange={(rows) => useBlueprintStore.getState().setGraphReturns(graphName, rows)}
         />
       </CollapsibleGroup>

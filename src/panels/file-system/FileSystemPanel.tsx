@@ -25,6 +25,9 @@
  */
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { Icon } from '@/shell/ui/Icon'
+import { fileIconFor } from '@/shell/ui/icons'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { assetPanelId, openAssetPanel } from '@/shell/dock/assetPanelModel'
 import { useDockStore } from '@/shell/dock/store'
@@ -930,10 +933,14 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
                 toggleExpand(node.path)
               }}
             >
-              {isExpanded ? '▾' : '▸'}
+              {isExpanded ? <Icon icon={ChevronDown} size={12} /> : <Icon icon={ChevronRight} size={12} />}
             </span>
             <span className="fs-icon dir" aria-hidden>
-              ▤
+              <Icon
+                icon={fileIconFor(node.name, { isDir: true, expanded: isExpanded }).icon}
+                size={14}
+                style={{ color: fileIconFor(node.name, { isDir: true, expanded: isExpanded }).color }}
+              />
             </span>
             {renamingPath === node.path ? renderRenameInput() : <span className="fs-name">{node.name}</span>}
           </div>

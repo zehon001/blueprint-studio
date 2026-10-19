@@ -5,6 +5,8 @@
  * 重命名类会级联当前项目全部 UI/元素资产的 classes（§11 改名级联）。
  */
 import { useEffect, useState } from 'react'
+import { Plus, X } from 'lucide-react'
+import { Icon } from '@/shell/ui/Icon'
 import { tabIdOf, useWorkspaceStore } from '@/shell/workspace-store'
 import { registerSaveHandler } from '@/shell/workspace/saveRegistry'
 import {
@@ -188,8 +190,8 @@ export function StyleTab({ path, panelId }: { path: string; panelId?: string }) 
         <aside className="style-editor-list">
           <div className="style-editor-list-head">
             <span>类（{Object.keys(sheet.classes).length}）</span>
-            <button type="button" className="insp-btn" onClick={addClass}>
-              ＋
+            <button type="button" className="insp-btn" onClick={addClass} aria-label="新建样式类">
+              <Icon icon={Plus} size={12} />
             </button>
           </div>
           {Object.keys(sheet.classes).map((name) => (
@@ -218,8 +220,8 @@ export function StyleTab({ path, panelId }: { path: string; panelId?: string }) 
                     onChange={(e) => setClassName(e.target.value)}
                     onBlur={() => void renameClass()}
                   />
-                  <button type="button" className="insp-btn" title="删除类" onClick={deleteClass}>
-                    ×
+                  <button type="button" className="insp-btn" title="删除类" aria-label="删除类" onClick={deleteClass}>
+                    <Icon icon={X} size={12} />
                   </button>
                 </span>
               </div>
