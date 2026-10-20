@@ -180,3 +180,119 @@ test('元素实例：start 每实例触发、内部控件事件路由、自定�
   runner.stop()
   handle.destroy()
 })
+
+test('元素数据绑定：运行时 var.set 刷新内部节点 DOM', async () => {
+  const path = 'ui/elements/bound.elem.json'
+  const element: ElementAsset = {
+    version: 3,
+    kind: 'element',
+    name: 'Bound',
+    variables: [{ name: 'value', type: 'string', default: '0', exposed: true }],
+    bindings: [{ target: 'e_label', attr: 'text', source: 'value' }],
+    root: {
+      id: 'b_root',
+      name: 'root',
+      type: 'vbox',
+      transform: { position: { x: 0, y: 0 }, size: { w: 200, h: 100 }, rotation: 0 },
+      layout: { size: { w: 200, h: 100 } },
+      theme: {},
+      props: {},
+      children: [
+        {
+          id: 'e_label',
+          name: 'value',
+          type: 'label',
+          transform: { position: { x: 0, y: 0 }, size: { w: 100, h: 30 }, rotation: 0 },
+          theme: {},
+          props: { text: '0' },
+          children: [],
+        },
+        {
+          id: 'e_btn',
+          name: 'inc',
+          type: 'button',
+          transform: { position: { x: 0, y: 0 }, size: { w: 100, h: 30 }, rotation: 0 },
+          theme: {},
+          props: { text: 'inc' },
+          children: [],
+        },
+      ],
+    },
+    graphs: {
+      event: {
+        kind: 'event',
+        nodes: [
+          { id: 'pressed', type: 'event.custom', params: { eventName: 'pressed' }, pinDefaults: {}, position: { x: 0, y: 0 } },
+          { id: 'set', type: 'var.set', params: { varName: 'value' }, pinDefaults: { value: '42' }, position: { x: 160, y: 0 } },
+        ],
+        edges: [
+          { id: 'pe', from: { node: 'pressed', pin: 'exec' }, to: { node: 'set', pin: 'exec' }, kind: 'exec' },
+        ],
+      },
+    },
+    events: [],
+    layout: {},
+  }
+  primeElementCache(path, element)
+  const asset: UIAsset = {
+    version: 3,
+    name: 'main',
+    root: {
+      id: 'root',
+      name: 'root',
+      type: 'vbox',
+      transform: { position: { x: 0, y: 0 }, size: { w: 0, h: 0 }, rotation: 0 },
+      theme: {},
+      props: {},
+      children: [
+        {
+          id: 'inst',
+          name: 'bound1',
+          type: '__element',
+          element: path,
+          transform: { position: { x: 0, y: 0 }, size: { w: 200, h: 100 }, rotation: 0 },
+          layout: { size: { w: 200, h: 100 } },
+          theme: {},
+          props: {},
+          children: [],
+        },
+      ],
+    },
+  }
+  const hostIR: IRAsset = {
+    version: 3,
+    name: 'main',
+    entry: 'event',
+    graphs: { event: { kind: 'event', nodes: [], edges: [] } },
+    variables: [],
+    events: [],
+    snippets: [],
+    layout: {},
+  }
+  let runner!: InstanceType<typeof BindingRunner>
+  const handle = renderUI(asset, {
+    mode: 'runtime',
+    onEvent: (evt) => runner.routeEvent(evt),
+  })
+  runner = new BindingRunner({
+    project: 'P',
+    asset,
+    embedded: hostIR,
+    renderHandle: handle,
+    fetchImpl: (async () => {
+      throw new Error('绑定测试不应 fetch')
+    }) as unknown as typeof fetch,
+  })
+  await runner.loadAndStart()
+  await new Promise((r) => setTimeout(r, 30))
+  const label = (): HTMLElement | null =>
+    handle.el.querySelector<HTMLElement>('[data-uid="inst::e_label"]')
+  assert.equal(label()?.textContent, '0', '初始值取变量默认值')
+  const btn = handle.el.querySelector<HTMLElement>('[data-uid="inst::e_btn"]')
+  assert.ok(btn, '内部按钮已渲染')
+  btn!.dispatchEvent(new win.MouseEvent('click', { bubbles: true }) as unknown as Event)
+  await new Promise((r) => setTimeout(r, 60))
+  assert.equal(label()?.textContent, '42', 'var.set 后绑定刷新内部 label')
+  runner.stop()
+  handle.destroy()
+})

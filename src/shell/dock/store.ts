@@ -15,12 +15,14 @@ import {
   firstTabsGroup,
   getNodeAtPath,
   insertPanel,
+  makeTabs,
   movePanel,
   removePanel,
   setGroupActive,
   updateAtPath,
   type DockArea,
   type DockNode,
+  type DockTabsNode,
   type DropTarget,
 } from './tree'
 
@@ -59,12 +61,93 @@ interface DockState {
   resetLayout: () => void
 }
 
+/** 工具型面板（停靠栏/侧栏）：其余一律视为文档面板（资产编辑器、旧 workspace 等） */
+const UTILITY_PANELS = new Set([
+  'file-system',
+  'scene-tree',
+  'inspector',
+  'events',
+  'console',
+  'runtime',
+  'library',
+  'plugin-manager',
+])
+
+/** 文档型面板：新文档默认并入其所在的编辑器组 */
+function isDocPanel(panelId: string | null): panelId is string {
+  return panelId !== null && !UTILITY_PANELS.has(panelId)
+}
+
+/** 纯文档组：组内全部是文档面板（不含控制台/运行等工具面板） */
+function isPureDocGroup(node: DockTabsNode): boolean {
+  return node.panels.length > 0 && node.panels.every((p) => isDocPanel(p))
+}
+
+/** 文档序深度优先：找含纯文档面板最多的组（主编辑区）；平局取树序靠前者 */
+function findDocGroupId(root: DockNode | null): string | null {
+  const best: { value: { id: string; count: number } | null } = { value: null }
+  const walk = (node: DockNode): void => {
+    if (node.kind === 'tabs') {
+      if (!isPureDocGroup(node)) return
+      const count = node.panels.length
+      if (best.value === null || count > best.value.count) {
+        best.value = { id: node.id, count }
+      }
+      return
+    }
+    for (const child of node.children) walk(child)
+  }
+  if (root) walk(root)
+  return best.value ? best.value.id : null
+}
+
+/** 在指定 tabs 组旁新建分组（主编辑区被关闭后原位重建用；新编辑组占 3/4） */
+function insertPanelBeside(
+  root: DockNode | null,
+  panelId: string,
+  anchorGroupId: string,
+  side: 'left' | 'right',
+): DockNode {
+  const base = removePanel(root, panelId)
+  if (!base) return makeTabs([panelId])
+  const anchor = findTabsById(base, anchorGroupId)
+  if (!anchor) return insertPanel(base, panelId, { kind: 'group', groupId: anchorGroupId })
+  const fresh = makeTabs([panelId])
+  const wrapped: DockNode = {
+    kind: 'split',
+    dir: 'h',
+    sizes: side === 'left' ? [3, 1] : [1, 3],
+    children: side === 'left' ? [fresh, anchor.node] : [anchor.node, fresh],
+  }
+  return updateAtPath(base, anchor.path, () => wrapped)
+}
+
 /**
- * 居中区目标组：优先运行视图（默认布局的中央组，v3 T8.1），否则文档序第一个 tabs 组。
- * 注意不能用 firstTabsGroup 作为首选——BFS 在「左右列 + 底部」布局下会先命中底部控制台。
+ * 新建文档的落点：
+ *   1) 当前聚焦的是文档 → 并入该文档所在组（与 VS Code 的活跃编辑器组一致）；
+ *   2) 存在纯文档组（主编辑区）→ 并入文档数最多的组；
+ *   3) 主编辑区已随最后一个文档关闭被剪枝 → 在右侧工具组（检视器/事件）左侧
+ *      重建编辑组（默认布局中主编辑区的位置），避免把文档塞进底部工具组；
+ *   4) 无右侧工具组 → 退回运行视图组 / 文档序首个组。
+ * 注意不能只用运行视图组——运行面板可被用户移到底部控制台旁（v3 布局可拖拽）。
  */
-function centerGroupId(root: DockNode | null): string {
-  return findTabsByPanel(root, 'runtime')?.node.id ?? firstTabsGroup(root)?.node.id ?? ''
+function pickCenterTarget(
+  root: DockNode | null,
+  activePanelId: string | null,
+): DropTarget | { kind: 'new-beside'; anchorGroupId: string } {
+  if (isDocPanel(activePanelId)) {
+    const activeGroup = findTabsByPanel(root, activePanelId)?.node.id
+    if (activeGroup) return { kind: 'group', groupId: activeGroup }
+  }
+  const doc = findDocGroupId(root)
+  if (doc) return { kind: 'group', groupId: doc }
+  const anchor =
+    findTabsByPanel(root, 'inspector')?.node.id ?? findTabsByPanel(root, 'events')?.node.id
+  if (anchor) return { kind: 'new-beside', anchorGroupId: anchor }
+  const runtime = findTabsByPanel(root, 'runtime')?.node.id
+  if (runtime) return { kind: 'group', groupId: runtime }
+  const first = firstTabsGroup(root)?.node.id
+  return first ? { kind: 'group', groupId: first } : { kind: 'group', groupId: '' }
 }
 
 export const useDockStore = create<DockState>()((set, get) => {
@@ -101,11 +184,17 @@ export const useDockStore = create<DockState>()((set, get) => {
         commit(next, panelId)
         return
       }
-      const target: DropTarget =
-        defaultArea === 'center'
-          ? { kind: 'group', groupId: centerGroupId(root) }
-          : { kind: 'edge', side: defaultArea }
-      commit(insertPanel(root, panelId, target), panelId)
+      let next: DockNode | null
+      if (defaultArea === 'center') {
+        const pick = pickCenterTarget(root, get().activePanelId)
+        next =
+          'anchorGroupId' in pick
+            ? insertPanelBeside(root, panelId, pick.anchorGroupId, 'left')
+            : insertPanel(root, panelId, pick)
+      } else {
+        next = insertPanel(root, panelId, { kind: 'edge', side: defaultArea })
+      }
+      commit(next, panelId)
     },
 
     closePanel: (panelId) => {

@@ -17,7 +17,7 @@
  */
 import { describe, it, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import type { UIAsset, UINode } from '../../ir/types'
+import type { ElementAsset, UIAsset, UINode } from '../../ir/types'
 import type { SceneTreeDomainState } from '../../ui-editor/store'
 
 /* ── happy-dom 环境注入（组件挂载用；与 viewport.test.ts 同款桥接）──────── */
@@ -69,7 +69,8 @@ const { getSceneTreeDomain, useUIEditorStore } = await import('../../ui-editor/s
 const { registerDomainState, runCommand, resetEditorStore, undo, redo, peekUndo, useEditorStore } =
   await import('../../shell/commands')
 const { defaultPropsFor, getUISchema } = await import('../../ui-editor/schema')
-const { SceneTreePanel } = await import('./SceneTreePanel')
+const { SceneTreePanel, nodeTypeLabel } = await import('./SceneTreePanel')
+const { primeElementCache, clearElementCache } = await import('../../ui-editor/element')
 
 /* ============================================================
  * 构造辅助
@@ -821,5 +822,38 @@ describe('组件冒烟（SceneTreePanel）', () => {
     assert.deepEqual(rootChildIds(), ['a', 'box', 'b'])
     assert.equal(peekUndo(), null)
     await unmount()
+  })
+})
+
+/* ── 元素实例类型标签（树中不再显示 __element） ──────────────── */
+
+describe('元素实例标签：默认文件名 / 元素设置里的显示名', () => {
+  const elementNode = (ref: string): UINode =>
+    ({ id: 'stat', name: 'stat', type: '__element', element: ref }) as unknown as UINode
+
+  it('默认显示元素文件名（去 .elem.json / @library 前缀取末段）', () => {
+    assert.equal(nodeTypeLabel(elementNode('ui/elements/StatCard.elem.json')), 'StatCard')
+    assert.equal(nodeTypeLabel(elementNode('@library/elements/HeroCard')), 'HeroCard')
+  })
+
+  it('元素资产配置了显示名（title）时优先使用', () => {
+    const asset = {
+      version: 3,
+      kind: 'element',
+      name: 'StatCard',
+      title: '状态卡片',
+      root: { id: 'r', name: 'root', type: 'vbox', children: [], transform: {} },
+    } as unknown as ElementAsset
+    primeElementCache('ui/elements/StatCard.elem.json', asset)
+    try {
+      assert.equal(nodeTypeLabel(elementNode('ui/elements/StatCard.elem.json')), '状态卡片')
+    } finally {
+      clearElementCache()
+    }
+  })
+
+  it('普通节点仍用 schema 中文名（类型未注册时回退 type id）', () => {
+    assert.equal(nodeTypeLabel({ id: 'v', name: 'v', type: 'vbox' } as UINode), '垂直容器')
+    assert.equal(nodeTypeLabel({ id: 'x', name: 'x', type: 'unknownType' } as UINode), 'unknownType')
   })
 })

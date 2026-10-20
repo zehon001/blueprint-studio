@@ -57,6 +57,11 @@ export interface RuntimeOptions {
   readProjectFile?: (path: string) => Promise<string>;
   /** 变量初值覆盖（键 = IRVariable.name；未声明变量名也会写入存储，显式提供即视为已知） */
   vars?: Record<string, unknown>;
+  /**
+   * 变量写入通知（var.set / ctx.setVar / RuntimeHandle.setVar 共用）。
+   * 用于元素数据绑定：运行时改变量后刷新实例 UI。
+   */
+  onVarChange?: (name: string, value: unknown) => void;
   /** 单条事件链的最大执行步数（死循环保护；默认 100000，v1.1 为 5000——循环状态机链尾回连会合法地多次经过节点，故放宽） */
   maxStepsPerChain?: number;
 }

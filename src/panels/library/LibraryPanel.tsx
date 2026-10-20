@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { openAssetPanel } from '@/shell/dock/assetPanelModel'
+import { elementAssetTemplate } from '@/panels/file-system/paths'
 import { useSelectionStore } from '@/shell/selection/store'
 import { createLibraryEntry, deleteLibraryEntry, listLibraryEntries, renameLibraryEntry, watchLibrary } from './api'
 import {
@@ -41,34 +42,8 @@ interface Entry {
 }
 
 function shellOf(kind: Kind, name: string): string {
-  if (kind === 'elements') {
-    return JSON.stringify(
-      {
-        version: 3,
-        kind: 'element',
-        name,
-        props: [],
-        events: [],
-        traits: [],
-        styles: [],
-        root: {
-          id: 'element_root',
-          name: 'root',
-          type: 'vbox',
-          layout: { size: { w: 320, h: 160 } },
-          container: { direction: 'column', gap: 4 },
-          transform: { position: { x: 0, y: 0 }, size: { w: 320, h: 160 }, rotation: 0 },
-          theme: {},
-          props: {},
-          children: [],
-        },
-        graphs: { event: { kind: 'event', nodes: [], edges: [], comments: [] } },
-        variables: [],
-      },
-      null,
-      2,
-    )
-  }
+  // 元素骨架与文件面板新建一致（含 event.start 入口）
+  if (kind === 'elements') return elementAssetTemplate(name)
   if (kind === 'styles') {
     return JSON.stringify({ version: 1, classes: { [`${name}-class`]: { props: {} } } }, null, 2)
   }

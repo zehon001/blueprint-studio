@@ -333,6 +333,33 @@ export function createProject(root: string, rawName: unknown, template: unknown)
   }
 }
 
+/**
+ * 删除磁盘项目（DELETE /api/projects?path=<项目文件夹名>）：
+ * 只允许安全根的直接子目录，且必须是含 project.json 的项目；删除不可撤销。
+ * 返回被删除的文件夹名。
+ */
+export function deleteProject(root: string, rawPath: unknown): { path: string } {
+  const name = typeof rawPath === 'string' ? rawPath.trim() : ''
+  if (!name) throw new FsError(400, 'path 必须为非空项目文件夹名')
+  if (name === '.' || name === '..' || /[\\/]/.test(name)) {
+    throw new FsError(400, 'path 必须是项目文件夹名（不能包含路径分隔符）')
+  }
+  const rootResolved = path.resolve(root)
+  const dir = path.resolve(rootResolved, name)
+  if (path.dirname(dir) !== rootResolved || !isPathWithin(rootResolved, dir)) {
+    throw new FsError(403, `路径越权：${name}`)
+  }
+  if (!fs.existsSync(dir)) throw new FsError(404, `项目不存在：${name}`)
+  const st = fs.lstatSync(dir)
+  if (st.isSymbolicLink()) throw new FsError(400, `不允许删除符号链接项目：${name}`)
+  if (!st.isDirectory()) throw new FsError(400, `不是项目文件夹：${name}`)
+  if (!fs.existsSync(path.join(dir, 'project.json'))) {
+    throw new FsError(400, `不是有效项目（缺少 project.json）：${name}`)
+  }
+  fs.rmSync(dir, { recursive: true, force: false })
+  return { path: name }
+}
+
 /** 大小写不敏感的重名检查（Windows 文件系统本就不敏感；跨平台保持一致行为） */
 function hasCaseInsensitiveSibling(root: string, name: string): boolean {
   const lower = name.toLowerCase()

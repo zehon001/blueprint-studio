@@ -33,7 +33,7 @@ import {
   parentOf,
   validateFileName,
 } from './paths'
-import { applyFsEvents, findNode, sortNodes, type FsChangeEvent, type FsNode } from './tree-model'
+import { applyFsEvents, checkFsMove, findNode, sortNodes, type FsChangeEvent, type FsNode } from './tree-model'
 import { createFsApi, FsApiError, type ImportResult } from './api'
 import {
   contentForCreate,
@@ -226,6 +226,7 @@ describe('路径工具（posix）', () => {
       kind: string
       name: string
       root: { type: string; children: unknown[]; container?: { direction?: string } }
+      graphs: { event: { nodes: Array<{ type: string }>; edges: unknown[] } }
     }
     assert.equal(ui.version, 3)
     assert.equal(ui.kind, 'scene')
@@ -233,10 +234,11 @@ describe('路径工具（posix）', () => {
     assert.equal(ui.root.type, 'panel') // 单 panel 根节点
     assert.equal(ui.root.container?.direction, 'column')
     assert.deepEqual(ui.root.children, [])
+    assert.equal(ui.graphs.event.nodes[0]?.type, 'event.start', '新场景事件图带开始事件')
     const bp = JSON.parse(contentForNewFile('main.bp.json')) as {
       version: number
       entry: string
-      graphs: Record<string, { nodes: unknown[]; edges: unknown[] }>
+      graphs: Record<string, { nodes: Array<{ type: string }>; edges: unknown[] }>
       variables: unknown[]
       events: unknown[]
       snippets: unknown[]
@@ -245,11 +247,18 @@ describe('路径工具（posix）', () => {
     assert.equal(bp.version, 3)
     assert.equal(bp.entry, 'bind')
     assert.deepEqual(Object.keys(bp.graphs), ['bind'])
-    assert.deepEqual(bp.graphs.bind, { nodes: [], edges: [] })
+    assert.equal(bp.graphs.bind!.nodes[0]?.type, 'event.start', '新蓝图带开始事件')
+    assert.deepEqual(bp.graphs.bind!.edges, [])
     assert.deepEqual(bp.variables, [])
     assert.deepEqual(bp.events, [])
     assert.deepEqual(bp.snippets, [])
     assert.deepEqual(bp.layout, {})
+    const elem = JSON.parse(contentForNewFile('card.elem.json')) as {
+      kind: string
+      graphs: { event: { nodes: Array<{ type: string }> } }
+    }
+    assert.equal(elem.kind, 'element')
+    assert.equal(elem.graphs.event.nodes[0]?.type, 'event.start', '新元素事件图带开始事件')
     assert.equal(contentForNewFile('a.txt'), '')
     assert.equal(contentForNewFile('noext'), '')
   })
@@ -358,6 +367,50 @@ describe('SSE 事件增量合并（applyFsEvents）', () => {
     const tree = sampleTree()
     assert.equal(applyFsEvents(tree, [ev('unlink', '')]), undefined)
     assert.equal(applyFsEvents(tree, [ev('add', 'ui/x.json')]), undefined) // 缺 kind → 不可安全合并
+  })
+})
+
+/* ============================================================
+ * 拖拽移动落点（仅调整所属目录，不支持排序）
+ * ============================================================ */
+
+describe('checkFsMove（拖入目录的落点校验）', () => {
+  it('文件 / 目录移入其它目录：给出目标路径', () => {
+    const tree = sampleTree()
+    assert.deepEqual(checkFsMove(tree, 'P/ui/main.ui.json', 'P/logic'), {
+      ok: true,
+      to: 'P/logic/main.ui.json',
+    })
+    assert.deepEqual(checkFsMove(tree, 'P/ui', 'P/assets'), { ok: true, to: 'P/assets/ui' })
+  })
+
+  it('项目根不可移动；不能移动到自身或自身子树内', () => {
+    const tree = sampleTree()
+    assert.equal(checkFsMove(tree, 'P', 'P/ui').reason, '项目根不可移动')
+    assert.equal(checkFsMove(tree, 'P/ui', 'P/ui').reason, '不能移动到自身')
+    const nested = dirNode('P', 'P', [dirNode('a', 'P/a', [dirNode('b', 'P/a/b')])])
+    assert.equal(checkFsMove(nested, 'P/a', 'P/a/b').reason, '不能把文件夹移动到其自身内部')
+  })
+
+  it('只能落到目录：文件行不是落点', () => {
+    const tree = sampleTree()
+    assert.equal(checkFsMove(tree, 'P/logic/main.bp.json', 'P/ui/main.ui.json').reason, '只能移动到文件夹')
+  })
+
+  it('已在目标目录中 / 目标重名：不产生移动', () => {
+    const tree = sampleTree()
+    assert.equal(checkFsMove(tree, 'P/ui/main.ui.json', 'P/ui').reason, '已在目标文件夹中')
+    const clash = dirNode('P', 'P', [
+      dirNode('a', 'P/a', [fileNode('x.txt', 'P/a/x.txt')]),
+      dirNode('b', 'P/b', [fileNode('X.TXT', 'P/b/X.TXT')]),
+    ])
+    assert.equal(checkFsMove(clash, 'P/a/x.txt', 'P/b').reason, '目标文件夹中已存在「x.txt」')
+  })
+
+  it('源 / 目标不存在时拒绝', () => {
+    const tree = sampleTree()
+    assert.equal(checkFsMove(tree, 'P/ui/ghost.json', 'P/logic').reason, '源文件或文件夹不存在')
+    assert.equal(checkFsMove(tree, 'P/ui/main.ui.json', 'P/ghost').reason, '目标文件夹不存在')
   })
 })
 

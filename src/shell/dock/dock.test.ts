@@ -199,6 +199,34 @@ describe('movePanel：拖放移动', () => {
     assert.equal(countPanel(next, 'b'), 1)
   })
 
+  it('同组拖动带 index → 标签重排序（激活跟随新位置）', () => {
+    const group = makeTabs(['a', 'b', 'c'], 0)
+    const next = movePanel(group, 'c', { kind: 'group', groupId: group.id, index: 0 })
+    const after = asTabs(next)
+    assert.deepEqual(after.panels, ['c', 'a', 'b'])
+    assert.equal(after.active, 0)
+    // 移到末尾
+    const next2 = movePanel(next, 'c', { kind: 'group', groupId: group.id, index: 2 })
+    assert.deepEqual(asTabs(next2).panels, ['a', 'b', 'c'])
+    assert.equal(asTabs(next2).active, 2)
+  })
+
+  it('同组 index 与当前位置一致 → 顺序不变', () => {
+    const group = makeTabs(['a', 'b', 'c'], 0)
+    const next = movePanel(group, 'b', { kind: 'group', groupId: group.id, index: 1 })
+    assert.deepEqual(asTabs(next).panels, ['a', 'b', 'c'])
+  })
+
+  it('跨组带 index → 插入到目标组指定位置', () => {
+    const root = buildThree()
+    const groupQ = asSplit(root).children[1]
+    const next = movePanel(root, 'a', { kind: 'group', groupId: asTabs(groupQ).id, index: 0 })
+    const refA = findTabsByPanel(next, 'a')
+    assert.ok(refA)
+    assert.deepEqual(refA.node.panels, ['a', 'q'])
+    assert.equal(refA.node.active, 0)
+  })
+
   it('边缘移动 → 旧位置摘除 + 整树外侧包裹', () => {
     const root = buildThree()
     const next = movePanel(root, 'a', { kind: 'edge', side: 'right' })
@@ -436,6 +464,121 @@ describe('dock store：布局动作与持久化', () => {
     assert.equal(asTabs(next).active, 0)
   })
 })
+
+describe('openPanel：文档落点（主编辑组优先）', () => {
+  it('运行面板移到底部后，新资产面板仍并入主编辑组而非控制台组', () => {
+    const center = makeTabs(['asset:ui:ui/main.ui.json'])
+    const bottom = makeTabs(['console', 'runtime'])
+    const root: DockNode = {
+      kind: 'split',
+      dir: 'v',
+      sizes: [4, 1],
+      children: [
+        {
+          kind: 'split',
+          dir: 'h',
+          sizes: [1, 3, 1],
+          children: [t('file-system'), center, t('inspector')],
+        },
+        bottom,
+      ],
+    }
+    // 模拟用户布局：运行面板已拖到底部并与控制台同组；当前聚焦的是运行面板
+    useDockStore.getInitialState().initDockLayout(root, root, 'runtime')
+    useDockStore.getState().openPanel('asset:element:ui/elements/StatCard.elem.json', 'center')
+    const placed = findTabsByPanel(
+      useDockStore.getState().root,
+      'asset:element:ui/elements/StatCard.elem.json',
+    )
+    assert.equal(placed?.node.id, center.id, '新资产应并入含文档的主编辑组')
+    assert.deepEqual(placed?.node.panels, [
+      'asset:ui:ui/main.ui.json',
+      'asset:element:ui/elements/StatCard.elem.json',
+    ])
+  })
+
+  it('主编辑区关闭后，新资产在检视器左侧重建编辑组，不混入底部运行组', () => {
+    const file = makeTabs(['file-system'])
+    const inspector = makeTabs(['inspector'])
+    const bottom = makeTabs(['console', 'runtime'])
+    const root: DockNode = {
+      kind: 'split',
+      dir: 'v',
+      sizes: [4, 1],
+      children: [
+        { kind: 'split', dir: 'h', sizes: [1, 4], children: [file, inspector] },
+        bottom,
+      ],
+    }
+    // main 已关闭、无任何纯文档组；当前聚焦运行面板
+    useDockStore.getInitialState().initDockLayout(root, root, 'runtime')
+    useDockStore.getState().openPanel('asset:element:ui/elements/StatCard.elem.json', 'center')
+    const after = useDockStore.getState().root
+    const placed = findTabsByPanel(after, 'asset:element:ui/elements/StatCard.elem.json')
+    assert.ok(placed, '应新建分组承载资产')
+    assert.notEqual(placed?.node.id, findTabsByPanel(after, 'runtime')?.node.id, '不得混入运行组')
+    const inspectorGroupId = findTabsByPanel(after, 'inspector')?.node.id
+    assert.ok(inspectorGroupId, '检视器组应存在')
+    const siblings = findSiblingSplit(after as DockNode, placed.node.id, inspectorGroupId)
+    assert.ok(siblings, '新组应与检视器同父 split')
+    assert.ok(siblings.leftIndex < siblings.rightIndex, '新组应位于检视器左侧（主编辑区位置）')
+  })
+
+  it('混合组（控制台+运行+旧资产）不算编辑区，新资产仍在检视器左侧重建', () => {
+    const root: DockNode = {
+      kind: 'split',
+      dir: 'v',
+      sizes: [4, 1],
+      children: [
+        {
+          kind: 'split',
+          dir: 'h',
+          sizes: [1, 4],
+          children: [t('file-system'), t('inspector')],
+        },
+        makeTabs(['console', 'runtime', 'asset:element:ui/elements/Old.elem.json']),
+      ],
+    }
+    useDockStore.getInitialState().initDockLayout(root, root, 'runtime')
+    useDockStore.getState().openPanel('asset:element:ui/elements/New.elem.json', 'center')
+    const after = useDockStore.getState().root
+    const placed = findTabsByPanel(after, 'asset:element:ui/elements/New.elem.json')
+    assert.ok(placed)
+    assert.notEqual(placed?.node.id, findTabsByPanel(after, 'runtime')?.node.id)
+  })
+
+  it('无右侧工具组时回退运行视图组', () => {
+    const center = makeTabs(['runtime'])
+    const root: DockNode = {
+      kind: 'split',
+      dir: 'v',
+      sizes: [4, 1],
+      children: [center, t('console')],
+    }
+    useDockStore.getInitialState().initDockLayout(root, root, 'runtime')
+    useDockStore.getState().openPanel('asset:ui:ui/other.ui.json', 'center')
+    const placed = findTabsByPanel(useDockStore.getState().root, 'asset:ui:ui/other.ui.json')
+    assert.equal(placed?.node.id, center.id)
+  })
+})
+
+/** 查找同属一个 split 的两个 tabs 组的下标（a 与 b 必须都是直接子节点） */
+function findSiblingSplit(
+  root: DockNode,
+  aId: string,
+  bId: string,
+): { leftIndex: number; rightIndex: number } | null {
+  const found: { value: { leftIndex: number; rightIndex: number } | null } = { value: null }
+  const walk = (n: DockNode): void => {
+    if (n.kind !== 'split') return
+    const ia = n.children.findIndex((c) => c.kind === 'tabs' && c.id === aId)
+    const ib = n.children.findIndex((c) => c.kind === 'tabs' && c.id === bId)
+    if (ia >= 0 && ib >= 0) found.value = { leftIndex: ia, rightIndex: ib }
+    n.children.forEach(walk)
+  }
+  walk(root)
+  return found.value
+}
 
 describe('布局持久化（localStorage）', () => {
   /** 内存 localStorage 桩（node 环境无 DOM storage） */

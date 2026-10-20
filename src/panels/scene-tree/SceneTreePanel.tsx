@@ -24,6 +24,7 @@ import { schemaIconFor, uiCategoryColor } from '@/shell/ui/icons'
 import { Menu, type MenuItem } from '@/panels/file-system/Menu'
 import { validateFileName } from '@/panels/file-system/paths'
 import { getUISchema, type UINodeSchema } from '@/ui-editor/schema'
+import { nodeTypeLabel } from '@/ui-editor/nodeLabel'
 import {
   PREFAB_DIR,
   prefabLabelOf,
@@ -52,6 +53,9 @@ import {
 } from './tree-model'
 // 注意：本组件不 import .css（node:test 需直接加载本文件）；
 // 样式由 index.ts（registerSceneTreePanel 应用入口）引入 menu.css + styles.css。
+
+/** 类型显示名与检视器徽标共用口径（见 @/ui-editor/nodeLabel） */
+export { nodeTypeLabel }
 
 /** toast 自动消失时长 */
 const TOAST_MS = 4000
@@ -303,12 +307,13 @@ export function SceneTreePanel() {
   function nodeMenuItems(node: UINode): MenuItem[] {
     const schema = getUISchema(node.type)
     const isContainer = schema?.defaultChildPolicy === 'container'
-    // ADR-009：实例节点结构以预制体为准——拒收子节点，菜单按实例/普通分叉
+    // ADR-009 / 元素实例：结构以预制体 / 元素资产为准——拒收子节点
+    const instanceKind = node.element ? '元素' : node.prefab ? '预制体' : null
     const items: MenuItem[] = [
       {
         label: '添加子节点',
-        disabled: !isContainer || !!node.prefab,
-        hint: node.prefab ? '结构以预制体为准' : isContainer ? undefined : '仅容器类型',
+        disabled: !isContainer || instanceKind !== null,
+        hint: instanceKind ? `结构以${instanceKind}为准` : isContainer ? undefined : '仅容器类型',
         onSelect: () => {
           if (menu) setAddMenu({ x: menu.x, y: menu.y, parentId: node.id })
         },
@@ -341,6 +346,8 @@ export function SceneTreePanel() {
         return (
           row.node.name.toLowerCase().includes(trimmedQuery) ||
           row.node.type.toLowerCase().includes(trimmedQuery) ||
+          nodeTypeLabel(row.node).toLowerCase().includes(trimmedQuery) ||
+          (row.node.element ?? '').toLowerCase().includes(trimmedQuery) ||
           (schema?.title ?? '').toLowerCase().includes(trimmedQuery)
         )
       })
@@ -362,7 +369,7 @@ export function SceneTreePanel() {
             `${dropZone ? ` drop-${dropZone}` : ''}`
           }
           style={{ paddingLeft: `calc(var(--space-2) + ${depth} * var(--space-5))` }}
-          title={`${node.name}（${schema?.title ?? node.type}）`}
+          title={`${node.name}（${nodeTypeLabel(node)}）`}
           draggable={!isRoot && !isRenaming}
           onClick={(e) => {
             if (isRenaming) return
@@ -486,7 +493,9 @@ export function SceneTreePanel() {
               <Icon icon={Link2} size={10} /> {prefabLabelOf(node.prefab)}
             </span>
           ) : null}
-          <span className="st-type">{schema?.title ?? node.type}</span>
+          <span className="st-type" title={node.element ? `元素：${node.element}` : undefined}>
+            {nodeTypeLabel(node)}
+          </span>
           <span className="st-grip" aria-hidden>
             <Icon icon={GripVertical} size={12} />
           </span>

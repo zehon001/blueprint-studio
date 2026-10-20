@@ -124,6 +124,19 @@ body {
   color: rgba(255, 255, 255, 0.72);
 }
 
+/* 运行中：运行按钮切换为停止（红色系 ghost，与运行主按钮形成状态对照） */
+.toolbar-stop {
+  color: var(--error);
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.12);
+  padding: 0 var(--space-3);
+}
+
+.toolbar-stop:hover:not(:disabled) {
+  border-color: var(--error);
+  background: rgba(248, 113, 113, 0.2);
+}
+
 .toolbar-outline {
   border-color: var(--border-strong);
   background: var(--bg-input);
@@ -286,12 +299,32 @@ body {
 
 /* pane 最小尺寸（MIN_PANE_PX = 120）由 DockShell 内联注入 */
 
-/* ===== 分隔条（厚度 = --space-1 = 4px，与 DockShell 的 SASH_PX 一致） ===== */
+/* ===== 分隔条（视觉 4px，命中区 12px：两侧各扩 4px 的透明热区） ===== */
 .dock-sash {
   flex: none;
   position: relative;
   z-index: 2;
   background: var(--border);
+}
+
+/* 扩大拖拽热区（细线太难抓），热区仍属于 sash 元素，不影响面板内容点击 */
+.dock-sash::before {
+  content: '';
+  position: absolute;
+}
+
+.dock-sash-h::before {
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+}
+
+.dock-sash-v::before {
+  left: 0;
+  right: 0;
+  top: -4px;
+  bottom: -4px;
 }
 
 .dock-sash-h {
@@ -450,6 +483,42 @@ body.dock-resizing-v * {
   background: var(--selection);
   border: 1px solid var(--accent);
   border-radius: var(--radius-md);
+}
+
+/* 标签栏内拖动：插入光标（不点亮整块区域） */
+.dock-tab-caret {
+  position: absolute;
+  z-index: 12;
+  pointer-events: none;
+  background: var(--accent);
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgba(91, 140, 255, 0.65);
+}
+
+/* 拖拽幽灵：被拖标签跟随指针 */
+.dock-tab-ghost {
+  position: fixed;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  box-shadow: var(--shadow-popover);
+  color: var(--text);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0.96;
+}
+
+.dock-tab-ghost .dock-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 body.dock-dragging,

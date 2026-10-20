@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { ElementAsset, UINode } from '@/ir/types'
 import { expandElementNode, findElementCycle, parseElementAsset } from './element'
+import { previewElementAsset } from './elementBindings'
 
 function node(partial: Partial<UINode> & { id: string }): UINode {
   return {
@@ -80,4 +81,76 @@ test('findElementCycle：正常嵌套 null；自引用检出', () => {
   assert.equal(ok, null)
   const self = element('Self', node({ id: 's', element: 'self.elem.json' }))
   assert.match(findElementCycle(node({ id: 'x', element: 'self.elem.json' }), () => self) ?? '', /循环引用/)
+})
+
+/* ============================================================
+ * v3.2：展开隔离 + 数据绑定
+ * ============================================================ */
+
+function elementInstance(id: string, vars?: Record<string, unknown>): UINode {
+  return node({
+    id,
+    type: '__element',
+    element: 'card.elem.json',
+    ...(vars ? { vars } : {}),
+  })
+}
+
+test('expandElementNode：多次展开不污染元素缓存（前缀不叠加）', () => {
+  const root = node({
+    id: 'el_root',
+    children: [node({ id: 'el_child', type: 'label', props: { text: 'hi' } })],
+  })
+  const asset = element('Card', root)
+  const first = expandElementNode(elementInstance('i1'), () => asset)
+  const second = expandElementNode(elementInstance('i2'), () => asset)
+  assert.equal(first.node.children[0]!.id, 'i1::el_child')
+  assert.equal(second.node.children[0]!.id, 'i2::el_child', '第二次展开不能叠加第一次前缀')
+  assert.equal(asset.root.children[0]!.id, 'el_child', '缓存节点 id 必须保持原样')
+})
+
+test('数据绑定：变量默认值 / 实例 vars 覆盖 / 标量→文本', () => {
+  const root = node({
+    id: 'el_root',
+    children: [node({ id: 'el_label', type: 'label', props: { text: 'hard' } })],
+  })
+  const asset: ElementAsset = {
+    ...element('Card', root),
+    variables: [{ name: 'value', type: 'string', default: '0', exposed: true }],
+    bindings: [{ target: 'el_label', attr: 'text', source: 'value' }],
+  }
+  const overridden = expandElementNode(elementInstance('card1', { value: 42 }), () => asset)
+  assert.equal(overridden.node.children[0]!.props.text, '42', 'int 实例值格式化为文本')
+  const fallback = expandElementNode(elementInstance('card2'), () => asset)
+  assert.equal(fallback.node.children[0]!.props.text, '0', '无覆盖回落变量默认值')
+  assert.equal(asset.root.children[0]!.props.text, 'hard', '绑定不写回元素缓存')
+})
+
+test('数据绑定：类型不兼容跳过，不破坏原属性', () => {
+  const root = node({
+    id: 'el_root',
+    children: [node({ id: 'el_label', type: 'label', props: { text: 'keep' } })],
+  })
+  const asset: ElementAsset = {
+    ...element('Card', root),
+    variables: [{ name: 'payload', type: 'object', default: { a: 1 } }],
+    bindings: [{ target: 'el_label', attr: 'text', source: 'payload' }],
+  }
+  const out = expandElementNode(elementInstance('card1'), () => asset)
+  assert.equal(out.node.children[0]!.props.text, 'keep')
+})
+
+test('预览绑定：clone 后应用默认值，不修改元素资产', () => {
+  const root = node({
+    id: 'el_root',
+    children: [node({ id: 'el_label', type: 'label', props: { text: 'hard' } })],
+  })
+  const asset: ElementAsset = {
+    ...element('Card', root),
+    variables: [{ name: 'value', type: 'string', default: 'preview' }],
+    bindings: [{ target: 'el_label', attr: 'text', source: 'value' }],
+  }
+  const preview = previewElementAsset(asset)
+  assert.equal((preview.root.children[0] as UINode).props.text, 'preview')
+  assert.equal(asset.root.children[0]!.props.text, 'hard')
 })

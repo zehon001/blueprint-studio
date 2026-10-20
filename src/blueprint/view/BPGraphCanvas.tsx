@@ -8,7 +8,9 @@
  */
 import '@xyflow/react/dist/style.css';
 import './styles.css';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
+import { Map as MapIcon } from 'lucide-react';
 import {
   Background,
   BackgroundVariant,
@@ -33,6 +35,17 @@ import { EDGE_COLORS, rawToken } from '../../shell/theme/tokens';
 import { BPNode } from './BPNode';
 import { BPDataEdge, BPExecEdge } from './BPEdge';
 import type { FlowEdge, FlowNode } from './model';
+
+/** 小地图显隐偏好（localStorage；默认显示） */
+const MINIMAP_PREF_KEY = 'bp.minimap';
+
+function readMinimapPref(): boolean {
+  try {
+    return window.localStorage.getItem(MINIMAP_PREF_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
 
 /** 自定义 nodeTypes / edgeTypes（模块级常量，避免重渲染重建导致节点重挂载） */
 export const bpNodeTypes: NodeTypes = { bpNode: BPNode };
@@ -112,6 +125,21 @@ export function BPGraphCanvas({
   multiSelectionKeyCode = 'Shift',
   children,
 }: BPGraphCanvasProps) {
+  const [minimapVisible, setMinimapVisible] = useState<boolean>(readMinimapPref)
+
+  /** 显示/隐藏小地图（偏好写入 localStorage，刷新后保持） */
+  const toggleMinimap = (): void => {
+    setMinimapVisible((prev) => {
+      const next = !prev
+      try {
+        window.localStorage.setItem(MINIMAP_PREF_KEY, next ? '1' : '0')
+      } catch {
+        // 隐私模式等场景忽略持久化失败
+      }
+      return next
+    })
+  }
+
   return (
     <div className={`bp-canvas${className ? ` ${className}` : ''}`}>
       <ReactFlow<FlowNode, FlowEdge>
@@ -165,18 +193,32 @@ export function BPGraphCanvas({
           size={1.6}
           color={rawToken('--bp-grid-dot')}
         />
-        <MiniMap
-          className="bp-minimap"
-          position="bottom-right"
-          pannable
-          zoomable={false}
-          nodeColor={() => rawToken('--node-bg')}
-          nodeStrokeColor={() => rawToken('--border-strong')}
-          maskColor="rgba(8, 9, 11, 0.72)"
-        />
+        {minimapVisible ? (
+          <MiniMap
+            className="bp-minimap"
+            position="bottom-right"
+            style={{ width: 180, height: 130 }}
+            pannable
+            zoomable={false}
+            nodeColor={() => rawToken('--node-bg')}
+            nodeStrokeColor={() => rawToken('--border-strong')}
+            maskColor="rgba(8, 9, 11, 0.72)"
+          />
+        ) : null}
         {/* 画布内部叠加层（T2.7 注释框图层；渲染进 pane → 自行经 ViewportPortal 入视口） */}
         {children}
       </ReactFlow>
+      <button
+        type="button"
+        className="bp-minimap-toggle"
+        data-active={minimapVisible || undefined}
+        onClick={toggleMinimap}
+        title={minimapVisible ? '隐藏小地图' : '显示小地图'}
+        aria-label={minimapVisible ? '隐藏小地图' : '显示小地图'}
+        aria-pressed={minimapVisible}
+      >
+        <MapIcon size={13} strokeWidth={1.75} aria-hidden />
+      </button>
     </div>
   );
 }

@@ -24,11 +24,15 @@ import { Minus, Plus } from 'lucide-react';
 import { Icon } from '@/shell/ui/Icon';
 import { schemaIconFor, uiCategoryColor } from '@/shell/ui/icons';
 import { useStatusStore } from '@/shell/status-store';
-import type { UIAsset, UINode, Vec2 } from '../../ir/types';
+import type { ElementAsset, UIAsset, UINode, Vec2 } from '../../ir/types';
 import { renderUI, updateUI, type UIRenderHandle } from '../../runtime/render/render';
 import { NODE_CATEGORIES, searchUISchemas, type UINodeSchema } from '../schema';
 import { collectPrefabPaths, getCachedPrefab, prefabLabelOf, primePrefabCache } from '../prefab';
 import { findUINode, newUINodeId, useSceneTreeDomain, useUIEditorStore } from '../store';
+import { ownerNodeId } from '../scopedIds';
+import { previewElementAsset } from '../elementBindings';
+import { openElementTab } from '../elementTab';
+import { openPrefabTab } from '../prefabTab';
 import {
   CONTROL_DRAG_MIME,
   ELEMENT_DRAG_MIME,
@@ -161,6 +165,14 @@ export function UIEditorPanel() {
   const styleSheets = useUIEditorStore((s) => s.styleSheets);
   const assetEpoch = useUIEditorStore((s) => s.assetEpoch);
   const stylesRef = useRef(styleSheets);
+  /**
+   * 渲染用资产：元素编辑器预览把「数据绑定」按变量默认值落到克隆根上；
+   * 资产本体 / 命令栈 / 选中 id 均不变（克隆保留 id）。
+   */
+  const renderAsset = useMemo<UIAsset | null>(() => {
+    if (!asset) return null;
+    return asset.kind === 'element' ? previewElementAsset(asset as ElementAsset) : asset;
+  }, [asset]);
 
   /* —— 视口状态 —— */
   const [view, setView] = useState<ViewTransform>({ x: 0, y: 0, scale: 1 });
@@ -222,7 +234,7 @@ export function UIEditorPanel() {
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    if (!asset) {
+    if (!renderAsset) {
       handleRef.current?.destroy();
       handleRef.current = null;
       setBoxes([]);
@@ -237,7 +249,7 @@ export function UIEditorPanel() {
     if (!handleRef.current) {
       // onPrefabLoad（ADR-009）：渲染期补拉成功的占位刷新——bump prefabTick 让本 effect
       // 重跑（updateUI 增量更新；回调存于渲染 state，updateUI 沿用同一回调）。
-      const h = renderUI(asset, {
+      const h = renderUI(renderAsset, {
         mode: 'edit',
         onPrefabLoad: () => setPrefabTick((t) => t + 1),
         styles: styleSheets,
@@ -245,7 +257,7 @@ export function UIEditorPanel() {
       handleRef.current = h;
       canvas.insertBefore(h.el, canvas.firstChild); // 渲染层在下，overlay 在上
     } else {
-      updateUI(handleRef.current, asset);
+      updateUI(handleRef.current, renderAsset);
     }
     if (!dragRef.current || dragRef.current.kind !== 'move') {
       // 清除拖拽预览残留（translate 为纯视觉层，不进资产）
@@ -254,7 +266,7 @@ export function UIEditorPanel() {
       }
     }
     setBoxes(measure());
-  }, [asset, measure, prefabTick, styleSheets, assetEpoch]);
+  }, [renderAsset, measure, prefabTick, styleSheets, assetEpoch]);
 
   /* —— 卸载清理 —— */
   useEffect(
@@ -365,7 +377,9 @@ export function UIEditorPanel() {
     if (dragRef.current || !assetRef.current) return;
     const pt = canvasOf(e);
     const live = measure();
-    setHoverId(hitTest(pt, live));
+    const hit = hitTest(pt, live);
+    // 元素/预制体内部命中归并到实例本体（悬停描边也落在整体上）
+    setHoverId(hit ? ownerNodeId(hit) : null);
     setBoxes(live); // 悬停/选中覆盖层与实时几何保持一致（画布坐标，与缩放无关）
   };
 
@@ -509,9 +523,13 @@ export function UIEditorPanel() {
       }
       const live = measure();
       const rootId = assetRef.current?.root.id;
-      const ids = selectByRect(live, gesture.rect)
-        .map((b) => b.id)
-        .filter((id) => id !== rootId); // 根节点不参与框选（点击可选中根）
+      const ids = [
+        ...new Set(
+          selectByRect(live, gesture.rect)
+            .map((b) => ownerNodeId(b.id)) // 实例内部盒归并到实例本体
+            .filter((id) => id !== rootId), // 根节点不参与框选（点击可选中根）
+        ),
+      ];
       if (ids.length === 0) {
         if (!additive) clearSelection();
         return;
@@ -540,7 +558,9 @@ export function UIEditorPanel() {
 
     const pt = canvasOf(e);
     const live = measure();
-    const hit = hitTest(pt, live);
+    const rawHit = hitTest(pt, live);
+    // 元素/预制体是编辑期整体：内部节点命中归并到实例本体
+    const hit = rawHit ? ownerNodeId(rawHit) : null;
     if (hit) {
       // Alt+点击：直接选中最外层根（根被内容铺满时的快捷方式）
       if (e.altKey) {
@@ -568,6 +588,23 @@ export function UIEditorPanel() {
     startMarqueeDrag(pt, e.shiftKey); // 空白处按下：候选框选；原地松开清除选择
   };
 
+  /** 双击元素 / 预制体实例 → 打开对应资产 tab（与文件系统双击文件同效） */
+  const onDoubleClick = (e: React.MouseEvent): void => {
+    const a = assetRef.current;
+    if (!a) return;
+    const rawHit = hitTest(canvasOf(e), measure());
+    if (!rawHit) return;
+    const node = findUINode(a.root, ownerNodeId(rawHit));
+    if (!node) return;
+    if (node.element) {
+      e.preventDefault();
+      openElementTab(node.element);
+    } else if (node.prefab) {
+      e.preventDefault();
+      openPrefabTab(node.prefab);
+    }
+  };
+
   const onContextMenu = (e: React.MouseEvent): void => {
     e.preventDefault();
     if (!assetRef.current) return;
@@ -577,7 +614,8 @@ export function UIEditorPanel() {
     const screen = screenOf(e);
     const pt = screenToCanvas(screen, viewRef.current);
     const live = measure();
-    const hit = hitTest(pt, live);
+    const rawHit = hitTest(pt, live);
+    const hit = rawHit ? ownerNodeId(rawHit) : null;
     if (hit && !selectionRef.current.includes(hit)) setSelection([hit]);
     const rect = surface.getBoundingClientRect();
     setMenu({
@@ -891,6 +929,7 @@ export function UIEditorPanel() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerLeave={onPointerLeave}
+        onDoubleClick={onDoubleClick}
         onContextMenu={onContextMenu}
         onDragOver={(e) => {
           if (

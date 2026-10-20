@@ -68,6 +68,9 @@ const { UIEditorPanel } = await import('./UIEditorPanel');
 const geometry = await import('./geometry');
 const commands = await import('./commands');
 const { getSceneTreeDomain, useUIEditorStore } = await import('../store');
+const { primeElementCache, clearElementCache } = await import('../element');
+const { useWorkspaceStore } = await import('../../shell/workspace-store');
+const { useDockStore } = await import('../../shell/dock/store');
 const { registerDomainState, runCommand, resetEditorStore, undo, redo, peekUndo, useEditorStore } =
   await import('../../shell/commands');
 const { defaultPropsFor } = await import('../schema');
@@ -247,6 +250,20 @@ function pointer(
         clientY: y,
         button: 0,
         ...extra,
+      } as never) as unknown as Event,
+    );
+  });
+}
+
+function dblclick(el: HTMLElement, x: number, y: number): void {
+  act(() => {
+    el.dispatchEvent(
+      new dom.MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        clientX: x,
+        clientY: y,
+        button: 0,
       } as never) as unknown as Event,
     );
   });
@@ -531,6 +548,21 @@ test('命令：添加节点（schema 默认属性 / 容器目标入其子 / 叶�
   assert.equal(peekUndo()?.label?.startsWith('视口：添加节点'), true, 'label 前缀「视口：」');
 });
 
+test('命令：元素实例是整体——添加节点落在其父级，不写入实例 children', () => {
+  const asset = makeAsset();
+  const stat = makeNode('panel', { id: 'stat', name: 'stat', x: 300, y: 100, w: 120, h: 80 });
+  stat.element = 'ui/elements/Card.elem.json';
+  asset.root.children.push(stat);
+  initDomain(asset);
+  const root = (): UINode => getSceneTreeDomain().asset!.root;
+
+  assert.equal(commands.resolveAddParent(root(), 'stat').id, 'root', '容器型元素实例也按兄弟插入');
+  const id = commands.commitAddNode('button', 'stat', { x: 1, y: 2 });
+  assert.ok(id);
+  assert.ok(root().children.some((c) => c.id === id), '新节点落在实例的父级');
+  assert.deepEqual(root().children.find((c) => c.id === 'stat')!.children, [], '实例 children 保持为空');
+});
+
 test('命令：插入预制体实例（ADR-009 正向实例化：prefab 引用 + 名字去重 + 预制体根起值 + undo）', () => {
   initDomain(makeAsset());
   const root = (): UINode => getSceneTreeDomain().asset!.root;
@@ -640,6 +672,63 @@ test('组件交互：点击选中 / Ctrl+点击加选减选 / 点击空白清除
     assert.equal(useEditorStore.getState().undoStack.length, 0, '选择不入命令栈');
   } finally {
     await unmount();
+  }
+});
+
+test('组件交互：元素实例是整体（内部命中归并实例）＋ 双击打开元素资产', async () => {
+  clearElementCache();
+  primeElementCache('ui/elements/Card.elem.json', {
+    version: 3,
+    kind: 'element',
+    name: 'Card',
+    root: makeNode('vbox', {
+      id: 'el_root',
+      name: 'el_root',
+      w: 120,
+      h: 80,
+      children: [makeNode('label', { id: 'el_label', name: 'el_label', x: 10, y: 10, w: 40, h: 20 })],
+    }),
+  });
+  const stat = makeNode('panel', { id: 'stat', name: 'stat', x: 20, y: 20, w: 120, h: 80 });
+  stat.element = 'ui/elements/Card.elem.json';
+  const asset: UIAsset = {
+    version: 3,
+    name: '元素实例',
+    root: { ...makeNode('panel', { id: 'root', name: 'root', w: 400, h: 300 }), children: [stat] },
+  };
+  initDomain(asset);
+  useWorkspaceStore.setState({ openTabs: [], activeTabId: null });
+  useDockStore.setState({ root: null, activePanelId: null });
+  const { unmount } = await mountPanel();
+  try {
+    stubRect(q('.bps-vp__surface'), { left: 0, top: 0, width: 800, height: 600 });
+    stubRect(byUid('root'), { left: 0, top: 0, width: 400, height: 300 });
+    stubRect(byUid('stat'), { left: 20, top: 20, width: 120, height: 80 });
+    stubRect(byUid('stat::el_label'), { left: 30, top: 30, width: 40, height: 20 });
+    const surface = q('.bps-vp__surface');
+
+    // 点击元素内部文本：命中被归并为实例本体（内部 id 不在资产树里，不可选）
+    pointer(surface, 'pointerdown', 40, 40);
+    pointer(surface, 'pointerup', 40, 40);
+    assert.deepEqual(useUIEditorStore.getState().selection, ['stat'], '内部节点点击选中整个元素实例');
+
+    // 框选只覆盖内部文本：同样只选中实例本体（不重复、不选内部）
+    pointer(surface, 'pointerdown', 25, 25);
+    pointer(surface, 'pointermove', 75, 55);
+    pointer(surface, 'pointerup', 75, 55);
+    assert.deepEqual(useUIEditorStore.getState().selection, ['stat'], '框选内部也归并实例本体');
+
+    // 双击内部文本：打开元素资产（与文件系统双击文件同效）
+    dblclick(surface, 40, 40);
+    const tabs = useWorkspaceStore.getState().openTabs;
+    assert.equal(tabs.length, 1, '双击打开一个资产 tab');
+    assert.equal(tabs[0]!.kind, 'element');
+    assert.equal(tabs[0]!.assetPath, 'ui/elements/Card.elem.json');
+  } finally {
+    await unmount();
+    clearElementCache();
+    useWorkspaceStore.setState({ openTabs: [], activeTabId: null });
+    useDockStore.setState({ root: null, activePanelId: null });
   }
 });
 

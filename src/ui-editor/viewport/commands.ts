@@ -248,7 +248,7 @@ export function commitAddNode(type: string, parentId: string | null, at: Vec2): 
 
 /**
  * 解析「添加节点」的父级：null → 根；目标即根 → 根；容器目标 → 目标自身；
- * 叶子目标 / 预制体实例目标（ADR-009：实例结构以预制体为准，自身 children 渲染期被忽略）
+ * 叶子目标 / 元素·预制体实例目标（结构以资产为准，实例自身 children 渲染期被忽略）
  * → 其父级（插为兄弟）。
  * 导出供组件侧换算父级局部坐标（与 commitAddNode 内部保持同一解析规则）。
  */
@@ -257,7 +257,7 @@ export function resolveAddParent(root: UINode, targetId: string | null): UINode 
   const found = findUINodeWithParent(root, targetId);
   if (!found) return root;
   if (!found.parent) return root; // 目标即根节点
-  if (found.node.prefab) return found.parent; // 实例拒收子节点（与树面板 / 渲染语义一致）
+  if (found.node.prefab || found.node.element) return found.parent; // 实例拒收子节点（与树面板 / 渲染语义一致）
   if (getUISchema(found.node.type)?.defaultChildPolicy === 'container') return found.node;
   return found.parent;
 }

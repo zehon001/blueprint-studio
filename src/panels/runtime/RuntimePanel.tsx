@@ -54,7 +54,6 @@ export function RuntimePanel() {
   const target = useRuntimeStore((s) => s.target)
   const nonce = useRuntimeStore((s) => s.nonce)
   const rerun = useRuntimeStore((s) => s.rerun)
-  const stop = useRuntimeStore((s) => s.clearTarget)
   const autoRerun = useSettingsStore((s) => s.autoRerun)
   const saveSeq = useWorkspaceStore((s) => s.saveSeq)
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -108,14 +107,6 @@ export function RuntimePanel() {
           {target.ui ? ` / ${target.ui}` : ''}
         </span>
         <span className="runtime-panel-spacer" />
-        <button
-          type="button"
-          className="runtime-panel-btn runtime-panel-btn--stop"
-          onClick={stop}
-          title="停止运行：卸载 iframe、中止蓝图运行时与定时器"
-        >
-          停止
-        </button>
         <button type="button" className="runtime-panel-btn" onClick={rerun} title="重跑当前目标">
           重跑
         </button>

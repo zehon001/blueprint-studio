@@ -15,7 +15,7 @@
 import { create } from 'zustand'
 import { nanoid } from 'nanoid'
 import type { Draft } from 'immer'
-import type { UIAsset, UINode } from '@/ir/types'
+import type { ElementAsset, UIAsset, UINode } from '@/ir/types'
 import { registerDomainState, runCommand, useEditorStore } from '@/shell/commands'
 import {
   clearPrefabCache,
@@ -29,6 +29,7 @@ import {
   findElementCycle,
   getCachedElement,
   prefetchElements,
+  primeElementCache,
   setElementLoaderContext,
 } from './element'
 
@@ -196,6 +197,10 @@ export const useUIEditorStore = create<UIEditorState>()((set, get) => ({
       if (!json.ok) {
         set({ message: `保存失败：${json.message ?? ''}` })
         return false
+      }
+      // 保存元素资产后刷新元素缓存：其他 UI 树/元素库里的实例标签（title/文件名）立即可用
+      if (asset.kind === 'element' || assetPath.endsWith('.elem.json')) {
+        primeElementCache(assetPath, asset as unknown as ElementAsset)
       }
       assetDrafts.delete(assetPath)
       return true

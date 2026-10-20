@@ -2,15 +2,17 @@
  * 文件系统面板 —— 目录树纯函数（T0.7）
  *
  * 职责：树节点结构、排序（目录优先 + zh 数字 collator，与服务端 buildTreeNode 同规则）、
- * 按 SSE watch 事件（add / unlink / change）对树做增量合并。全部为纯函数，单测覆盖：
+ * 按 SSE watch 事件（add / unlink / change）对树做增量合并、拖拽移动落点校验。
+ * 全部为纯函数，单测覆盖：
  *  - add 已存在幂等（替换不重复）、父目录级联补齐；
  *  - unlink 移除节点（目录随子列表整棵移除）、目标已随父目录删除时忽略；
- *  - change 不改变结构（返回原引用，调用方据此跳过刷新）。
+ *  - change 不改变结构（返回原引用，调用方据此跳过刷新）；
+ *  - checkFsMove：仅允许移入目录，拒绝项目根 / 自身 / 自身子树 / 同名冲突。
  *
  * 事件 path 相对监视目录（= 项目根，见 server/index.ts handleWatch）；
  * 树根节点 path = 项目文件夹名（相对安全根），事件换算成全路径后再合并。
  */
-import { baseName, extOf, normalizePosix, parentOf } from './paths'
+import { baseName, extOf, joinPosix, normalizePosix, parentOf } from './paths'
 
 /** 目录树节点（与 server/fs.ts 的 TreeNode 结构逐字段对齐） */
 export interface FsNode {
@@ -150,4 +152,43 @@ export function applyFsEvents(root: FsNode, events: readonly FsChangeEvent[]): F
     }
   }
   return changed ? tree : root
+}
+
+/* ============================================================
+ * 拖拽移动（仅调整所属目录，不支持排序）
+ * ============================================================ */
+
+/** 文件树拖拽落点检查结果（不合法时给中文原因，供 toast 提示） */
+export interface FsMoveCheck {
+  ok: boolean
+  /** 不合法原因 */
+  reason?: string
+  /** 合法时的目标路径（目标目录 + 原名称） */
+  to?: string
+}
+
+/**
+ * 文件树拖拽只能「移动到某个目录内」——不像 UI 树有 before / after 排序落区。
+ * 拒绝：项目根、移动到自身、目录移入自身子树、目标非目录、目标目录已有同名条目；
+ * 已在目标目录中视为无操作（不亮落点、不产生命令）。
+ */
+export function checkFsMove(root: FsNode, fromPath: string, toDirPath: string): FsMoveCheck {
+  const rootPath = normalizePosix(root.path)
+  const from = normalizePosix(fromPath)
+  const toDir = normalizePosix(toDirPath)
+  if (from === rootPath) return { ok: false, reason: '项目根不可移动' }
+  const source = findNode(root, from)
+  if (!source) return { ok: false, reason: '源文件或文件夹不存在' }
+  if (from === toDir) return { ok: false, reason: '不能移动到自身' }
+  const target = findNode(root, toDir)
+  if (!target) return { ok: false, reason: '目标文件夹不存在' }
+  if (target.type !== 'dir') return { ok: false, reason: '只能移动到文件夹' }
+  if (parentOf(from) === toDir) return { ok: false, reason: '已在目标文件夹中' }
+  if (source.type === 'dir' && toDir.startsWith(`${from}/`)) {
+    return { ok: false, reason: '不能把文件夹移动到其自身内部' }
+  }
+  if (target.children.some((c) => c.name.toLowerCase() === source.name.toLowerCase())) {
+    return { ok: false, reason: `目标文件夹中已存在「${source.name}」` }
+  }
+  return { ok: true, to: joinPosix(toDir, source.name) }
 }

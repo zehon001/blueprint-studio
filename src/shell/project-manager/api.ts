@@ -5,6 +5,7 @@
  * 契约以 server/index.ts 为准：
  *  - GET  /api/projects                    → { ok, root, projects: ProjectSummary[] }
  *  - POST /api/projects                    → { ok, project }（body: { name, template }）
+ *  - DELETE /api/projects?path=<folder>    → { ok, path }（永久删除磁盘项目目录）
  *  - POST /api/projects/import-folder      → { ok, project, files, bytes, renamed, scaffolded }
  *    （body: { sourcePath, name? }，T0.6 新增端点）
  */
@@ -80,6 +81,11 @@ export const projectsApi = {
   /** 从模板新建项目（template：'empty' | 'log-analyzer'） */
   create(name: string, template: string): Promise<{ ok: true; project: ProjectSummary }> {
     return post('/api/projects', { name, template })
+  },
+
+  /** 永久删除磁盘项目（path = 项目文件夹名，不可撤销） */
+  remove(path: string): Promise<{ ok: true; path: string }> {
+    return request(`/api/projects?path=${encodeURIComponent(path)}`, { method: 'DELETE' })
   },
 
   /** 导入本地文件夹为新项目（sourcePath 为绝对路径；name 可选重命名） */

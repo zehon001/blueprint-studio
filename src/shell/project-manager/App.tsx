@@ -8,7 +8,7 @@
  *  3. 导入项目：本地文件夹绝对路径 → POST /api/projects/import-folder（T0.6 新端点）。
  *
  * 打开项目 = window.location.href = '/editor.html?project=' + encodeURIComponent(项目文件夹名)。
- * 移除只从最近列表删除，不触碰磁盘文件。
+ * 删除项目 = 强确认后永久删除磁盘文件夹 + 最近记录；磁盘上已不存在的记录可直接清理。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Boxes, Check, FolderOpen, FolderPlus, ListTree } from 'lucide-react'
@@ -164,6 +164,12 @@ export default function ProjectManager() {
     return map
   }, [projects])
 
+  /** 磁盘上存在、但不在最近列表里的项目（也要能打开 / 删除） */
+  const otherProjects = useMemo(() => {
+    const recent = new Set(recents.map((r) => r.folder.toLowerCase()))
+    return (projects ?? []).filter((p) => !recent.has(p.path.toLowerCase()))
+  }, [projects, recents])
+
   /** 写入最近列表（去重合并，最新在前） */
   function touchRecent(name: string, folder: string): void {
     setRecents((prev) => {
@@ -221,18 +227,47 @@ export default function ProjectManager() {
     }
   }
 
-  function handleRemove(entry: RecentProject): void {
-    if (
-      !window.confirm(`从最近列表移除「${entry.name}」？\n（只移除记录，不会删除磁盘上的项目文件）`)
-    ) {
-      return
-    }
+  /** 只清理最近记录（磁盘上已不存在的项目） */
+  function forgetRecent(folder: string): void {
     setRecents((prev) => {
-      const next = prev.filter((r) => r.folder.toLowerCase() !== entry.folder.toLowerCase())
+      const next = prev.filter((r) => r.folder.toLowerCase() !== folder.toLowerCase())
       saveRecent(next)
       return next
     })
-    showToast('info', '已从最近列表移除（磁盘文件保留）')
+  }
+
+  /**
+   * 删除项目：磁盘目录 + 最近记录。
+   * 强确认（确认框 + 输入文件夹名）避免误删；磁盘上已不存在的记录只清记录。
+   */
+  async function handleDeleteProject(name: string, folder: string): Promise<void> {
+    const onDisk = projectByFolder.get(folder.toLowerCase())
+    if (!onDisk) {
+      if (!window.confirm(`从最近列表移除「${name}」？\n（磁盘上已没有该项目）`)) return
+      forgetRecent(folder)
+      showToast('info', '已移除记录（磁盘上无此项目）')
+      return
+    }
+    const target = onDisk.path
+    const ok = window.confirm(
+      `删除项目「${name}」？\n\n将永久删除磁盘文件夹：\n${target}\n\n` +
+        '此操作不可撤销，项目内的 .history 历史快照也会一起删除。',
+    )
+    if (!ok) return
+    const typed = window.prompt(`请输入项目文件夹名「${target}」以确认删除：`, '')
+    if (typed === null) return
+    if (typed.trim() !== target) {
+      showToast('info', '文件夹名不匹配，已取消删除')
+      return
+    }
+    try {
+      await projectsApi.remove(target)
+      forgetRecent(folder)
+      setProjects((prev) => (prev ? prev.filter((p) => p.path !== target) : prev))
+      showToast('success', `已删除项目「${name}」及磁盘文件夹`)
+    } catch (e) {
+      showToast('error', `删除失败：${errorMessage(e)}`)
+    }
   }
 
   return (
@@ -257,47 +292,95 @@ export default function ProjectManager() {
         <section className="pm-card">
           <h2 className="pm-card-title">最近项目</h2>
           {projectsRoot && <div className="pm-root" title="项目安全根目录">安全根：{projectsRoot}</div>}
-          {recents.length === 0 ? (
+          <p className="pm-hint">
+            「删除项目」会永久删除磁盘文件夹（不可撤销，含 .history 快照）；磁盘上已不存在的记录可用「移除记录」清理。
+          </p>
+          {recents.length === 0 && otherProjects.length === 0 ? (
             <div className="pm-empty">
               <Icon icon={FolderOpen} size={48} className="pm-empty-icon" />
               <div className="pm-empty-title">还没有打开过项目</div>
               <div className="pm-empty-desc">从右侧新建或导入一个项目开始使用。</div>
             </div>
           ) : (
-            <ul className="pm-recent-list">
-              {recents.map((r) => {
-                const onDisk = projectByFolder.get(r.folder.toLowerCase())
-                return (
-                  <li key={r.folder} className="pm-recent-item">
-                    <div className="pm-recent-info">
-                      <div className="pm-recent-name" title={r.folder}>
-                        {r.name}
-                        {onDisk === undefined && <span className="pm-tag warn">未在磁盘</span>}
-                        {onDisk?.broken && <span className="pm-tag warn">project.json 损坏</span>}
-                      </div>
-                      <div className="pm-recent-path" title={r.folder}>
-                        {r.folder}
-                      </div>
-                      <div className="pm-recent-meta">
-                        修改：{formatTime(onDisk?.mtime)} · 打开：{formatTime(r.lastOpened)}
-                      </div>
-                    </div>
-                    <div className="pm-recent-actions">
-                      <button
-                        type="button"
-                        className="pm-btn primary"
-                        onClick={() => openProject(r.name, r.folder)}
-                      >
-                        打开
-                      </button>
-                      <button type="button" className="pm-btn ghost" onClick={() => handleRemove(r)}>
-                        移除
-                      </button>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
+            <>
+              {recents.length > 0 ? (
+                <ul className="pm-recent-list">
+                  {recents.map((r) => {
+                    const onDisk = projectByFolder.get(r.folder.toLowerCase())
+                    return (
+                      <li key={r.folder} className="pm-recent-item">
+                        <div className="pm-recent-info">
+                          <div className="pm-recent-name" title={r.folder}>
+                            {r.name}
+                            {onDisk === undefined && <span className="pm-tag warn">未在磁盘</span>}
+                            {onDisk?.broken && <span className="pm-tag warn">project.json 损坏</span>}
+                          </div>
+                          <div className="pm-recent-path" title={r.folder}>
+                            {r.folder}
+                          </div>
+                          <div className="pm-recent-meta">
+                            修改：{formatTime(onDisk?.mtime)} · 打开：{formatTime(r.lastOpened)}
+                          </div>
+                        </div>
+                        <div className="pm-recent-actions">
+                          <button
+                            type="button"
+                            className="pm-btn primary"
+                            onClick={() => openProject(r.name, r.folder)}
+                          >
+                            打开
+                          </button>
+                          <button
+                            type="button"
+                            className="pm-btn ghost"
+                            onClick={() => void handleDeleteProject(r.name, r.folder)}
+                          >
+                            {onDisk === undefined ? '移除记录' : '删除项目'}
+                          </button>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              ) : null}
+              {otherProjects.length > 0 ? (
+                <>
+                  <div className="pm-section-subtitle">磁盘项目（未在最近列表）</div>
+                  <ul className="pm-recent-list">
+                    {otherProjects.map((p) => (
+                      <li key={p.path} className="pm-recent-item">
+                        <div className="pm-recent-info">
+                          <div className="pm-recent-name" title={p.path}>
+                            {p.name}
+                            {p.broken && <span className="pm-tag warn">project.json 损坏</span>}
+                          </div>
+                          <div className="pm-recent-path" title={p.path}>
+                            {p.path}
+                          </div>
+                          <div className="pm-recent-meta">修改：{formatTime(p.mtime)}</div>
+                        </div>
+                        <div className="pm-recent-actions">
+                          <button
+                            type="button"
+                            className="pm-btn primary"
+                            onClick={() => openProject(p.name, p.path)}
+                          >
+                            打开
+                          </button>
+                          <button
+                            type="button"
+                            className="pm-btn ghost"
+                            onClick={() => void handleDeleteProject(p.name, p.path)}
+                          >
+                            删除项目
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </>
           )}
         </section>
 

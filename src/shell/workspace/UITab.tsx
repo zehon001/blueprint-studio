@@ -22,6 +22,7 @@ import { peekUndo, subscribeReplay, useEditorStore } from '@/shell/commands'
 import { registerSaveHandler } from './saveRegistry'
 import { useWorkspaceStore, tabIdOf } from '@/shell/workspace-store'
 import { useDockStore } from '@/shell/dock/store'
+import { findTabsByPanel } from '@/shell/dock/tree'
 import { assetPanelId } from '@/shell/dock/assetPanelModel'
 import { useSelectionStore } from '@/shell/selection/store'
 // BUG1：UI tab 直接内嵌 SceneTreePanel，入口 index.ts 的 CSS 不会执行；
@@ -205,28 +206,44 @@ export function UITab({
     }
   }, [status, runValidation])
 
-  /* 打开/切换资产（projectPath 与 store 现值不一致或资产不同才重载） */
-  useEffect(() => {
-    if (!projectPath) return
-    if (projectPathState !== projectPath) {
-      useUIEditorStore.getState().close()
-    }
-    void openUIAsset(projectPath, assetPath)
-    return () => {
-      /* 卸载即关闭：避免与其它 UI tab 的域状态串台 */
-      if (useUIEditorStore.getState().assetPath === assetPath) useUIEditorStore.getState().close()
-    }
-  }, [projectPath, assetPath])
-
-  /* BUG5：多个 UI tab 共享同一 editor store。切回本 tab 时若共享资产已被别的
-   * tab 替换，重新载入本资产（否则隐藏 tab 永远停在「加载中」/显示别人的资产）。 */
+  /**
+   * 本面板是否为自己的 dock 组当前显示的页。
+   * 一个 dock 组里的非活动 tab 仍然挂载（display:none）；它们不能调用
+   * openUIAsset，否则会与当前页争抢共享 editor store，出现「激活 StatCard
+   * 但树/画布是 main」的串台。
+   */
+  const visibleActive = useDockStore((s) => {
+    const hit = findTabsByPanel(s.root, uid)
+    return hit ? hit.node.panels[hit.node.active] === uid : false
+  })
   const storeAssetPath = useUIEditorStore((s) => s.assetPath)
+
+  /* 卸载即关闭：避免与其它 UI tab 的域状态串台（只在真正卸载时执行） */
+  useEffect(
+    () => () => {
+      if (useUIEditorStore.getState().assetPath === assetPath) useUIEditorStore.getState().close()
+    },
+    [assetPath],
+  )
+
+  /**
+   * 打开/切换资产：只由组内当前显示页加载；隐藏 tab 等切到前台再载入。
+   * store 已是本资产时不重复加载（loading / ready / error 都保持现状）。
+   */
   useEffect(() => {
-    if (!projectPath || activePanelId !== uid) return
-    if (storeAssetPath === assetPath) return
+    if (!projectPath || !visibleActive) return
+    if (storeAssetPath === assetPath && status !== 'idle') return
     if (projectPathState !== projectPath) useUIEditorStore.getState().close()
     void openUIAsset(projectPath, assetPath)
-  }, [activePanelId, uid, storeAssetPath, assetPath, projectPath, projectPathState, openUIAsset])
+  }, [
+    projectPath,
+    assetPath,
+    visibleActive,
+    storeAssetPath,
+    status,
+    projectPathState,
+    openUIAsset,
+  ])
 
   /* 脏标记：scene-tree 域命令 / undo / redo */
   useEffect(() => {

@@ -585,7 +585,11 @@ test('变量初值与读写（default / 零值 / opts.vars 覆盖 / 链内写后
     },
     { variables: [{ name: 'score', type: 'int', default: 7 }, { name: 'label', type: 'string' }] },
   );
-  const { rt, rec } = harness(a, specs, { vars: { score: 99 } });
+  const changes: Array<[string, unknown]> = [];
+  const { rt, rec } = harness(a, specs, {
+    vars: { score: 99 },
+    onVarChange: (name: string, value: unknown) => changes.push([name, value]),
+  });
   // 初值：opts.vars 覆盖 default；未设 default 的 string = 零值 ''；未声明 = undefined
   assert.equal(rt.getVar('score'), 99);
   assert.equal(rt.getVar('label'), '');
@@ -596,8 +600,10 @@ test('变量初值与读写（default / 零值 / opts.vars 覆盖 / 链内写后
   // 链内 set(42) 后经纯节点读回，所有 ctx 共享同一存储
   assert.deepEqual(tags(rec), ['42']);
   assert.equal(rt.getVar('score'), 42);
+  assert.deepEqual(changes, [['score', 42]], '链内 ctx.setVar 通知绑定层');
   rt.setVar('score', 5);
   assert.equal(rt.getVar('score'), 5);
+  assert.deepEqual(changes, [['score', 42], ['score', 5]], 'RuntimeHandle.setVar 同样通知');
   rt.stop();
 });
 

@@ -136,11 +136,44 @@
   color: var(--text);
 }
 
-/* 目录拖放落点高亮（拖入导入） */
+/* 目录拖放落点高亮（拖入导入 / 拖拽移动） */
 .fs-row.dragover {
   background: var(--selection);
   outline: 1px dashed var(--accent);
   outline-offset: -2px;
+}
+
+/* 拖拽中的行半透明（源视觉弱化） */
+.fs-row.dragging {
+  opacity: 0.5;
+}
+
+/* 行尾抓手：悬停出现，提示整行可拖拽移动 */
+.fs-grip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-disabled);
+  opacity: 0;
+  cursor: grab;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.fs-row:hover .fs-grip,
+.fs-row.selected .fs-grip {
+  opacity: 1;
+}
+
+.fs-row.dragging .fs-grip {
+  cursor: grabbing;
+}
+
+/* 空白区落点 = 移动到项目根 */
+.fs-tree.root-dragover {
+  background: var(--selection);
+  outline: 1px dashed var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
 }
 
 .fs-chevron {

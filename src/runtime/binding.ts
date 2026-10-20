@@ -33,7 +33,15 @@
  *
  * 注意：本文件不 import CSS；render 目录只读（import，不改）。
  */
-import type { IRAsset, NodeSpec, UINode, UIAsset, UiHandle } from '@/ir/types';
+import type {
+  ElementAsset,
+  ElementBindingDef,
+  IRAsset,
+  NodeSpec,
+  UINode,
+  UIAsset,
+  UiHandle,
+} from '@/ir/types';
 import { deserializeIR } from '@/ir/validate';
 import { editorSpecMap } from '@/blueprint/my-blueprint/graph-op-specs';
 import { injectSnippetRuntime } from '@/script/snippet-runtime';
@@ -53,6 +61,11 @@ import { resolveExternalFunctions } from './functions';
 import { createEventBus, runtimeEventSink, type EventBus } from './events';
 import { BUS_SOURCE_NODE_KEY } from './events/markers';
 import { getCachedElement } from '@/ui-editor/element';
+import {
+  elementVarValues,
+  getElementRuntimeVars,
+  setElementRuntimeVars,
+} from '@/ui-editor/elementBindings';
 import { getCachedPrefab } from '@/ui-editor/prefab';
 import { graphOwnerBlueprint } from '@/ui-editor/embedded';
 import { DebugWsClient } from '@/shell/debug/debug-ws';
@@ -493,6 +506,8 @@ interface GraphOwnerAsset {
   variables?: IRAsset['variables'];
   events?: IRAsset['events'];
   layout?: IRAsset['layout'];
+  /** v3.2 元素数据绑定（仅元素资产；变量 → 内部节点属性） */
+  bindings?: ElementBindingDef[];
 }
 
 export interface BindingRunnerOptions {
@@ -816,6 +831,22 @@ export class BindingRunner {
     for (const child of ownerAsset.root.children ?? []) {
       mapIds(child, `${idPrefix}::`, !(child.prefab || child.element));
     }
+    // v3.2：元素数据绑定初值 + 变量变更后的实例刷新
+    const elementAsset = kindLabel === '元素' ? (ownerAsset as ElementAsset) : null;
+    const boundElement = (elementAsset?.bindings?.length ?? 0) > 0;
+    const initialVars = elementAsset
+      ? elementVarValues(elementAsset, instance.vars)
+      : { ...varsFromIR(fnResolved.asset), ...(instance.vars ?? {}) };
+    if (boundElement) setElementRuntimeVars(instance, { ...initialVars });
+    let bindingRefreshScheduled = false;
+    const scheduleBindingRefresh = (): void => {
+      if (bindingRefreshScheduled || this.stopped) return;
+      bindingRefreshScheduled = true;
+      queueMicrotask(() => {
+        bindingRefreshScheduled = false;
+        if (!this.stopped) updateUI(this.opts.renderHandle, this.opts.asset);
+      });
+    };
     const ui = makeUiHandle({
       // 作用域 = 元素/预制体自身树（嵌套实例内部不透明）
       scopes: [ownerAsset.root],
@@ -839,7 +870,15 @@ export class BindingRunner {
         this.opts.onError?.(err.message);
       },
       onDebug: composeDebugSink(forward, this.opts.debugProbe, debugPath),
-      vars: { ...varsFromIR(fnResolved.asset), ...(instance.vars ?? {}) },
+      vars: initialVars,
+      onVarChange: boundElement
+        ? (name, value) => {
+            const current = getElementRuntimeVars(instance) ?? { ...initialVars };
+            current[name] = value;
+            setElementRuntimeVars(instance, current);
+            scheduleBindingRefresh();
+          }
+        : undefined,
     });
     const nameSet = collectNames([ownerAsset.root]);
     bus.register({

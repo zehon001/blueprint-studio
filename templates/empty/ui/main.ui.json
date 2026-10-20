@@ -20,7 +20,7 @@
     "children": []
   },
   "graphs": {
-    "event": { "kind": "event", "nodes": [], "edges": [], "comments": [] }
+    "event": { "kind": "event", "nodes": [{"id": "n_start", "type": "event.start", "params": {}, "pinDefaults": {}, "position": {"x": 120, "y": 120}}], "edges": [], "comments": [] }
   },
   "layout": {},
   "variables": [],

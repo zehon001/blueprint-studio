@@ -2,14 +2,6 @@
   "version": 3,
   "kind": "element",
   "name": "StatCard",
-  "props": [
-    {
-      "id": "value",
-      "label": "数值",
-      "type": "string",
-      "default": "0"
-    }
-  ],
   "events": [],
   "traits": [],
   "styles": [],
@@ -69,11 +61,36 @@
   "graphs": {
     "event": {
       "kind": "event",
-      "nodes": [],
+      "nodes": [
+        {
+          "id": "n_start",
+          "type": "event.start",
+          "params": {},
+          "pinDefaults": {},
+          "position": {
+            "x": 120,
+            "y": 120
+          }
+        }
+      ],
       "edges": [],
       "comments": []
     }
   },
-  "variables": [],
-  "layout": {}
+  "variables": [
+    {
+      "name": "value",
+      "type": "string",
+      "default": "0",
+      "exposed": true
+    }
+  ],
+  "layout": {},
+  "bindings": [
+    {
+      "target": "stat_value",
+      "attr": "text",
+      "source": "value"
+    }
+  ]
 }

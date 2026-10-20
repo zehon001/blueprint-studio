@@ -19,6 +19,7 @@ import {
   FsError,
   createProject,
   deletePathSafe,
+  deleteProject,
   importIntoProject,
   importProjectFolder,
   isPathWithin,
@@ -268,6 +269,35 @@ describe('模板与项目', () => {
       assert.equal(alpha.engineVersion, ENGINE_VERSION)
       assert.ok(alpha.mtime)
       assert.equal(list.find((p) => p.path === 'NotAProject'), undefined)
+    })
+  })
+
+  test('deleteProject：删除磁盘目录 + 可同名重建；拒绝越权 / 非项目 / 符号链接', () => {
+    withRoot((root) => {
+      createProject(root, 'Alpha', 'empty')
+      const alphaDir = path.join(root, 'Alpha')
+      assert.ok(fs.existsSync(alphaDir))
+      assert.deepEqual(deleteProject(root, 'Alpha'), { path: 'Alpha' })
+      assert.equal(fs.existsSync(alphaDir), false, '磁盘目录已删除')
+      assert.equal(listProjects(root).length, 0)
+      // 同名重建（原 bug：目录残留导致 409）
+      createProject(root, 'Alpha', 'empty')
+      assert.ok(fs.existsSync(path.join(root, 'Alpha', 'project.json')))
+
+      expectFsError(() => deleteProject(root, '../Alpha'), 400, '路径分隔符')
+      expectFsError(() => deleteProject(root, 'a/b'), 400, '子路径')
+      expectFsError(() => deleteProject(root, 'Missing'), 404, '不存在')
+      fs.mkdirSync(path.join(root, 'NotAProject'))
+      expectFsError(() => deleteProject(root, 'NotAProject'), 400, '缺 project.json')
+
+      const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'bps-outside-'))
+      try {
+        fs.symlinkSync(outside, path.join(root, 'Linked'))
+        expectFsError(() => deleteProject(root, 'Linked'), 400, '符号链接')
+        assert.ok(fs.existsSync(outside), '符号链接目标不能被删')
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true })
+      }
     })
   })
 })

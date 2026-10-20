@@ -64,7 +64,13 @@ export function embeddedBlueprintOf(asset: UIAsset): IRAsset {
       ...(g.comments ? { comments: g.comments } : {}),
     }
   }
-  if (!cleaned[eventKey]) cleaned[eventKey] = emptyEmbeddedGraph()
+  // 空事件图（老资产 / 早期模板）在视图层补 event.start：打开蓝图即可连线，
+  // 保存时由 applyEmbeddedBlueprint 落盘；不修改传入资产。
+  const eventGraph = cleaned[eventKey]
+  if (!eventGraph) cleaned[eventKey] = emptyEmbeddedGraph()
+  else if ((eventGraph.nodes ?? []).length === 0) {
+    cleaned[eventKey] = { ...eventGraph, nodes: emptyEmbeddedGraph().nodes }
+  }
   return {
     version: 3,
     name: asset.name,

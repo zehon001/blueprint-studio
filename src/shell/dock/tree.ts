@@ -23,7 +23,8 @@ export type DockArea = 'left' | 'right' | 'bottom' | 'center'
 /** 拖放目标：edge = 主窗四边（整树外侧分裂插入）；group = 并入指定 tabs 组 */
 export type DropTarget =
   | { kind: 'edge'; side: 'left' | 'right' | 'top' | 'bottom' }
-  | { kind: 'group'; groupId: string }
+  /** index：插入到该组第 index 个位置（缺省=追加到末尾；同组拖动即标签重排序） */
+  | { kind: 'group'; groupId: string; index?: number }
 
 export interface DockSplitNode {
   kind: 'split'
@@ -199,8 +200,13 @@ export function insertPanel(root: DockNode | null, panelId: string, target: Drop
   if (base !== null && found !== null) {
     return updateAtPath(base, found.path, (n) => {
       const t = n as DockTabsNode
-      const panels = [...t.panels, panelId]
-      return { ...t, panels, active: panels.length - 1 }
+      const panels = [...t.panels]
+      const index =
+        target.index === undefined
+          ? panels.length
+          : Math.min(Math.max(Math.trunc(target.index), 0), panels.length)
+      panels.splice(index, 0, panelId)
+      return { ...t, panels, active: index }
     })
   }
   if (base === null) return makeTabs([panelId])
@@ -256,7 +262,19 @@ export function movePanel(root: DockNode | null, panelId: string, target: DropTa
   if (!root) return insertPanel(root, panelId, target)
   const cur = findTabsByPanel(root, panelId)
   if (cur && target.kind === 'group' && cur.node.id === target.groupId) {
-    return setGroupActive(root, cur.node.id, cur.node.panels.indexOf(panelId)) ?? root
+    // 同组：带 index → 标签重排序；不带 → 仅激活（原行为）
+    if (target.index === undefined) {
+      return setGroupActive(root, cur.node.id, cur.node.panels.indexOf(panelId)) ?? root
+    }
+    const from = cur.node.panels.indexOf(panelId)
+    const rest = cur.node.panels.filter((p) => p !== panelId)
+    const index = Math.min(Math.max(Math.trunc(target.index), 0), rest.length)
+    if (index === from) return setGroupActive(root, cur.node.id, from) ?? root
+    rest.splice(index, 0, panelId)
+    return updateAtPath(root, cur.path, (n) => {
+      const t = n as DockTabsNode
+      return { ...t, panels: rest, active: index }
+    })
   }
   return insertPanel(root, panelId, target)
 }

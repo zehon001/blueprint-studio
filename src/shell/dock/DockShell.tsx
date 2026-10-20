@@ -60,14 +60,25 @@ const SASH_PX = 4
 
 /* ---------------- 拖拽状态 ---------------- */
 
-/** 中央并入目标：组 id + 组相对 dock 区的矩形（高亮用） */
+/** 中央并入目标：组 id + 组相对 dock 区的矩形（高亮用）+ 插入下标（标签重排序用）。
+ *  带 caret 表示指针仍在标签栏上：只显示插入光标，不点亮整块区域。 */
 type DropInfo =
   | { side: 'left' | 'right' | 'top' | 'bottom' }
-  | { side: 'center'; groupId: string; rect: Rect }
+  | {
+      side: 'center'
+      groupId: string
+      rect: Rect
+      index?: number
+      caret?: { left: number; top: number; height: number }
+    }
 
 interface DragState {
   panelId: string
   fromPoint: { x: number; y: number }
+  /** 当前指针位置（拖拽幽灵跟随用） */
+  point: { x: number; y: number }
+  /** 是否已超过拖拽阈值 */
+  moved: boolean
   drop: DropInfo | null
 }
 
@@ -113,7 +124,7 @@ function DockRoot() {
   }, [])
 
   const beginDrag = useCallback((panelId: string, from: { x: number; y: number }) => {
-    dragRef.current = { panelId, fromPoint: from, drop: null }
+    dragRef.current = { panelId, fromPoint: from, point: from, moved: false, drop: null }
     setDrag(dragRef.current)
   }, [])
 
@@ -123,8 +134,9 @@ function DockRoot() {
       const st = dragRef.current
       const area = areaRef.current
       if (!st || !area) return
+      const moved = st.moved || dist2(st.fromPoint.x, st.fromPoint.y, e.clientX, e.clientY) >= DRAG_THRESHOLD ** 2
       let drop: DropInfo | null = null
-      if (dist2(st.fromPoint.x, st.fromPoint.y, e.clientX, e.clientY) >= DRAG_THRESHOLD ** 2) {
+      if (moved) {
         const rect = area.getBoundingClientRect()
         const inside =
           e.clientX >= rect.left &&
@@ -139,9 +151,37 @@ function DockRoot() {
             // 否则这些小面板永远落在整树边缘感应带里，无法作为 center 目标）。
             const onTabBar = e.clientY <= g.top + 30 && e.clientY >= g.top
             if (onTabBar) {
+              // 计算插入下标（按 tab 中线比较；排除正在拖拽的标签）→ 支持同组重排序
+              const tabEls = Array.from(
+                groupEl.querySelectorAll<HTMLElement>('.dock-tab'),
+              ).filter((el) => !el.classList.contains('dragging'))
+              let index = tabEls.length
+              for (let i = 0; i < tabEls.length; i += 1) {
+                const tr = tabEls[i].getBoundingClientRect()
+                if (e.clientX < tr.left + tr.width / 2) {
+                  index = i
+                  break
+                }
+              }
+              // 插入光标位置（标签左缘 / 末尾标签右缘）
+              const lastRect = tabEls.length
+                ? tabEls[tabEls.length - 1].getBoundingClientRect()
+                : null
+              const caretX =
+                index < tabEls.length
+                  ? tabEls[index].getBoundingClientRect().left
+                  : lastRect
+                    ? lastRect.right
+                    : g.left + 8
               drop = {
                 side: 'center',
                 groupId: groupEl.dataset.dockTabs ?? '',
+                index,
+                caret: {
+                  left: caretX - rect.left - 1,
+                  top: g.top - rect.top + 4,
+                  height: 24,
+                },
                 rect: {
                   left: g.left - rect.left,
                   top: g.top - rect.top,
@@ -178,7 +218,7 @@ function DockRoot() {
           }
         }
       }
-      dragRef.current = { ...st, drop }
+      dragRef.current = { ...st, point: { x: e.clientX, y: e.clientY }, moved, drop }
       setDrag(dragRef.current)
     }
     const onUp = (): void => {
@@ -188,7 +228,7 @@ function DockRoot() {
       if (st?.drop) {
         const target: DropTarget =
           st.drop.side === 'center'
-            ? { kind: 'group', groupId: st.drop.groupId }
+            ? { kind: 'group', groupId: st.drop.groupId, index: st.drop.index }
             : { kind: 'edge', side: st.drop.side }
         movePanelTo(st.panelId, target)
       }
@@ -209,12 +249,20 @@ function DockRoot() {
     return () => document.body.classList.remove('dock-dragging')
   }, [dropping])
 
-  // 放置高亮：边 = 1/2 悬浮预览区；中央 = 目标 tabs 组矩形（Godot 式蓝色高亮）
+  // 放置高亮：边 = 1/2 悬浮预览区；中央 = 目标 tabs 组矩形（Godot 式蓝色高亮）。
+  // 指针仍在标签栏上时只画插入光标（两标签之间的竖线），不点亮整块区域。
   let overlayStyle: CSSProperties | null = null
+  let overlayClass = 'dock-drop-overlay'
   if (drag?.drop && areaRef.current) {
     if (drag.drop.side === 'center') {
-      const r = drag.drop.rect
-      overlayStyle = { left: r.left, top: r.top, width: r.width, height: r.height }
+      if (drag.drop.caret) {
+        const c = drag.drop.caret
+        overlayStyle = { left: c.left, top: c.top, width: 2, height: c.height }
+        overlayClass = 'dock-tab-caret'
+      } else {
+        const r = drag.drop.rect
+        overlayStyle = { left: r.left, top: r.top, width: r.width, height: r.height }
+      }
     } else {
       const w = areaRef.current.clientWidth
       const h = areaRef.current.clientHeight
@@ -244,8 +292,20 @@ function DockRoot() {
             <div className="dock-empty-desc">从顶栏「面板」菜单重新打开，或按 Ctrl+K 搜索节点与命令。</div>
           </div>
         )}
-        {overlayStyle ? <div className="dock-drop-overlay" style={overlayStyle} /> : null}
+        {overlayStyle ? <div className={overlayClass} style={overlayStyle} /> : null}
       </div>
+      {/* 拖拽幽灵：被拖标签跟随指针（超过阈值才出现） */}
+      {drag?.moved ? (
+        <div
+          className="dock-tab-ghost"
+          style={{ left: drag.point.x + 14, top: drag.point.y + 10 }}
+        >
+          <DockTabLabel
+            panelId={drag.panelId}
+            fallback={getPanel(drag.panelId)?.title ?? drag.panelId}
+          />
+        </div>
+      ) : null}
     </DragContext.Provider>
   )
 }

@@ -457,7 +457,11 @@ export interface UINode {
   children: UINode[];
 }
 
-/** v3 元素自定义属性声明（PropDef 的字段子集；渲染期以 default 作为初值） */
+/**
+ * v3 元素自定义属性声明（PropDef 的字段子集）。
+ * @deprecated v3.2 起由「提升变量 + 数据绑定」替代；仅保留读取以兼容旧资产，
+ * 不再提供编辑 UI，新建资产不要写入。
+ */
 export interface ElementPropDef {
   id: string;
   label?: string;
@@ -466,12 +470,33 @@ export interface ElementPropDef {
   doc?: string;
 }
 
-/** v3 元素资产（*.elem.json；与 UIAsset 同构 + 自定义属性/事件/traits） */
+/**
+ * v3.2 元素数据绑定：把元素蓝图变量写到内部节点属性。
+ * 单向（变量 → 节点），类型按目标 PropDef 做显示转换；实例变量覆盖后重新求值。
+ */
+export interface ElementBindingDef {
+  /** 目标内部节点 id（元素资产 root 子树内） */
+  target: string;
+  /** 目标属性 id（写入展开节点的 UINode.props；name/position/size/rotation 除外） */
+  attr: string;
+  /** 源变量名（ElementAsset.variables；exposed = 实例外部可覆盖） */
+  source: string;
+}
+
+/** v3 元素资产（*.elem.json；与 UIAsset 同构 + 数据绑定/事件/traits） */
 export interface ElementAsset {
   version: 3;
   kind: 'element';
   name: string;
+  /** 显示名（元素设置里配置；缺省用文件名；UI 树 / 元素库展示用） */
+  title?: string;
+  /**
+   * 旧版自定义属性声明（仅兼容读取；展开时仍会合并到元素根 props）。
+   * @deprecated 新资产请用 variables + bindings。
+   */
   props?: ElementPropDef[];
+  /** v3.2 数据绑定（源变量 → 内部节点属性） */
+  bindings?: ElementBindingDef[];
   events?: IREventDef[];
   traits?: string[];
   styles?: string[];

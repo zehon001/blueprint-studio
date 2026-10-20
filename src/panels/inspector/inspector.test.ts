@@ -15,7 +15,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { UIAsset, UINode, Vec2, Size2 } from '@/ir/types'
+import type { ElementAsset, UIAsset, UINode, Vec2, Size2 } from '@/ir/types'
 import { defaultPropsFor, getUISchema, commonProps, type ListColumn, type PropDef } from '@/ui-editor/schema'
 import { peekUndo, redo, registerDomainState, resetEditorStore, runCommand, undo } from '@/shell/commands'
 import { useUIEditorStore, getSceneTreeDomain, type SceneTreeDomainState } from '@/ui-editor/store'
@@ -477,6 +477,7 @@ const { act, createElement } = await import('react')
 const { createRoot } = await import('react-dom/client')
 const { PropEditor } = await import('./PropEditors')
 const { InspectorPanel } = await import('./InspectorPanel')
+const { primeElementCache, clearElementCache } = await import('@/ui-editor/element')
 
 /** React 元素挂载到 happy-dom body（返回容器与卸载函数；用例内必须 await unmount） */
 async function mountEl(node: ReturnType<typeof createElement>): Promise<{
@@ -706,6 +707,143 @@ test('面板单选：分组组序、doc 悬浮提示、类型徽标、内建事�
     assert.equal(requests[0]?.graph, 'event')
   } finally {
     await unmount()
+  }
+})
+
+test('类型徽标与 UI 树一致：元素实例显示元素名（title / 文件名），而非元素根节点类型', async () => {
+  dom.document.body.innerHTML = ''
+  const elementPath = 'ui/elements/StatCard.elem.json'
+  try {
+    const stat = uiNode('stat', 'panel', 'stat')
+    stat.element = elementPath
+    const root = uiNode('root', 'panel', 'root')
+    root.children = [stat]
+    openAsset(root)
+    useUIEditorStore.getState().setSelection(['stat'])
+
+    // 元素设置里配置了显示名 → 徽标显示 title
+    primeElementCache(elementPath, {
+      version: 3,
+      kind: 'element',
+      name: 'StatCard',
+      title: '状态卡片',
+      root: uiNode('el_root', 'vbox', 'root'),
+    })
+    const first = await mountEl(createElement(InspectorPanel, {}))
+    try {
+      assert.equal(dom.document.querySelector('.insp-title')?.textContent, 'stat')
+      assert.equal(dom.document.querySelector('.insp-badge')?.textContent, '状态卡片', '与 UI 树显示名一致')
+    } finally {
+      await first.unmount()
+    }
+
+    // 无 title → 回落元素文件名（去 .elem.json）
+    clearElementCache()
+    primeElementCache(elementPath, {
+      version: 3,
+      kind: 'element',
+      name: 'StatCard',
+      root: uiNode('el_root', 'vbox', 'root'),
+    })
+    const second = await mountEl(createElement(InspectorPanel, {}))
+    try {
+      assert.equal(dom.document.querySelector('.insp-badge')?.textContent, 'StatCard')
+    } finally {
+      await second.unmount()
+    }
+  } finally {
+    clearElementCache()
+  }
+})
+
+test('元素设置：数据绑定新增（优先 text 属性）入命令栈', async () => {
+  dom.document.body.innerHTML = ''
+  const root = uiNode('root', 'vbox', 'root')
+  root.children = [uiNode('lbl', 'label', 'value', { text: '0' })]
+  resetOnly()
+  runCommand<SceneTreeDomainState>('scene-tree', '打开元素', (d) => {
+    d.asset = {
+      version: 3,
+      kind: 'element',
+      name: 'StatCard',
+      // 旧自定义属性仅兼容数据，不应再出现在元素设置 UI
+      props: [{ id: 'legacy', label: '旧属性', type: 'string', default: 'x' }],
+      variables: [{ name: 'value', type: 'string', default: '0', exposed: true }],
+      bindings: [],
+      root,
+    } as UIAsset
+  })
+  useUIEditorStore.setState({
+    selection: [],
+    projectPath: 'P',
+    assetPath: 'ui/elements/StatCard.elem.json',
+    status: 'ready',
+  })
+  const { unmount } = await mountEl(createElement(InspectorPanel, {}))
+  try {
+    assert.ok(dom.document.querySelector('.insp-binding-section'), '数据绑定区应渲染')
+    const addBtn = dom.document.querySelector('.insp-binding-section button') as unknown as HTMLButtonElement
+    assert.ok(addBtn, '新增绑定按钮')
+    assert.equal(addBtn.disabled, false)
+    act(() => {
+      clickEl(addBtn)
+    })
+    const asset = getSceneTreeDomain().asset as unknown as ElementAsset
+    assert.equal(asset.bindings?.length, 1)
+    assert.deepEqual(asset.bindings?.[0], { target: 'lbl', attr: 'text', source: 'value' })
+    assert.ok(dom.document.querySelector('.insp-binding-card'), '绑定卡片渲染')
+    assert.equal(peekUndo()?.label, '元素设置：新增数据绑定')
+    assert.equal(dom.document.querySelector('.insp-binding-warning'), null, '类型兼容不显示警告')
+    assert.equal(dom.document.body.innerText.includes('自定义属性'), false, '元素设置不再显示自定义属性')
+  } finally {
+    await unmount()
+  }
+})
+
+test('元素实例：重置提升变量后输入框同步回默认值', async () => {
+  dom.document.body.innerHTML = ''
+  const elementPath = 'ui/elements/StatCard.elem.json'
+  primeElementCache(elementPath, {
+    version: 3,
+    kind: 'element',
+    name: 'StatCard',
+    props: [{ id: 'legacy', label: '旧属性', type: 'string', default: 'x' }],
+    variables: [{ name: 'textValue', type: 'int', default: 7, exposed: true }],
+    root: uiNode('el_root', 'vbox', 'root'),
+  })
+  try {
+    const inst = uiNode('stat', 'panel', 'stat')
+    inst.element = elementPath
+    inst.vars = { textValue: 133333 }
+    const root = uiNode('root', 'panel', 'root')
+    root.children = [inst]
+    openAsset(root)
+    useUIEditorStore.getState().setSelection(['stat'])
+    const { unmount } = await mountEl(createElement(InspectorPanel, {}))
+    try {
+      const input = (): HTMLInputElement | null =>
+        dom.document.querySelector('input[aria-label="元素变量 textValue"]') as unknown as HTMLInputElement | null
+      assert.equal(input()?.value, '133333', '输入框显示实例覆盖')
+      assert.equal(dom.document.body.innerText.includes('自定义属性'), false, '实例检视器不再显示自定义属性')
+      assert.equal(dom.document.body.innerText.includes('值写为实例覆盖'), false, '旧自定义属性覆盖区已移除')
+      const reset = dom.document.querySelector('button[title="移除实例覆盖"]')
+      assert.ok(reset, '重置按钮存在')
+      act(() => {
+        clickEl(reset as unknown as Element)
+      })
+      const instNow = getSceneTreeDomain().asset!.root.children[0]!
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(instNow.vars ?? {}, 'textValue'),
+        false,
+        '实例覆盖已删除',
+      )
+      assert.equal(input()?.value, '7', '输入框回落类默认值')
+      assert.equal(dom.document.querySelector('button[title="移除实例覆盖"]'), null, '重置按钮消失')
+    } finally {
+      await unmount()
+    }
+  } finally {
+    clearElementCache()
   }
 })
 

@@ -11,6 +11,7 @@
 .bp-canvas {
   width: 100%;
   height: 100%;
+  position: relative;
 }
 
 .bp-canvas .react-flow {
@@ -34,9 +35,16 @@
 
 .bp-node {
   min-width: 170px;
-  background: var(--node-bg);
+  /* 左缘分类色画在背景层（而不是 border-left）：
+     背景随 border-radius 一起裁切，顶部与节点头同色无缝衔接，
+     不会出现「标题色块 + 左侧色条」两截的割裂感 */
+  background:
+    linear-gradient(
+      to right,
+      var(--bp-head-color, var(--node-border)) 0 3px,
+      var(--node-bg) 3px
+    );
   border: 1px solid var(--node-border);
-  border-left: 3px solid var(--bp-head-color, var(--node-border));
   border-radius: var(--radius-md);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
   cursor: grab;
@@ -65,7 +73,8 @@
   gap: var(--space-1);
   height: var(--node-title-h);
   padding: 0 10px;
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  /* 内缩 1px 与节点外描边嵌套，圆角处不露缝 */
+  border-radius: calc(var(--radius-md) - 1px) calc(var(--radius-md) - 1px) 0 0;
 }
 
 .bp-node-icon {
@@ -276,9 +285,14 @@
 
 .bp-node-var {
   min-width: 110px;
-  background: var(--node-var-bg);
+  /* 左缘变量类型色同样画进背景层，避免与描边圆角割裂 */
+  background:
+    linear-gradient(
+      to right,
+      var(--var-color, var(--pin-any)) 0 3px,
+      var(--node-var-bg) 3px
+    );
   border: 1px solid var(--node-var-border);
-  border-left: 3px solid var(--var-color, var(--pin-any));
   border-radius: var(--radius-sm);
   box-shadow: 0 2px 6px var(--node-border);
   padding: 2px 6px;
@@ -308,16 +322,61 @@
 }
 
 /* ============ MiniMap（P6） ============ */
+/* 蓝图面板底部有 28px 校验/保存条（.bp-valbar，绝对定位覆盖画布）：
+   小地图与显隐开关整体上移避让，避免被保存条压住 */
 .bp-canvas .bp-minimap {
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-popover);
   overflow: hidden;
+  margin-bottom: 43px; /* 15px 基础边距 + 28px 校验条 */
 }
 
 .bp-canvas .bp-minimap .react-flow__minimap-mask {
   fill: rgba(8, 9, 11, 0.6);
+}
+
+/* 小地图显隐开关（右下角浮层，贴住小地图上方；避开右上角「观察运行」浮层与底部保存条） */
+.bp-minimap-toggle {
+  position: absolute;
+  right: 15px;
+  bottom: 43px; /* 15px 边距 + 28px 校验条 */
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-dim);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-popover);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast, 120ms) ease,
+    border-color var(--dur-fast, 120ms) ease,
+    background var(--dur-fast, 120ms) ease,
+    bottom var(--dur-normal, 160ms) ease;
+}
+
+/* 小地图可见时，开关停在地图上方（43px 底部避让 + 130px 地图高 + 8px 间隙） */
+.bp-minimap-toggle[data-active] {
+  bottom: 181px;
+}
+
+.bp-minimap-toggle:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--bg-panel-header);
+}
+
+.bp-minimap-toggle[data-active] {
+  color: var(--accent);
+  border-color: rgba(91, 140, 255, 0.45);
+  background: rgba(91, 140, 255, 0.1);
 }
 
 /* ============ 连线（§8.1：exec 实线白 + 三角端头；数据彩虚线；贝塞尔） ============ */

@@ -20,6 +20,7 @@ import {
   RotateCcw,
   Save,
   Settings,
+  Square,
   Undo2,
 } from 'lucide-react'
 import {
@@ -41,6 +42,7 @@ import { openSettings } from '@/shell/settings'
 import { Icon } from '@/shell/ui/Icon'
 import { IconButton } from '@/shell/ui/IconButton'
 import { Menu, type MenuItem } from '@/shell/ui/Menu'
+import { useRuntimeStore } from '@/panels/runtime/store'
 
 /** 顶栏栈顶命令摘要选择器（tooltip 显示 label 用） */
 function topUndo(s: { undoStack: CommandEntry[] }): CommandEntry | undefined {
@@ -59,6 +61,8 @@ export default function Toolbar() {
   const redoTop = useEditorStore(topRedo)
   const panels = usePanels()
   const resetLayout = useDockStore((s) => s.resetLayout)
+  const runtimeTarget = useRuntimeStore((s) => s.target)
+  const stopRuntime = useRuntimeStore((s) => s.clearTarget)
   const [panelMenu, setPanelMenu] = useState<{ x: number; y: number } | null>(null)
 
   /** 触发 keymap 注册的 file.save（与 Ctrl+S 同一 handler） */
@@ -101,16 +105,28 @@ export default function Toolbar() {
       <div className="toolbar-spacer" />
 
       <div className="toolbar-center">
-        <button
-          type="button"
-          className="toolbar-btn toolbar-primary"
-          onClick={() => launchRuntimeMain()}
-          title="运行主 UI（F5）—— 内置运行视图（可拆出独立窗口），ui 取 project.json.mainUI"
-        >
-          <Icon icon={Play} size={13} />
-          运行
-          <kbd className="toolbar-kbd">F5</kbd>
-        </button>
+        {runtimeTarget ? (
+          <button
+            type="button"
+            className="toolbar-btn toolbar-stop"
+            onClick={stopRuntime}
+            title="停止运行：卸载内置运行视图、中止蓝图运行时与定时器"
+          >
+            <Icon icon={Square} size={12} />
+            停止
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="toolbar-btn toolbar-primary"
+            onClick={() => launchRuntimeMain()}
+            title="运行主 UI（F5）—— 内置运行视图（可拆出独立窗口），ui 取 project.json.mainUI"
+          >
+            <Icon icon={Play} size={13} />
+            运行
+            <kbd className="toolbar-kbd">F5</kbd>
+          </button>
+        )}
         <button
           type="button"
           className="toolbar-btn toolbar-outline"

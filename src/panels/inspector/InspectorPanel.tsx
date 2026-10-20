@@ -33,6 +33,7 @@ import {
   useUIEditorStore,
 } from '@/ui-editor/store'
 import { getUISchema, type PropDef } from '@/ui-editor/schema'
+import { nodeTypeLabel } from '@/ui-editor/nodeLabel'
 import { expandPrefabNode, getCachedPrefab } from '@/ui-editor/prefab'
 import { expandElementNode, getCachedElement, loadElement } from '@/ui-editor/element'
 import { openPrefabTab } from '@/ui-editor/prefabTab'
@@ -211,7 +212,7 @@ export function InspectorPanel() {
     [displayNodes, styleSheets],
   )
 
-  /* 元素实例：缓存未命中时补拉元素资产（自定义属性/提升变量/traits 编辑需要） */
+  /* 元素实例：缓存未命中时补拉元素资产（提升变量 / traits 编辑需要） */
   useEffect(() => {
     const path = single?.element
     if (!path) return
@@ -331,7 +332,8 @@ export function InspectorPanel() {
   }
   const builtInEvents = single ? (firstSchema?.events ?? []) : []
   const showEvents = single !== null && (builtInEvents.length > 0 || customEvents.length > 0)
-  const typeSummary = [...new Set(displayNodes.map((n) => getUISchema(n.type)?.title ?? n.type))].join('、')
+  // 与 UI 树右侧同一口径：元素实例显示元素名（而非其根节点的 schema 类型）
+  const typeSummary = [...new Set(nodes.map(nodeTypeLabel))].join('、')
 
   const header =
     single !== null ? (
@@ -346,7 +348,7 @@ export function InspectorPanel() {
         <span className="insp-title" title={single.name}>
           {single.name}
         </span>
-        <span className="insp-badge">{firstSchema?.title ?? single.type}</span>
+        <span className="insp-badge">{nodeTypeLabel(single)}</span>
         <span className="insp-id" title={`资产：${asset?.name ?? '—'} · 节点 id：${single.id}`}>
           {asset?.name ?? '—'} · {single.id}
         </span>
@@ -410,7 +412,7 @@ export function InspectorPanel() {
               </button>
             </div>
             <div className="insp-prefab-hint">
-              结构以元素为准；自定义属性与提升变量为实例覆盖（首版不提供断开物化）。
+              结构以元素为准；提升变量为实例覆盖（首版不提供断开物化）。
             </div>
           </div>
         ) : null}

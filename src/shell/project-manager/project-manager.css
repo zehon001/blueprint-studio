@@ -116,6 +116,13 @@ body {
   white-space: nowrap;
 }
 
+.pm-section-subtitle {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
 .pm-empty {
   display: flex;
   flex-direction: column;

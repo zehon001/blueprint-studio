@@ -335,9 +335,10 @@ class BlueprintRuntime implements RuntimeHandle {
     return this.vars.get(name);
   }
 
-  /** 写资产变量（未声明变量名也会写入，之后可读） */
+  /** 写资产变量（未声明变量名也会写入，之后可读；通知绑定层刷新） */
   setVar(name: string, value: unknown): void {
     this.vars.set(name, value);
+    this.opts.onVarChange?.(name, value);
   }
 
   /** 事件泵：FIFO 逐条消费；已在泵动时只入队不递归（处理中再 emit 排队等待） */
@@ -805,7 +806,8 @@ class BlueprintRuntime implements RuntimeHandle {
           ? frame.args[name]
           : self.vars.get(name),
       setVar: (name, value) => {
-        self.vars.set(name, value);
+        // 走 RuntimeHandle.setVar：变量变更通知（元素数据绑定刷新）统一出口
+        self.setVar(name, value);
       },
       // 发送事件：入串行队列（处理中调用只排队，不递归）
       emit: (event, p) => {

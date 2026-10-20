@@ -33,6 +33,18 @@ test('无 graphs：embeddedBlueprintOf 生成空事件图；runtimeEmbedded null
   assert.ok(bp.graphs.event.nodes.some((n) => n.type === 'event.start'))
 })
 
+test('已有空事件图：视图自动补 event.start，不修改原资产', () => {
+  const asset: UIAsset = {
+    version: 3,
+    name: 'empty',
+    graphs: { event: { kind: 'event', nodes: [], edges: [], comments: [] } },
+    root: node('r'),
+  }
+  const bp = embeddedBlueprintOf(asset)
+  assert.equal(bp.graphs.event.nodes[0]?.type, 'event.start')
+  assert.equal(asset.graphs!.event.nodes.length, 0, '视图补节点不写回资产')
+})
+
 test('applyEmbeddedBlueprint：事件图/函数图/变量/事件写回，版本升 3', () => {
   const asset: UIAsset = { version: 2, name: 'main', root: node('r') }
   const bp = emptyEmbeddedBlueprint('main')

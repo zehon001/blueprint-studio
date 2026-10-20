@@ -2,7 +2,7 @@
  * Blueprint Studio v2 —— 本地服务入口（T0.2 · Server-Agent）
  *
  * 职责：
- *  - REST：/api/projects（列表/新建）· /api/tree · /api/file（GET/PUT/DELETE）·
+ *  - REST：/api/projects（列表/新建/删除）· /api/tree · /api/file（GET/PUT/DELETE）·
  *          /api/move · /api/import · /api/history（T7.4 快照列表）/api/history/restore（恢复）·
  *          /api/watch（SSE）· /api/health
  *  - 资源库（T11.4/T11.6，实现见 ./library.ts；独立安全根 BP_LIBRARY_ROOT）：
@@ -214,6 +214,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       const body = await readJson(req)
       const project = fsApi.createProject(PROJECTS_ROOT, body.name, body.template)
       sendJson(res, 201, { ok: true, project })
+      return
+    }
+
+    if (pathname === '/api/projects' && req.method === 'DELETE') {
+      const deleted = fsApi.deleteProject(PROJECTS_ROOT, url.searchParams.get('path') ?? '')
+      sendJson(res, 200, { ok: true, ...deleted })
       return
     }
 

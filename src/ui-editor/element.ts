@@ -3,13 +3,19 @@
  *
  * UINode.element 指向 .elem.json（项目相对）或 @library/elements/<name>（资源库）。
  * 实例 = 引用 + 覆盖：结构/type/container 取元素根，id/name/layout/transform 保留实例，
- * props = 元素根 ∪ 自定义属性默认值 ∪ 实例覆盖；vars 暂只随实例保存（运行时 M11+）。
+ * props = 元素根 ∪ 旧自定义属性默认值/覆盖（兼容保留）；vars 为提升变量覆盖。
  * 与 ADR-009 预制体机制同构：预取缓存、循环检测、缺失占位、补拉刷新。
  */
 import type { ElementAsset, UINode } from '@/ir/types'
 import { applyClassStyles, mergeStyledNode, stripDefaultProps, type StyleSheet } from './styles'
 import { loadStyleSheets } from './styleLoad'
 import { prefixSubtreeIds } from './scopedIds'
+import {
+  applyElementBindings,
+  cloneUINode,
+  elementVarValues,
+  getElementRuntimeVars,
+} from './elementBindings'
 
 export const ELEMENT_PLACEHOLDER_TYPE = '__element_placeholder'
 export const ELEMENT_PLACEHOLDER_TEXT = '__element_placeholder_text'
@@ -179,7 +185,9 @@ export function expandElementNode(
   chain: string[] = [],
 ): { node: UINode; error: string | null } {
   const path = instance.element
-  if (!path) return { node: instance, error: null }
+  // 普通内部节点必须克隆：prefixSubtreeIds 会就地改 id，直接返回缓存节点会把
+  // `<实例 id>::` 前缀写回元素资产，多个实例 / 多次重渲染会叠加前缀并互相污染。
+  if (!path) return { node: cloneUINode(instance), error: null }
   if (chain.includes(path)) {
     const msg = `元素循环引用：${[...chain, path].join(' → ')}`
     return { node: elementPlaceholder(instance, msg), error: msg }
@@ -233,5 +241,12 @@ export function expandElementNode(
     return styled
   })
   // 元素根：只应用元素自带样式类（不提前物化默认值，保留宿主样式覆盖空间）
-  return { node: applyClassStyles(node, sheets), error }
+  const styledRoot = applyClassStyles(node, sheets)
+  // v3.2 数据绑定：变量默认值 ∪ 实例 vars ∪ 运行时变量镜像 → 内部节点属性
+  const vars = {
+    ...elementVarValues(asset, instance.vars),
+    ...(getElementRuntimeVars(instance) ?? {}),
+  }
+  applyElementBindings(styledRoot, asset, vars, instance.id)
+  return { node: styledRoot, error }
 }

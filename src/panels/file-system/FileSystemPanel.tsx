@@ -18,6 +18,9 @@
  *    事件中隐藏，不在面板显示。
  *  - 撤销：全部写操作经 runCommand('filesystem', ...) 入统一命令栈（见 commands.ts），
  *    undo/redo 由模块级同步执行磁盘补偿；本面板订阅通知刷新树 + toast。
+ *  - 拖拽移动：文件 / 目录拖到目录行 = 移入该目录；拖到面板空白 = 移入项目根。
+ *    只调整所属目录、不支持排序（无 before/after 落区）；项目根 / 自身 / 自身子树 /
+ *    同名冲突拒绝。落定 POST /api/move 并入命令栈「移动…」（Ctrl+Z 移回）。
  *  - 拖入导入：OS 文件拖到目录行或面板空白 → 读文本 → PUT /api/file（二进制提示走右键导入）。
  *
  * 接线：由 src/panels/file-system/index.ts 的 registerFileSystemPanel() 注册（PM 在
@@ -37,6 +40,7 @@ import {
   FilePlus2,
   FolderOpen,
   FolderPlus,
+  GripVertical,
   History,
   Import,
   MoreHorizontal,
@@ -59,10 +63,12 @@ import { Menu, type MenuItem } from './Menu'
 import { defaultFsApi, errorMessage, type FsApi, type HistoryEntry } from './api'
 import {
   applyFsEvents,
+  checkFsMove,
   findNode,
   hideProjectLibrary,
   sortTree,
   type FsChangeEvent,
+  type FsMoveCheck,
   type FsNode,
 } from './tree-model'
 import {
@@ -318,6 +324,20 @@ export interface FileSystemPanelProps {
 /** SSE 事件防抖（卡片要求 300ms；change 事件不参与） */
 const WATCH_DEBOUNCE_MS = 300
 
+/** 内部拖拽的自定义 MIME（与 OS 文件拖入的 'Files' 区分） */
+const FS_NODE_DRAG_MIME = 'application/x-blueprint-fs-node'
+
+/** 目录改名 / 移动后迁移展开集里该目录及后代的路径 */
+function remapPathSet(prev: ReadonlySet<string>, from: string, to: string): Set<string> {
+  const next = new Set<string>()
+  for (const p of prev) {
+    if (p === from) next.add(to)
+    else if (p.startsWith(`${from}/`)) next.add(`${to}${p.slice(from.length)}`)
+    else next.add(p)
+  }
+  return next
+}
+
 /**
  * 恢复快照后同步已打开的 tab（T7.4）：工作区只挂载「激活中」tab 的内容组件，
  * 非激活 tab 切换到时会自动重新读盘，无需处理；激活中的 tab 内容仍在内存里，
@@ -352,6 +372,11 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   const [newAsset, setNewAsset] = useState<{ fromDir: string } | null>(null)
   const [prompt, setPrompt] = useState<PromptState | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
+  /** 内部拖拽中的节点路径（ref：dragover 高频路径不依赖 state 闭包） */
+  const [draggingPath, setDraggingPath] = useState<string | null>(null)
+  const dragPathRef = useRef<string | null>(null)
+  /** 空白区落点（移动到项目根）高亮 */
+  const [rootDragOver, setRootDragOver] = useState(false)
   /** 历史快照弹层（T7.4；null = 关闭） */
   const [history, setHistory] = useState<HistoryState | null>(null)
 
@@ -505,6 +530,101 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     })
   }
 
+  /* ============================================================
+   * 拖拽移动（仅调整所属目录，不支持排序）
+   * ============================================================ */
+
+  /** 开始内部拖拽：记录路径 + 写入 dataTransfer（与 OS 文件拖入的 'Files' 区分） */
+  function beginInternalDrag(e: ReactDragEvent, node: FsNode): void {
+    dragPathRef.current = node.path
+    setDraggingPath(node.path)
+    setDragOver(null)
+    setRootDragOver(false)
+    selectNode(node)
+    try {
+      if (e.dataTransfer) {
+        e.dataTransfer.setData(FS_NODE_DRAG_MIME, node.path)
+        e.dataTransfer.setData('text/plain', node.path)
+        e.dataTransfer.effectAllowed = 'move'
+      }
+    } catch {
+      /* happy-dom 等环境可能不支持 DataTransfer */
+    }
+  }
+
+  function endInternalDrag(): void {
+    dragPathRef.current = null
+    setDraggingPath(null)
+    setDragOver(null)
+    setRootDragOver(false)
+  }
+
+  /** 当前内部拖拽落到 dirPath 的校验结果（没有内部拖拽 / 树未加载 → null） */
+  function internalDropTarget(dirPath: string): FsMoveCheck | null {
+    const from = dragPathRef.current
+    const root = treeRef.current
+    if (!from || !root) return null
+    return checkFsMove(root, from, dirPath)
+  }
+
+  /** 拖拽落定：移动节点到目标目录；入 filesystem 命令栈（undo = 移回原目录） */
+  async function moveNodeTo(from: string, toDir: string): Promise<void> {
+    const root = treeRef.current
+    if (!root) return
+    const check = checkFsMove(root, from, toDir)
+    if (!check.ok || !check.to) {
+      if (check.reason) showToast('error', `无法移动：${check.reason}`)
+      return
+    }
+    const source = findNode(root, from)
+    if (!source) return
+    const to = check.to
+    try {
+      const r = await api.move(from, to)
+      if (!r.moved) return
+    } catch (e) {
+      showToast('error', `移动失败：${errorMessage(e)}`)
+      return
+    }
+    const destLabel = toDir === root.path ? '项目根' : baseName(toDir)
+    runFsCommand(`移动「${source.name}」到「${destLabel}」`, { kind: 'rename', from, to })
+    // v3 T13.1：元素 / 样式文件换目录同样改变引用路径，级联更新项目内引用
+    if (project && source.type === 'file') {
+      try {
+        const fromRel = relInProject(from)
+        const toRel = relInProject(to)
+        const lower = source.name.toLowerCase()
+        if (lower.endsWith('.elem.json')) await cascadeElementRename(project.path, fromRel, toRel)
+        else if (lower.endsWith('.uss.json')) await cascadeStyleRename(project.path, fromRel, toRel)
+      } catch {
+        showToast('info', '引用级联更新失败：请检查元素 / 样式引用路径')
+      }
+    }
+    setExpanded((prev) => remapPathSet(prev, from, to))
+    setSelected((cur) => {
+      if (cur === null) return cur
+      if (cur === from) return to
+      if (cur.startsWith(`${from}/`)) return `${to}${cur.slice(from.length)}`
+      return cur
+    })
+    // 被移动子树内的选中项：统一选择（检视器）同步到新路径
+    if (selected && (selected === from || selected.startsWith(`${from}/`))) {
+      const selNode = findNode(root, selected)
+      if (selNode) {
+        publishSelection({
+          source: 'file',
+          path: `${to}${selected.slice(from.length)}`,
+          name: selNode.name,
+          kind: selNode.type,
+          ext: selNode.ext,
+        })
+      }
+    }
+    expandTo(toDir)
+    await refresh()
+    showToast('success', `已移动「${source.name}」到「${destLabel}」`)
+  }
+
   function openFileNode(node: FsNode): void {
     const kind = assetKindOf(node.name)
     if (!kind) {
@@ -577,16 +697,8 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
           }
         }
         setSelected((cur) => (cur === path ? to : cur))
-        setExpanded((prev) => {
-          // 目录重命名时同步迁移展开记录的子路径
-          const next = new Set<string>()
-          for (const p of prev) {
-            if (p === path) next.add(to)
-            else if (p.startsWith(`${path}/`)) next.add(`${to}${p.slice(path.length)}`)
-            else next.add(p)
-          }
-          return next
-        })
+        // 目录重命名时同步迁移展开记录的子路径
+        setExpanded((prev) => remapPathSet(prev, path, to))
         await refresh()
       } catch (e) {
         setRenamingPath(null)
@@ -998,11 +1110,17 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
             aria-expanded={isExpanded}
             aria-selected={selected === node.path}
             data-fs-path={node.path}
-            className={`fs-row${selected === node.path ? ' selected' : ''}${dropTarget ? ' dragover' : ''}`}
+            className={
+              `fs-row${selected === node.path ? ' selected' : ''}${dropTarget ? ' dragover' : ''}` +
+              `${draggingPath === node.path ? ' dragging' : ''}`
+            }
             style={{ paddingLeft: `calc(var(--space-2) + ${depth * 14}px)` }}
             title={node.path}
+            draggable={renamingPath !== node.path}
             onClick={() => selectNode(node)}
             onDoubleClick={() => toggleExpand(node.path)}
+            onDragStart={(e) => beginInternalDrag(e, node)}
+            onDragEnd={endInternalDrag}
             onContextMenu={(e) => {
               e.preventDefault()
               e.stopPropagation()
@@ -1010,16 +1128,40 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
               openMenuAt(e, dirMenuItems(node))
             }}
             onDragOver={(e) => {
+              if (dragPathRef.current) {
+                // 内部拖拽：只有「移入本目录」一个落点（排序已禁用）
+                e.stopPropagation()
+                const check = internalDropTarget(node.path)
+                if (!check?.ok) {
+                  setDragOver((cur) => (cur === node.path ? null : cur))
+                  return
+                }
+                e.preventDefault()
+                if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+                setDragOver(node.path)
+                return
+              }
               if (!Array.from(e.dataTransfer?.types ?? []).includes('Files')) return
               e.preventDefault()
               e.stopPropagation()
-              e.dataTransfer.dropEffect = 'copy'
+              if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
               setDragOver(node.path)
+            }}
+            onDragLeave={(e) => {
+              const related = e.relatedTarget as Node | null
+              if (related && (e.currentTarget as HTMLElement).contains(related)) return
+              setDragOver((cur) => (cur === node.path ? null : cur))
             }}
             onDrop={(e) => {
               e.preventDefault()
               e.stopPropagation()
+              const from = dragPathRef.current
               setDragOver(null)
+              if (from) {
+                endInternalDrag()
+                void moveNodeTo(from, node.path)
+                return
+              }
               void handleDropFiles(e, node.path)
             }}
           >
@@ -1037,6 +1179,9 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
               <Icon icon={spec.icon} size={14} style={{ color: spec.color }} />
             </span>
             {renamingPath === node.path ? renderRenameInput() : <span className="fs-name">{node.name}</span>}
+            <span className="fs-grip" aria-hidden>
+              <Icon icon={GripVertical} size={12} />
+            </span>
             {renderRowActions(node, dirMenuItems(node))}
           </div>
           {isExpanded ? node.children.map((c) => renderRows(c, depth + 1)) : null}
@@ -1052,11 +1197,25 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         role="treeitem"
         aria-selected={selected === node.path}
         data-fs-path={node.path}
-        className={`fs-row${selected === node.path ? ' selected' : ''}`}
+        className={`fs-row${selected === node.path ? ' selected' : ''}${draggingPath === node.path ? ' dragging' : ''}`}
         style={{ paddingLeft: `calc(var(--space-2) + ${depth * 14}px)` }}
         title={node.path}
+        draggable={renamingPath !== node.path}
         onClick={() => selectNode(node)}
         onDoubleClick={() => openFileNode(node)}
+        onDragStart={(e) => beginInternalDrag(e, node)}
+        onDragEnd={endInternalDrag}
+        onDragOver={(e) => {
+          // 文件行不是落点：拦住冒泡，避免被面板当成「移动到项目根」
+          if (!dragPathRef.current) return
+          e.stopPropagation()
+        }}
+        onDrop={(e) => {
+          if (!dragPathRef.current) return
+          e.preventDefault()
+          e.stopPropagation()
+          endInternalDrag()
+        }}
         onContextMenu={(e) => {
           e.preventDefault()
           e.stopPropagation()
@@ -1078,6 +1237,9 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
             <Icon icon={spec.icon} size={11} />
           </span>
         ) : null}
+        <span className="fs-grip" aria-hidden>
+          <Icon icon={GripVertical} size={12} />
+        </span>
         {renderRowActions(node, fileMenuItems(node))}
       </div>
     )
@@ -1095,17 +1257,41 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         openMenuAt(e, blankMenuItems(projectPath ?? ''))
       }}
       onDragOver={(e) => {
+        if (dragPathRef.current) {
+          // 空白区 = 项目根（把文件 / 文件夹移出子目录）
+          const root = treeRef.current
+          const check = root ? checkFsMove(root, dragPathRef.current, root.path) : null
+          if (!check?.ok) {
+            setRootDragOver(false)
+            return
+          }
+          e.preventDefault()
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+          setRootDragOver(true)
+          return
+        }
         if (!Array.from(e.dataTransfer?.types ?? []).includes('Files')) return
         e.preventDefault()
-        e.dataTransfer.dropEffect = 'copy'
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
         setDragOver(null)
       }}
       onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(null)
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setDragOver(null)
+          setRootDragOver(false)
+        }
       }}
       onDrop={(e) => {
         e.preventDefault()
+        const from = dragPathRef.current
         setDragOver(null)
+        setRootDragOver(false)
+        if (from) {
+          endInternalDrag()
+          const rootPath = treeRef.current?.path
+          if (rootPath) void moveNodeTo(from, rootPath)
+          return
+        }
         void handleDropFiles(e, projectPath ?? '')
       }}
     >
@@ -1122,7 +1308,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         <IconButton icon={RefreshCw} label="刷新目录树" onClick={() => void refresh()} />
       </div>
       <div
-        className="fs-tree"
+        className={`fs-tree${rootDragOver ? ' root-dragover' : ''}`}
         ref={treeElRef}
         role="tree"
         aria-label="项目文件"

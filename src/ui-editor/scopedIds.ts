@@ -11,3 +11,13 @@ export function prefixSubtreeIds(node: UINode, prefix: string): void {
   node.id = `${prefix}::${node.id}`
   for (const child of node.children ?? []) prefixSubtreeIds(child, prefix)
 }
+
+/**
+ * 作用域 id → 资产树里可选中的节点 id：
+ * 实例内部节点（`<实例 id>::...`）归并到实例本体——元素/预制体在编辑期是整体，
+ * 视口命中、框选与右键都必须落在实例节点上，内部节点不可单独选中。
+ */
+export function ownerNodeId(id: string): string {
+  const sep = id.indexOf('::')
+  return sep > 0 ? id.slice(0, sep) : id
+}

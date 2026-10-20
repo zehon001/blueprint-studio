@@ -145,6 +145,11 @@ export function assetStemOf(fileName: string): string {
   return stem || base
 }
 
+/** 新建资产事件图的入口节点（event.start = BeginPlay） */
+function newStartEventNode(): Record<string, unknown> {
+  return { id: 'n_start', type: 'event.start', params: {}, pinDefaults: {}, position: { x: 120, y: 120 } }
+}
+
 /** 新建 .ui.json 的空 UI 资产（单 panel 根节点；结构对齐 src/ui-editor/schema 的 panel 默认值与 templates/empty） */
 export function uiAssetTemplate(name: string): string {
   const asset = {
@@ -163,7 +168,9 @@ export function uiAssetTemplate(name: string): string {
       props: {},
       children: [],
     },
-    graphs: { event: { kind: 'event', nodes: [], edges: [], comments: [] } },
+    graphs: {
+      event: { kind: 'event', nodes: [newStartEventNode()], edges: [], comments: [] },
+    },
     layout: {},
     variables: [],
     events: [],
@@ -177,7 +184,7 @@ export function bpAssetTemplate(name: string): string {
     version: 3,
     name,
     entry: 'bind',
-    graphs: { bind: { nodes: [], edges: [] } },
+    graphs: { bind: { nodes: [newStartEventNode()], edges: [] } },
     variables: [],
     events: [],
     snippets: [],
@@ -186,13 +193,12 @@ export function bpAssetTemplate(name: string): string {
   return `${JSON.stringify(asset, null, 2)}\n`
 }
 
-/** 新建元素资产骨架（v3 ElementAsset；自定义属性/traits/事件由元素设置编辑） */
+/** 新建元素资产骨架（v3 ElementAsset；traits/事件/数据绑定由元素设置编辑） */
 export function elementAssetTemplate(name: string): string {
   const asset = {
     version: 3,
     kind: 'element',
     name,
-    props: [],
     traits: [],
     styles: [],
     root: {
@@ -206,7 +212,9 @@ export function elementAssetTemplate(name: string): string {
       props: {},
       children: [],
     },
-    graphs: { event: { kind: 'event', nodes: [], edges: [], comments: [] } },
+    graphs: {
+      event: { kind: 'event', nodes: [newStartEventNode()], edges: [], comments: [] },
+    },
     layout: {},
     variables: [],
     events: [],
