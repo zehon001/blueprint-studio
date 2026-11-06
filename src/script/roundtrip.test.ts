@@ -318,10 +318,10 @@ export const fullFeatureAsset = asset(
         node('cmp1', 'math.compare', { params: { op: '>=' }, pinDefaults: { b: 5 } }),
         node('br1', 'flow.branch'),
         node('fmt1', 'string.format', { pinDefaults: { template: '计数 {0}' } }),
-        node('uiw1', 'ui.setValue', { pinDefaults: { name: 'title' } }),
+        node('uiw1', 'var.set', { params: { varName: 'title' } }),
         node('not1', 'math.not'),
         node('flagGet', 'var.get', { params: { varName: 'flag' } }),
-        node('uiv1', 'ui.setVisible', { pinDefaults: { name: 'list' } }),
+        node('uiv1', 'var.set', { params: { varName: 'visibleFlag' } }),
         node('toGet', 'var.get', { params: { varName: 'count' } }),
         node('loop1', 'flow.forLoop'),
         node('pr1', 'system.print'),
@@ -331,17 +331,17 @@ export const fullFeatureAsset = asset(
         node('objA', 'map.set', { pinDefaults: { map: {}, key: 'count' } }),
         node('objB', 'map.set', { pinDefaults: { key: 'label' } }),
         node('snipNode', 'script.snippet', { params: { snippet: 'snip1' } }),
-        node('gv1', 'ui.getValue', { pinDefaults: { name: 'input' } }),
+        node('gv1', 'var.get', { params: { varName: 'input' } }),
         node('call1', 'flow.call', { params: { graph: 'parseLog' }, pinDefaults: { minLevel: 'E' } }),
         node('pr4', 'system.print'),
         node('set2', 'var.set', { params: { varName: 'count' } }),
         node('mk1', 'array.make', { pinDefaults: { in0: 'a', in1: 'b' } }),
         node('fe1', 'array.forEach'),
-        node('uiw2', 'ui.setValue', { pinDefaults: { name: 'label' } }),
+        node('uiw2', 'var.set', { params: { varName: 'last' } }),
         node('pr3', 'system.print'),
         node('evt1', 'event.custom', { params: { eventName: 'loaded' } }),
         node('fmt2', 'string.format', { pinDefaults: { template: '{1} / {0}' } }),
-        node('uiw3', 'ui.setValue', { pinDefaults: { name: 'status' } }),
+        node('uiw3', 'var.set', { params: { varName: 'status' } }),
         node('lst1', 'event.listen', { pinDefaults: { eventName: 'tick' } }),
         node('pr5', 'system.print'),
       ],
@@ -376,7 +376,7 @@ export const fullFeatureAsset = asset(
         dataEdge('d6', 'cntGet1', 'value', 'fmt1', 'args'),
         dataEdge('d7', 'fmt1', 'value', 'uiw1', 'value'),
         dataEdge('d8', 'flagGet', 'value', 'not1', 'a'),
-        dataEdge('d9', 'not1', 'value', 'uiv1', 'visible'),
+        dataEdge('d9', 'not1', 'value', 'uiv1', 'value'),
         dataEdge('d10', 'toGet', 'value', 'loop1', 'to'),
         dataEdge('d11', 'loop1', 'index', 'pr1', 'value'),
         dataEdge('d12', 'loop1', 'index', 'pr2', 'value'),
@@ -433,6 +433,7 @@ export const fullFeatureAsset = asset(
       { name: 'count', type: 'int', default: 0 },
       { name: 'rows', type: 'LogRow[]' },
       { name: 'flag', type: 'bool' },
+      { name: 'input', type: 'string', default: '10-01 08:00:00.000 E/tag (1): boom' },
     ],
     events: [
       { name: 'loaded', params: [{ name: 'count', type: 'int' }, { name: 'label', type: 'string' }] },
@@ -453,7 +454,7 @@ export const fullFeatureAsset = asset(
   },
 );
 
-test('roundtrip ①：全特性手工样本（事件/分支/双循环/函数图/片段/ui/透传别名/孤儿事件）', async () => {
+test('roundtrip ①：全特性手工样本（事件/分支/双循环/函数图/片段/透传别名/孤儿事件）', async () => {
   const code = await assertRoundtrip(fullFeatureAsset);
   // 关键形态抽查（可读性约定锁定）
   assert.match(code, /@tool\("日志查看器"\)/);
@@ -461,7 +462,7 @@ test('roundtrip ①：全特性手工样本（事件/分支/双循环/函数图/
   assert.match(code, /@on\('start'\)/);
   assert.match(code, /@on\("loaded"\)/);
   assert.match(code, /@onEvent\("tick"\)/);
-  assert.match(code, /const \{ rows, errs \} = await this\.parseLog\(ui\.input\.value, "E"\);/);
+  assert.match(code, /const \{ rows, errs \} = await this\.parseLog\(this\.input, "E"\);/);
   assert.match(code, /await delay\(500\);/);
   // 孤儿事件 ping（未被任何 @on 绑定）
   assert.match(code, /__bps-events/);
@@ -533,7 +534,7 @@ test('roundtrip ②：条件分支 + 循环计数（分支汇合 / 循环后引�
 });
 
 /* ============================================================
- * ③ 日志分析管线（真实节点：androidLogParse / filter / ui / format）
+ * ③ 日志分析管线（真实节点：androidLogParse / filter / format）
  * ============================================================ */
 
 export const logPipelineAsset = asset(
@@ -541,12 +542,12 @@ export const logPipelineAsset = asset(
     main: graph(
       [
         node('st', 'event.start'),
-        node('gv', 'ui.getValue', { pinDefaults: { name: 'input' } }),
+        node('gv', 'var.get', { params: { varName: 'input' } }),
         node('ap', 'convert.androidLogParse'),
         node('flt', 'array.filter', { pinDefaults: { field: 'level' } }),
         node('minGet', 'var.get', { params: { varName: 'minLevel' } }),
         node('cstr', 'convert.toString'),
-        node('uiw', 'ui.listSetItems', { pinDefaults: { name: 'list' } }),
+        node('uiw', 'var.set', { params: { varName: 'rows' } }),
         node('fmt', 'string.format', { pinDefaults: { template: '共 {0} 条错误' } }),
         node('pr', 'system.print'),
       ],
@@ -556,7 +557,7 @@ export const logPipelineAsset = asset(
         dataEdge('d1', 'gv', 'value', 'ap', 'lines'),
         dataEdge('d2', 'ap', 'rows', 'flt', 'array'),
         dataEdge('d3', 'minGet', 'value', 'flt', 'value'),
-        dataEdge('d4', 'flt', 'array', 'uiw', 'items'),
+        dataEdge('d4', 'flt', 'array', 'uiw', 'value'),
         dataEdge('d5', 'ap', 'count', 'cstr', 'value'),
         dataEdge('d6', 'cstr', 'value', 'fmt', 'args'),
         dataEdge('d7', 'fmt', 'value', 'pr', 'value'),
@@ -564,17 +565,17 @@ export const logPipelineAsset = asset(
     ),
   },
   {
-    variables: [{ name: 'minLevel', type: 'string', default: 'E' }],
+    variables: [{ name: 'minLevel', type: 'string', default: 'E' }, { name: 'input', type: 'string', default: '10-01 08:00:00.000 E/tag (1): boom' }],
   },
 );
 
-test('roundtrip ③：日志分析管线（androidLogParse 双输出别名 + filter + ui.listSetItems）', async () => {
+test('roundtrip ③：日志分析管线（androidLogParse 双输出别名 + filter）', async () => {
   const code = await assertRoundtrip(logPipelineAsset);
   // androidLogParse 出度 2 → 共享别名；count 输出以 .length 特例承载
-  assert.match(code, /const __bps_v\d+ = convert\.androidLogParse\(ui\.input\.value, ""\);/);
+  assert.match(code, /const __bps_v\d+ = convert\.androidLogParse\(this\.input, ""\);/);
   assert.match(code, /const __bps_v\d+ = \(__bps_v\d+\)\.length;/);
   assert.match(code, /convert\.toString\(__bps_v\d+\)/);
-  assert.match(code, /ui\.list\.items = bps\.array\.filter\(__bps_v\d+, "level", this\.minLevel, "=="\);/);
+  assert.match(code, /this\.rows = bps\.array\.filter\(__bps_v\d+, "level", this\.minLevel, "=="\);/);
 });
 
 /* ============================================================
@@ -763,10 +764,6 @@ export function pureNodeSample(specId: string): IRAsset {
   if (specId === 'map.has') nd.pinDefaults['key'] = 'k';
   if (specId === 'convert.timeFormat') nd.params['format'] = 'YYYY-MM-DD';
   if (specId === 'var.get') nd.params['varName'] = 'x';
-  if (specId === 'ui.getValue') {
-    nd.pinDefaults['name'] = 'list';
-    nd.pinDefaults['attr'] = 'items';
-  }
   if (specId === 'convert.androidLogParse') {
     nd.pinDefaults['lines'] = '10-01 08:00:00.000 I/tag (1): hello';
     nd.params['levelFilter'] = 'I';
@@ -795,44 +792,6 @@ test('roundtrip ⑦：表达式映射表逐条锁定（全部内置纯节点）'
     assert.equal(r.ok, true, `纯节点 ${spec.id} 往返失败：${r.diff ?? ''}\n${r.code ?? ''}`);
     noDiags(parseScriptToIR(r.code ?? '').diagnostics);
   }
-});
-
-test('roundtrip ⑦b：ui.get / ui.getValue 数据型节点 + var.get 共享别名', async () => {
-  const a = asset(
-    {
-      main: graph(
-        [
-          node('st', 'event.start'),
-          node('gv', 'ui.get', { pinDefaults: { name: 'list' } }),
-          node('gvv', 'ui.getValue', { pinDefaults: { name: 'input' } }),
-          node('g1', 'var.get', { params: { varName: 'count' } }),
-          node('a1', 'math.add'),
-          node('b1', 'math.mul'),
-          node('pr1', 'system.print'),
-          node('pr2', 'system.print'),
-          node('pr3', 'system.print'),
-        ],
-        [
-          execEdge('x1', 'st', 'pr1'),
-          execEdge('x2', 'pr1', 'pr2'),
-          execEdge('x3', 'pr2', 'pr3'),
-          dataEdge('d1', 'gv', 'object', 'pr1', 'value'),
-          dataEdge('d2', 'g1', 'value', 'a1', 'a'),
-          dataEdge('d3', 'g1', 'value', 'b1', 'a'),
-          dataEdge('d4', 'a1', 'value', 'pr2', 'value'),
-          dataEdge('d5', 'b1', 'value', 'pr3', 'value'),
-          dataEdge('d6', 'gvv', 'value', 'a1', 'b'),
-        ],
-      ),
-    },
-    { variables: [{ name: 'count', type: 'int', default: 0 }] },
-  );
-  const code = await assertRoundtrip(a);
-  // ui.get 数据型节点走属性式；共享 var.get 别名一次性求值；ui.getValue 属性式读值
-  assert.match(code, /print\(ui\.list\);/);
-  assert.match(code, /const __bps_v\d+ = this\.count;/);
-  assert.match(code, /__bps_v\d+ \+ ui\.input\.value/);
-  assert.match(code, /__bps_v\d+ \* 0\)/);
 });
 
 /* ============================================================

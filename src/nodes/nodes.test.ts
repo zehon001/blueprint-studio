@@ -3,7 +3,7 @@
  *
  * 覆盖：注册表完整性、规范化决策、branch / forLoop / forEach / delay /
  * var.get+set / math / string.format / array.sort 稳定性 / map.* /
- * convert（含 androidLogParse 两种格式 + 失败行）/ ui.* mock ctx /
+ * convert（含 androidLogParse 两种格式 + 失败行）/
  * event.send mock ctx.emit / timer / system 钩子降级。
  *
  * 循环状态机节点的测法：连续调用 run 模拟「链尾回连 exec 入」的再触发。
@@ -16,8 +16,6 @@ import {
   builtinSpecMap,
   NODE_CATEGORIES,
   clearAllStateSlots,
-  listReflectableProps,
-  reflectionEntries,
 } from './index';
 
 /* ============================================================
@@ -32,43 +30,11 @@ interface CtxExtras {
 
 type MockCtx = NodeRunContext & CtxExtras;
 
-interface UiMock {
-  find(name: string): unknown;
-  read(name: string, attr: string): unknown;
-  write(name: string, attr: string, value: unknown): void;
-}
-
-interface UiMockRecorder {
-  ui: UiMock;
-  writes: { name: string; attr: string; value: unknown }[];
-  reads: { name: string; attr: string }[];
-}
-
-function makeUiMock(nodes: Record<string, Record<string, unknown>>): UiMockRecorder {
-  const writes: UiMockRecorder['writes'] = [];
-  const reads: UiMockRecorder['reads'] = [];
-  return {
-    writes,
-    reads,
-    ui: {
-      find: (name) => (name in nodes ? { name, ...nodes[name] } : null),
-      read: (name, attr) => {
-        reads.push({ name, attr });
-        return nodes[name]?.[attr];
-      },
-      write: (name, attr, value) => {
-        writes.push({ name, attr, value });
-      },
-    },
-  };
-}
-
 let ctxSeq = 0;
 
 function makeCtx(opts: {
   params?: Record<string, unknown>;
   vars?: Record<string, unknown>;
-  ui?: UiMockRecorder | null;
   hooks?: Record<string, unknown>;
   /** mock delay 是否真实等待（默认真实） */
   realDelay?: boolean;
@@ -99,7 +65,6 @@ function makeCtx(opts: {
     emitted,
     vars,
   } as MockCtx;
-  if (opts.ui) (ctx as unknown as Record<string, unknown>).ui = opts.ui.ui;
   if (opts.hooks) {
     for (const [k, v] of Object.entries(opts.hooks)) (ctx as unknown as Record<string, unknown>)[k] = v;
   }
@@ -187,7 +152,7 @@ test('规范化决策：exec 引脚显式 type=exec；select 引脚=string+optio
   }
 });
 
-test('分类统计：九大分类各有节点', () => {
+test('分类统计：各分类都有节点', () => {
   const counts = new Map<string, number>();
   for (const s of builtinSpecs) counts.set(s.category, (counts.get(s.category) ?? 0) + 1);
   for (const c of NODE_CATEGORIES) {
@@ -571,150 +536,6 @@ test('convert.androidLogParse：epoch 格式 + 失败行保留 raw + 多行', as
   const expectTs2 = new Date(new Date().getFullYear(), 9, 1, 0, 0, 0, 999).getTime();
   assert.equal(rows[2].ts, expectTs2);
   assert.equal(rows[2].level, 'W');
-});
-
-/* ============================================================
- * ui（mock ctx.ui）
- * ============================================================ */
-
-test('ui.get / ui.setValue / ui.getValue：走 mock ctx.ui', async () => {
-  const um = makeUiMock({ title: { text: '旧文本' }, list: { items: [] } });
-  const ctx = makeCtx({ ui: um });
-  const g = await run('ui.get', ctx, { name: 'title' });
-  assert.deepEqual(g.outputs.object, { name: 'title', text: '旧文本' });
-
-  const s = await run('ui.setValue', ctx, { name: 'title', value: '新文本', attr: 'text' });
-  assert.equal(s.next, 'exec');
-  assert.deepEqual(um.writes, [{ name: 'title', attr: 'text', value: '新文本' }]);
-
-  const gv = await run('ui.getValue', ctx, { name: 'title', attr: 'text' });
-  assert.equal(gv.outputs.value, '旧文本');
-  assert.deepEqual(um.reads, [{ name: 'title', attr: 'text' }]);
-
-  const ls = await run('ui.listSetItems', ctx, { name: 'list', items: [1, 2] });
-  assert.equal(ls.next, 'exec');
-  assert.deepEqual(um.writes[1], { name: 'list', attr: 'items', value: [1, 2] });
-
-  const v = await run('ui.setVisible', ctx, { name: 'list', visible: false });
-  assert.equal(v.next, 'exec');
-  assert.deepEqual(um.writes[2], { name: 'list', attr: 'visible', value: false });
-
-  const t = await run('ui.setTitle', ctx, { name: 'title', value: '日志分析' });
-  assert.equal(t.next, 'exec');
-  assert.deepEqual(um.writes[3], { name: 'title', attr: 'title', value: '日志分析' });
-});
-
-test('ui.*：ctx 无 ui 句柄时降级打印提示并放行执行链', async () => {
-  const ctx = makeCtx({ ui: null });
-  const s = await run('ui.setValue', ctx, { name: 'title', value: 'x' });
-  assert.equal(s.next, 'exec');
-  assert.ok(ctx.logs.length === 1 && ctx.logs[0].includes('ui'), '应经 ctx.print 提示');
-  const g = await run('ui.get', ctx, { name: 'title' });
-  assert.equal(g.outputs.object, null);
-});
-
-/* ============================================================
- * ui 反射节点（T12.6）与类型化节点族（T12.7 节点侧）
- * ============================================================ */
-
-test('ui.getProp / ui.setProp：按 params nodeName+propId 运行时反射读写', async () => {
-  const um = makeUiMock({ title: { text: '旧文本' } });
-  const ctx = makeCtx({ params: { nodeName: 'title', propId: 'text' }, ui: um });
-
-  const g = await run('ui.getProp', ctx);
-  assert.equal(g.next, 'exec');
-  assert.equal(g.outputs.value, '旧文本');
-  assert.deepEqual(um.reads, [{ name: 'title', attr: 'text' }]);
-
-  const s = await run('ui.setProp', ctx, { value: '新文本' });
-  assert.equal(s.next, 'exec');
-  assert.deepEqual(um.writes, [{ name: 'title', attr: 'text', value: '新文本' }]);
-
-  // 不存在的属性 → null（不抛错）
-  const g2 = await run('ui.getProp', makeCtx({ params: { nodeName: 'title', propId: 'nope' }, ui: um }));
-  assert.equal(g2.outputs.value, null);
-
-  // 反射节点参数声明为 string（nodeName + propId，落盘即通用节点）
-  const spec = builtinSpecMap.get('ui.getProp');
-  assert.deepEqual(spec?.params?.map((p) => [p.id, p.type]), [
-    ['nodeName', 'string'],
-    ['propId', 'string'],
-  ]);
-});
-
-test('ui.getProp / ui.setProp：缺 ui 句柄降级打印且不抛错', async () => {
-  const ctx = makeCtx({ params: { nodeName: 'title', propId: 'text' }, ui: null });
-  const g = await run('ui.getProp', ctx);
-  assert.equal(g.next, 'exec');
-  assert.equal(g.outputs.value, null);
-  const s = await run('ui.setProp', ctx, { value: 'x' });
-  assert.equal(s.next, 'exec');
-  assert.equal(ctx.logs.length, 2);
-  assert.ok(ctx.logs[0].includes('ui.getProp'), 'getProp 应经 ctx.print 提示');
-  assert.ok(ctx.logs[1].includes('ui.setProp'), 'setProp 应经 ctx.print 提示');
-});
-
-test('ui.setText：新节点存在、写 text 属性且 value 保持 any 兼容', async () => {
-  const spec = builtinSpecMap.get('ui.setText');
-  assert.ok(spec, 'ui.setText 应注册');
-  assert.equal(spec!.category, '界面');
-  assert.deepEqual(spec!.traits, ['text'], 'ui.setText 应声明 text trait');
-  assert.equal(spec!.inputs.find((p) => p.id === 'value')?.type, 'any', 'value 入参保持 any 兼容');
-
-  const um = makeUiMock({ title: {} });
-  const ctx = makeCtx({ ui: um });
-  const r = await run('ui.setText', ctx, { name: 'title', value: '新文本' });
-  assert.equal(r.next, 'exec');
-  assert.deepEqual(um.writes, [{ name: 'title', attr: 'text', value: '新文本' }]);
-
-  // any 兼容：非字符串按原值写入（不强制转 string）
-  await run('ui.setText', ctx, { name: 'title', value: 42 });
-  assert.equal(um.writes[1].value, 42);
-});
-
-test('类型化 trait 元数据：setValue / listSetItems / setTitle 声明所需 trait', () => {
-  assert.deepEqual(builtinSpecMap.get('ui.setValue')?.traits, ['value']);
-  assert.deepEqual(builtinSpecMap.get('ui.listSetItems')?.traits, ['items']);
-  assert.deepEqual(builtinSpecMap.get('ui.setTitle')?.traits, ['text']);
-  // 未声明 traits 的旧节点行为不变
-  assert.equal(builtinSpecMap.get('ui.get')?.traits, undefined);
-});
-
-test('反射过滤：listReflectableProps 仅保留 reflect:true，无 schema 返回空', () => {
-  assert.deepEqual(listReflectableProps(undefined), []);
-  assert.deepEqual(listReflectableProps(null), []);
-  assert.deepEqual(listReflectableProps([]), []);
-
-  const props = [
-    { id: 'text', label: '文本', reflect: true },
-    { id: 'internal', label: '内部字段' },
-    { id: 'value', label: '值', reflect: false },
-    { id: 'items', label: '列表项', reflect: true },
-  ];
-  assert.deepEqual(listReflectableProps(props).map((p) => p.id), ['text', 'items']);
-});
-
-test('反射条目：reflectionEntries 按节点 × reflect:true 属性生成，无 schema 空', () => {
-  assert.deepEqual(reflectionEntries(undefined), []);
-  assert.deepEqual(reflectionEntries([]), []);
-
-  const entries = reflectionEntries([
-    {
-      name: 'title',
-      type: 'label',
-      props: [
-        { id: 'text', label: '文本', reflect: true },
-        { id: 'internal', label: '内部字段' },
-      ],
-    },
-    { name: 'list', type: 'list', props: [{ id: 'items', label: '列表项', reflect: true }] },
-    { name: 'box', type: 'vbox' }, // 无 schema → 不产生条目
-    { name: 'card', type: '__element', props: null },
-  ]);
-  assert.deepEqual(entries, [
-    { nodeName: 'title', propId: 'text', label: 'title.文本' },
-    { nodeName: 'list', propId: 'items', label: 'list.列表项' },
-  ]);
 });
 
 /* ============================================================

@@ -2,10 +2,9 @@
  * v3 引用改名级联（T13.1）
  *
  * 纯函数：传入资产 + 旧名/新名，返回克隆后的资产（不修改入参），覆盖
- * 变量 / 函数图 / 元素路径 / 样式类 / 事件名 五类引用。UI 层改名动作
- * 可复用这些函数；库文件本身的重命名仍由文件/库服务负责。
+ * 变量 / 函数图 / 事件名 三类引用。库文件本身的重命名仍由文件/库服务负责。
  */
-import type { IRAsset, UIAsset, UINode } from './types'
+import type { IRAsset } from './types'
 
 function cloneGraphs(asset: IRAsset): IRAsset {
   const graphs = Object.fromEntries(
@@ -54,55 +53,3 @@ export function renameFunction(asset: IRAsset, from: string, to: string): IRAsse
   })
 }
 
-/** UI 树元素路径改名（项目内元素文件重命名后级联） */
-export function renameElementPath(asset: UIAsset, from: string, to: string): UIAsset {
-  if (!from || from === to) return asset
-  const walk = (n: UINode): UINode => ({
-    ...n,
-    ...(n.element === from ? { element: to } : {}),
-    children: (n.children ?? []).map(walk),
-  })
-  return { ...asset, root: walk(asset.root) }
-}
-
-/** UI 样式类改名：节点 classes（样式表类的键由调用方同步改） */
-export function renameClass(asset: UIAsset, from: string, to: string): UIAsset {
-  if (!from || from === to) return asset
-  const walk = (n: UINode): UINode => ({
-    ...n,
-    ...(n.classes?.includes(from)
-      ? { classes: n.classes.map((c) => (c === from ? to : c)) }
-      : {}),
-    children: (n.children ?? []).map(walk),
-  })
-  return { ...asset, root: walk(asset.root) }
-}
-
-/** UI 事件名改名：asset.events + UI 树节点 events + 内嵌图 event.custom/send 参数 */
-export function renameEvent(asset: UIAsset, from: string, to: string): UIAsset {
-  if (!from || from === to) return asset
-  const walk = (n: UINode): UINode => ({
-    ...n,
-    ...(n.events?.includes(from) ? { events: n.events.map((e) => (e === from ? to : e)) } : {}),
-    children: (n.children ?? []).map(walk),
-  })
-  const graphs = Object.fromEntries(
-    Object.entries(asset.graphs ?? {}).map(([k, g]) => [
-      k,
-      {
-        ...g,
-        nodes: (g.nodes ?? []).map((n) => {
-          const params = n.params ?? {}
-          const hit = params.eventName === from || (n.type === 'event.custom' && params.eventName === from)
-          return hit ? { ...n, params: { ...params, eventName: to } } : n
-        }),
-      },
-    ]),
-  )
-  return {
-    ...asset,
-    events: (asset.events ?? []).map((e) => (e.name === from ? { ...e, name: to } : e)),
-    graphs,
-    root: walk(asset.root),
-  }
-}

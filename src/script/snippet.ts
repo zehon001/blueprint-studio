@@ -72,9 +72,9 @@ export function snippetPinIssue(pin: IRSnippetPin): string | null {
   return null;
 }
 
-/** 运行时环境全局名单（T3.2 createScriptGlobals 的 10 项；引脚 id 不得与之重名） */
+/** 运行时环境全局名单（createScriptGlobals 的全局项；引脚 id 不得与之重名） */
 export const RUNTIME_RESERVED_NAMES: ReadonlySet<string> = new Set([
-  'ui', 'vars', 'emit', 'onEvent', 'plugins', 'print', 'convert', 'format', 'delay',
+  'vars', 'emit', 'onEvent', 'plugins', 'print', 'convert', 'format', 'delay', 'readFile',
 ]);
 
 /* ============================================================

@@ -15,14 +15,14 @@ import { useWorkspaceStore, tabIdOf, type OpenTabKind } from '@/shell/workspace-
 export const ASSET_PANEL_PREFIX = 'asset:'
 
 /** 可由 dock 面板承载的资产类型（元素/样式/函数已接入） */
-export type AssetPanelKind = 'ui' | 'blueprint' | 'script' | 'element' | 'style' | 'function'
+export type AssetPanelKind = 'blueprint' | 'script' | 'function'
 
 export interface AssetPanelRef {
   kind: AssetPanelKind
   path: string
 }
 
-const ASSET_KINDS: readonly AssetPanelKind[] = ['ui', 'blueprint', 'script', 'element', 'style', 'function']
+const ASSET_KINDS: readonly AssetPanelKind[] = ['blueprint', 'script', 'function']
 
 /** 构造资产面板 id */
 export function assetPanelId(kind: AssetPanelKind, path: string): string {
@@ -51,10 +51,7 @@ function basename(p: string): string {
 /** 资产主名（去双扩展名；脚本保留完整文件名，PLAN §3.7） */
 export function assetDisplayName(kind: AssetPanelKind, path: string): string {
   const name = basename(path)
-  if (kind === 'ui') return name.replace(/\.ui\.json$/i, '')
   if (kind === 'blueprint') return name.replace(/\.bp\.json$/i, '')
-  if (kind === 'element') return name.replace(/\.elem\.json$/i, '')
-  if (kind === 'style') return name.replace(/\.uss\.json$/i, '')
   if (kind === 'function') return name.replace(/\.fn\.json$/i, '')
   return name
 }
@@ -67,16 +64,10 @@ export function assetPanelTitle(kind: AssetPanelKind, path: string): string {
 /** 类型徽标（dock tab / 文件面板共用口径；PLAN §3.7） */
 export function assetBadge(kind: AssetPanelKind, path = ''): string {
   switch (kind) {
-    case 'ui':
-      return 'UI'
     case 'blueprint':
       return 'BP'
     case 'script':
       return path.toLowerCase().endsWith('.py') ? 'PY' : 'TS'
-    case 'element':
-      return 'EL'
-    case 'style':
-      return 'ST'
     case 'function':
       return 'FN'
     default:

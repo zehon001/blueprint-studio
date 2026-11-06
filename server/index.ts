@@ -31,6 +31,8 @@ import * as pluginsApi from './plugins/registry'
 import * as executorApi from './plugins/executor'
 import * as transpileApi from './transpile'
 import { WsDebugHub } from './ws'
+import { agentGateway } from './agents/handler'
+import { AGENT_PLATFORMS, type AgentPlatform } from './agents/types'
 
 const PORT = Number(process.env.PORT || 8790)
 const PROJECTS_ROOT = fsApi.ensureProjectsRoot()
@@ -202,6 +204,23 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         wsHub: wsHub.stats(),
         uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
       })
+      return
+    }
+
+    // Agent 平台能力（模型 / 思考强度 / 权限域；agent 插件节点检视器下拉的真实来源）
+    if (pathname === '/api/agents/capabilities' && req.method === 'GET') {
+      const raw = url.searchParams.get('platform')?.trim()
+      if (raw) {
+        if (!(AGENT_PLATFORMS as readonly string[]).includes(raw)) {
+          sendJson(res, 400, { ok: false, message: `platform 必须为：${AGENT_PLATFORMS.join(' | ')}` })
+          return
+        }
+        const capabilities = await agentGateway.capabilities(raw as AgentPlatform)
+        sendJson(res, 200, { ok: true, capabilities })
+        return
+      }
+      const all = await Promise.all(AGENT_PLATFORMS.map((p) => agentGateway.capabilities(p)))
+      sendJson(res, 200, { ok: true, platforms: all })
       return
     }
 

@@ -86,11 +86,7 @@ import {
   validateFileName,
 } from './paths'
 import { mkdirViaPlaceholder, onFsNotice, onFsRefresh, runFsCommand, type FsNoticeKind } from './commands'
-import {
-  cascadeElementRename,
-  cascadeFunctionRename,
-  cascadeStyleRename,
-} from '@/ui-editor/cascadeProject'
+import { cascadeFunctionRename } from '@/panels/library/cascade-fn'
 import './menu.css'
 import './styles.css'
 
@@ -165,16 +161,13 @@ export interface NewAssetType {
   /** 自动补全的扩展名 */
   ext: string
   /** 新建内容模板类别 */
-  template: 'ui' | 'bp' | 'elem' | 'uss' | 'fn' | 'text'
+  template: 'bp' | 'fn' | 'text'
 }
 
-/** v3 全部资产类型（元素/样式/函数已随 M11/M12 开放） */
+/** 全部资产类型（纯蓝图工作流：蓝图 / 脚本 / 函数） */
 export const NEW_ASSET_TYPES: readonly NewAssetType[] = [
-  { id: 'scene', label: 'UI 场景（.ui.json）', dir: 'ui', ext: '.ui.json', template: 'ui' },
-  { id: 'prefab', label: '预制体（.ui.json）', dir: 'ui/prefabs', ext: '.ui.json', template: 'ui' },
-  { id: 'element', label: '元素（.elem.json）', dir: 'ui/elements', ext: '.elem.json', template: 'elem' },
-  { id: 'style', label: '样式表（.uss.json）', dir: 'ui/styles', ext: '.uss.json', template: 'uss' },
-  { id: 'blueprint', label: '纯逻辑蓝图（.bp.json）', dir: 'logic', ext: '.bp.json', template: 'bp' },
+  { id: 'blueprint', label: '蓝图（.bp.json）', dir: 'logic', ext: '.bp.json', template: 'bp' },
+  { id: 'function', label: '函数（.fn.json）', dir: 'library/functions', ext: '.fn.json', template: 'fn' },
   { id: 'script-ts', label: '脚本（.ts）', dir: 'logic', ext: '.ts', template: 'text' },
   { id: 'script-py', label: '脚本（.py）', dir: 'logic', ext: '.py', template: 'text' },
 ]
@@ -588,18 +581,6 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     }
     const destLabel = toDir === root.path ? '项目根' : baseName(toDir)
     runFsCommand(`移动「${source.name}」到「${destLabel}」`, { kind: 'rename', from, to })
-    // v3 T13.1：元素 / 样式文件换目录同样改变引用路径，级联更新项目内引用
-    if (project && source.type === 'file') {
-      try {
-        const fromRel = relInProject(from)
-        const toRel = relInProject(to)
-        const lower = source.name.toLowerCase()
-        if (lower.endsWith('.elem.json')) await cascadeElementRename(project.path, fromRel, toRel)
-        else if (lower.endsWith('.uss.json')) await cascadeStyleRename(project.path, fromRel, toRel)
-      } catch {
-        showToast('info', '引用级联更新失败：请检查元素 / 样式引用路径')
-      }
-    }
     setExpanded((prev) => remapPathSet(prev, from, to))
     setSelected((cur) => {
       if (cur === null) return cur
@@ -630,7 +611,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     if (!kind) {
       showToast(
         'info',
-        `暂不支持打开「${node.name}」（支持 .ui.json / .elem.json / .uss.json / .fn.json / .bp.json / .ts / .py）`,
+        `暂不支持打开「${node.name}」（支持 .fn.json / .bp.json / .ts / .py）`,
       )
       return
     }
@@ -679,16 +660,10 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         setRenamingPath(null)
         if (!r.moved) return // 同名 move = no-op（Windows 大小写歧义），不入栈
         runFsCommand(`重命名「${node.name}」为「${name}」`, { kind: 'rename', from: path, to })
-        // v3 T13.1：资产改名级联（元素/样式/项目函数）
+        // 资产改名级联（项目函数）
         if (project && node.type === 'file') {
-          const fromRel = relInProject(path)
-          const toRel = relInProject(to)
           const fromLower = name.toLowerCase()
-          if (fromLower.endsWith('.elem.json')) {
-            await cascadeElementRename(project.path, fromRel, toRel)
-          } else if (fromLower.endsWith('.uss.json')) {
-            await cascadeStyleRename(project.path, fromRel, toRel)
-          } else if (fromLower.endsWith('.fn.json')) {
+          if (fromLower.endsWith('.fn.json')) {
             await cascadeFunctionRename(
               project.path,
               baseName(path).replace(/\.fn\.json$/i, ''),

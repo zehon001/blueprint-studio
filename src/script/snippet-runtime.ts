@@ -144,7 +144,7 @@ const compileCache = new WeakMap<IRSnippet, { fn: (...args: unknown[]) => Promis
 
 /** 环境全局形参序（createScriptGlobals 的返回字段序；位置传参用） */
 const ENV_NAMES: readonly string[] = [
-  'ui', 'vars', 'emit', 'onEvent', 'plugins', 'print', 'convert', 'format', 'delay',
+  'vars', 'emit', 'onEvent', 'plugins', 'print', 'convert', 'format', 'delay',
 ];
 
 /** 编译片段：返回可执行函数（形参 = in 脚 → out 脚 → __bps_out 收集器 → 环境全局） */
@@ -213,9 +213,8 @@ export function makeSnippetRun(snipById: ReadonlyMap<string, IRSnippet>): NodeRu
     const outPins = (snip.pins ?? []).filter(
       (p) => p && p.dir === 'out' && p.type !== 'exec' && typeof p.id === 'string',
     );
-    // 环境全局：T3.2 内建 API（ui 两级 Proxy / vars 变量代理 / 事件 / 打印 / 延时等）
+    // 环境全局：T3.2 内建 API（vars 变量代理 / 事件 / 打印 / 延时等）
     const env = createScriptGlobals({
-      ui: ctx.ui,
       getVar: ctx.getVar,
       setVar: ctx.setVar,
       emit: ctx.emit,
@@ -231,7 +230,6 @@ export function makeSnippetRun(snipById: ReadonlyMap<string, IRSnippet>): NodeRu
       ...inPins.map((p) => inputs[p.id]),
       ...outPins.map(() => undefined),
       outBox,
-      env.ui,
       env.vars,
       env.emit,
       env.onEvent,

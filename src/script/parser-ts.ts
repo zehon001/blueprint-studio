@@ -13,7 +13,7 @@
  *  - @tool / @expose / @on / @onEvent 注解 → 资产名 / 变量 / 事件入口节点；
  *  - 方法体语句 → 节点链：if → branch、for → forLoop、for..of → array.forEach、
  *    while → whileLoop、await delay → flow.delay、emit → event.send、
- *    print → system.print、this/vars 读写 → var.get/set、ui.* → ui 节点、
+ *    print → system.print、this/vars 读写 → var.get/set、
  *    bps.* → 对应节点、表达式表反向匹配 → 纯节点；
  *  - 表达式 AST → 纯节点树（模板字符串 → string.concat 左折叠、数组字面量 →
  *    array.make、对象字面量（含非常量值）→ map.set 链等）；
@@ -1354,31 +1354,6 @@ class GraphBuilder {
         this.wireExec(pending, node);
         return [{ node: node.id, pin: 'exec' }];
       }
-      if (
-        ts.isPropertyAccessExpression(callee) &&
-        ts.isIdentifier(callee.expression) &&
-        callee.expression.text === 'ui' &&
-        callee.name.text === 'write'
-      ) {
-        // ui.write(n, attr, v) → 按属性名反查写值节点（visible→setVisible；title→setTitle；
-        // 其余 text/value/checked/placeholder/动态属性 → setValue）
-        if (e.arguments.length !== 3) throw new FoldSignal('ui.write 需要 3 个参数（节点名, 属性, 值）');
-        const attrLit = this.p.exprLiteral(e.arguments[1]);
-        const attr = attrLit.ok && typeof attrLit.value === 'string' ? attrLit.value : null;
-        let node: IRNode;
-        if (attr === 'visible') {
-          node = this.addNode('ui.setVisible');
-          this.connect(node, 'name', this.expr(e.arguments[0]));
-          this.connect(node, 'visible', this.expr(e.arguments[2]));
-        } else {
-          node = this.addNode(this.uiWriteTypeForAttr(attr));
-          this.connect(node, 'name', this.expr(e.arguments[0]));
-          this.connect(node, 'attr', this.expr(e.arguments[1]));
-          this.connect(node, 'value', this.expr(e.arguments[2]));
-        }
-        this.wireExec(pending, node);
-        return [{ node: node.id, pin: 'exec' }];
-      }
       // 其余调用形态按表达式求值（纯调用语句 → 悬空节点，保持往返）
       this.expr(e);
       return pending;
@@ -1407,56 +1382,12 @@ class GraphBuilder {
         this.wireExec(pending, node);
         return [{ node: node.id, pin: 'exec' }];
       }
-      if (
-        ts.isPropertyAccessExpression(target) &&
-        ts.isIdentifier(target.name) &&
-        ts.isPropertyAccessExpression(target.expression) &&
-        ts.isIdentifier(target.expression.expression) &&
-        target.expression.expression.text === 'ui'
-      ) {
-        return this.buildUiWrite(target.expression.name.text, target.name.text, e.right, pending);
-      }
-      throw new FoldSignal('不支持的赋值目标（受控子集支持 this.<变量> / vars.<变量> / ui.<节点>.<属性>）');
+      throw new FoldSignal('不支持的赋值目标（受控子集支持 this.<变量> / vars.<变量>）');
     }
 
     /* 其他：按表达式求值（悬空纯节点 / 折叠） */
     this.expr(e);
     return pending;
-  }
-
-  /**
-   * ui 写值属性 → 节点类型反查（attr 值域语义见 src/nodes/ui.ts）：
-   * visible → ui.setVisible（显隐节点专用属性）；items → ui.listSetItems（列表项）；
-   * title → ui.setTitle（ATTR_TITLE 缺省属性）；其余（text/value/checked/placeholder、
-   * 动态属性）→ ui.setValue（ATTR_VALUE 通用写值）。
-   */
-  private uiWriteTypeForAttr(attr: string | null): string {
-    if (attr === 'visible') return 'ui.setVisible';
-    if (attr === 'items') return 'ui.listSetItems';
-    if (attr === 'title') return 'ui.setTitle';
-    return 'ui.setValue';
-  }
-
-  /** ui.<节点>.<属性> = v → ui.setValue / ui.setVisible / ui.listSetItems / ui.setTitle */
-  private buildUiWrite(nodeName: string, attr: string, valueExpr: ts.Expression, pending: ExecSource[]): ExecSource[] {
-    let node: IRNode;
-    if (attr === 'visible') {
-      node = this.addNode('ui.setVisible');
-      this.connect(node, 'name', { kind: 'literal', value: nodeName });
-      this.connect(node, 'visible', this.expr(valueExpr));
-    } else if (attr === 'items') {
-      node = this.addNode('ui.listSetItems');
-      this.connect(node, 'name', { kind: 'literal', value: nodeName });
-      this.connect(node, 'items', this.expr(valueExpr));
-    } else {
-      // 按属性名反查节点类型（title → ui.setTitle；其余值域 → ui.setValue；见 uiWriteTypeForAttr）
-      node = this.addNode(this.uiWriteTypeForAttr(attr));
-      this.connect(node, 'name', { kind: 'literal', value: nodeName });
-      this.connect(node, 'attr', { kind: 'literal', value: attr });
-      this.connect(node, 'value', this.expr(valueExpr));
-    }
-    this.wireExec(pending, node);
-    return [{ node: node.id, pin: 'exec' }];
   }
 
   /** 变量声明：__bps 别名 / 调用解构；其余折叠（受控子集无局部变量） */
@@ -1696,7 +1627,7 @@ class GraphBuilder {
     }
   }
 
-  /** 属性访问：this.x / vars.x → var.get；ui.x → ui.get；ui.x.y → ui.getValue；(a).length → string.length */
+  /** 属性访问：this.x / vars.x → var.get；(a).length → string.length */
   private propAccess(e: ts.PropertyAccessExpression): ValueRef {
     const name = e.name.text;
     // 剥掉括号（(x).length 与 x.length 同形；括号在表达式树中透明）
@@ -1705,21 +1636,6 @@ class GraphBuilder {
     }
     if (e.expression.kind === ts.SyntaxKind.ThisKeyword || (ts.isIdentifier(e.expression) && e.expression.text === 'vars')) {
       const node = this.addNode('var.get', { varName: name });
-      return this.refOf(node, 'value');
-    }
-    if (ts.isIdentifier(e.expression) && e.expression.text === 'ui') {
-      if (name === 'find' || name === 'read' || name === 'write') {
-        throw new FoldSignal(`ui.${name} 需要以调用形态使用`);
-      }
-      const node = this.addNode('ui.get', {}, { name });
-      return this.refOf(node, 'object');
-    }
-    if (
-      ts.isPropertyAccessExpression(e.expression) &&
-      ts.isIdentifier(e.expression.expression) &&
-      e.expression.expression.text === 'ui'
-    ) {
-      const node = this.addNode('ui.getValue', {}, { name: e.expression.name.text, attr: name });
       return this.refOf(node, 'value');
     }
     /* convert.androidLogParse(x).length → count 输出脚（多输出特例：直接调用 / 共享别名两种形态） */
@@ -1752,7 +1668,7 @@ class GraphBuilder {
     throw new FoldSignal(`不支持的属性访问「.${name}」`);
   }
 
-  /** 下标访问：this['x'] → var.get；ui['x'] → ui.get；a[i] → array.get */
+  /** 下标访问：this['x'] → var.get；a[i] → array.get */
   private elemAccess(e: ts.ElementAccessExpression): ValueRef {
     const argLit = this.p.exprLiteral(e.argumentExpression);
     if (e.expression.kind === ts.SyntaxKind.ThisKeyword) {
@@ -1760,18 +1676,13 @@ class GraphBuilder {
       const node = this.addNode('var.get', { varName: argLit.value });
       return this.refOf(node, 'value');
     }
-    if (ts.isIdentifier(e.expression) && e.expression.text === 'ui') {
-      if (!argLit.ok || typeof argLit.value !== 'string') throw new FoldSignal('ui[<名>] 需要字符串字面量');
-      const node = this.addNode('ui.get', {}, { name: argLit.value });
-      return this.refOf(node, 'object');
-    }
     const node = this.addNode('array.get');
     this.connect(node, 'array', this.expr(e.expression));
     this.connect(node, 'index', this.expr(e.argumentExpression));
     return this.refOf(node, 'value');
   }
 
-  /** 调用：bps.* / convert.* / Math.* / format / String/Number/Boolean / ui.find / ui.read / 成员方法 */
+  /** 调用：bps.* / convert.* / Math.* / format / String/Number/Boolean / 成员方法 */
   private callExpr(e: ts.CallExpression): ValueRef {
     const callee = e.expression;
 
@@ -1832,23 +1743,6 @@ class GraphBuilder {
           'Math.abs': 'math.abs',
         };
         if (mathMap[chainText]) return this.buildPlannedCall(mathMap[chainText], e);
-      }
-
-      /* ui.find(n) / ui.read(n, attr) */
-      if (ts.isIdentifier(callee.expression) && callee.expression.text === 'ui') {
-        if (callee.name.text === 'find') {
-          if (e.arguments.length !== 1) throw new FoldSignal('ui.find 需要 1 个参数');
-          const node = this.addNode('ui.get');
-          this.connect(node, 'name', this.expr(e.arguments[0]));
-          return this.refOf(node, 'object');
-        }
-        if (callee.name.text === 'read') {
-          if (e.arguments.length !== 2) throw new FoldSignal('ui.read 需要 2 个参数（节点名, 属性）');
-          const node = this.addNode('ui.getValue');
-          this.connect(node, 'name', this.expr(e.arguments[0]));
-          this.connect(node, 'attr', this.expr(e.arguments[1]));
-          return this.refOf(node, 'value');
-        }
       }
 
       /* 成员方法：includes / trim / toUpperCase / toLowerCase / split / replace */

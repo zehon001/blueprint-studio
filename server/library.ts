@@ -45,21 +45,17 @@ import { FsError, historyLimit, isPathWithin, resolveProjectsRoot } from './fs'
  * 常量与类型
  * ============================================================ */
 
-/** 库条目类型（PLAN §3.5；目录名即 kind） */
-export const LIBRARY_KINDS = ['elements', 'styles', 'functions'] as const
+/** 库条目类型（纯蓝图工作流：仅函数；目录名即 kind） */
+export const LIBRARY_KINDS = ['functions'] as const
 export type LibraryKind = (typeof LIBRARY_KINDS)[number]
 
 /** 各类型的文件扩展名（PLAN §3.7；条目名 = 去掉该后缀的主干） */
 export const LIBRARY_EXT: Readonly<Record<LibraryKind, string>> = {
-  elements: '.elem.json',
-  styles: '.uss.json',
   functions: '.fn.json',
 }
 
 /** 中文标签（错误消息用） */
 const KIND_LABEL: Readonly<Record<LibraryKind, string>> = {
-  elements: '元素',
-  styles: '样式表',
   functions: '函数',
 }
 
@@ -84,7 +80,7 @@ const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
 const HISTORY_TS_RE = /^\d{8}-\d{6}-\d{3}(?:-\d{1,4})?$/
 
 /** `@library/<kind>/<name>` 引用（PLAN §3.8；条目名内不含斜杠） */
-const LIBRARY_REF_RE = /^@library\/(elements|styles|functions)\/([^/\\\u0000]+)$/
+const LIBRARY_REF_RE = /^@library\/(functions)\/([^/\\\u0000]+)$/
 
 const COLLATOR = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' })
 
@@ -163,7 +159,7 @@ export function assertLibraryRootSeparate(libRoot: string, projectsRoot: string 
 }
 
 /**
- * 确保库根可用：校验不与项目根重叠 → 创建库根与四个标准子目录（elements/styles/functions/.history）
+ * 确保库根可用：校验不与项目根重叠 → 创建库根与标准子目录（functions/.history）
  * → 校验存在、是目录、可读写。返回绝对路径。
  * 服务端启动时调用一次；每次库操作内部也会调用（PLAN §3.5「每次库操作时校验存在/可写」）。
  */

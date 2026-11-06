@@ -1,52 +1,30 @@
 /**
- * 资源库面板（v3 T11.5）
+ * 资源库面板（纯蓝图工作流：仅函数）
  *
- * 两页签（内置库 | 项目库）× 三类（元素/样式/函数）+ 条目详情/引用数/最近修改/新建/重命名/删除。
- * 内置库走 /api/library/*（T11.4）；项目库直接读项目文件目录（ui/elements、ui/styles、
- * library/functions）。导出（多选 zip）/导入（跳过/覆盖/并存改名）已接入。
+ * 两页签（内置库 | 项目库）+ 条目详情/引用数/最近修改/新建/重命名/删除。
+ * 内置库走 /api/library/*（T11.4）；项目库直接读项目 library/functions 目录。
+ * 导出（多选 zip）/导入（跳过/覆盖/并存改名）已接入。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { openAssetPanel } from '@/shell/dock/assetPanelModel'
-import { elementAssetTemplate } from '@/panels/file-system/paths'
 import { useSelectionStore } from '@/shell/selection/store'
 import { createLibraryEntry, deleteLibraryEntry, listLibraryEntries, renameLibraryEntry, watchLibrary } from './api'
-import {
-  cascadeElementRename,
-  cascadeFunctionRename,
-  cascadeStyleRename,
-  countProjectReferences,
-} from '@/ui-editor/cascadeProject'
+import { cascadeFunctionRename, countFunctionReferences } from './cascade-fn'
 
 type Scope = 'builtin' | 'project'
-type Kind = 'elements' | 'styles' | 'functions'
 
-const KIND_LABEL: Record<Kind, string> = {
-  elements: '元素',
-  styles: '样式',
-  functions: '函数',
-}
-
-const PROJECT_DIR: Record<Kind, string> = {
-  elements: 'ui/elements',
-  styles: 'ui/styles',
-  functions: 'library/functions',
-}
+const PROJECT_DIR = 'library/functions'
+const SUFFIX = '.fn.json'
 
 interface Entry {
-  kind: Kind
   name: string
   path: string
   size?: number
   mtime?: string
 }
 
-function shellOf(kind: Kind, name: string): string {
-  // 元素骨架与文件面板新建一致（含 event.start 入口）
-  if (kind === 'elements') return elementAssetTemplate(name)
-  if (kind === 'styles') {
-    return JSON.stringify({ version: 1, classes: { [`${name}-class`]: { props: {} } } }, null, 2)
-  }
+function shellOf(name: string): string {
   return JSON.stringify(
     {
       version: 3,
@@ -65,7 +43,6 @@ function shellOf(kind: Kind, name: string): string {
 export function LibraryPanel() {
   const project = useWorkspaceStore((s) => s.currentProject)
   const [scope, setScope] = useState<Scope>('builtin')
-  const [kind, setKind] = useState<Kind>('elements')
   const [entries, setEntries] = useState<Entry[]>([])
   const [selected, setSelected] = useState<Entry | null>(null)
   const [busy, setBusy] = useState(false)
@@ -80,24 +57,22 @@ export function LibraryPanel() {
     setError(null)
     try {
       if (scope === 'builtin') {
-        const list = await listLibraryEntries(kind)
-        setEntries(list.map((e) => ({ kind, name: e.name, path: `@library/${kind}/${e.name}`, size: e.size, mtime: e.mtime })))
+        const list = await listLibraryEntries('functions')
+        setEntries(list.map((e) => ({ name: e.name, path: `@library/functions/${e.name}`, size: e.size, mtime: e.mtime })))
       } else {
         if (!project) {
           setEntries([])
           return
         }
-        const dir = `${project.path}/${PROJECT_DIR[kind]}`
+        const dir = `${project.path}/${PROJECT_DIR}`
         const r = await fetch(`/api/tree?path=${encodeURIComponent(dir)}`)
         const j = (await r.json()) as { ok?: boolean; tree?: { children?: Array<{ name?: string; path?: string; type?: string }> } }
-        const suffix = kind === 'elements' ? '.elem.json' : kind === 'styles' ? '.uss.json' : '.fn.json'
         const list: Entry[] = []
         for (const c of j.tree?.children ?? []) {
-          if (c.type !== 'file' || typeof c.name !== 'string' || !c.name.toLowerCase().endsWith(suffix)) continue
+          if (c.type !== 'file' || typeof c.name !== 'string' || !c.name.toLowerCase().endsWith(SUFFIX)) continue
           list.push({
-            kind,
-            name: c.name.slice(0, -suffix.length),
-            path: `${PROJECT_DIR[kind]}/${c.name}`,
+            name: c.name.slice(0, -SUFFIX.length),
+            path: `${PROJECT_DIR}/${c.name}`,
           })
         }
         setEntries(list)
@@ -105,31 +80,30 @@ export function LibraryPanel() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
-  }, [scope, kind, project?.path])
+  }, [scope, project?.path])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  /* v3 T8.2：资源库条目选择 → 统一检视器条目信息 */
+  /* 资源库条目选择 → 选择存储条目信息 */
   useEffect(() => {
     if (!selected) return
     useSelectionStore.getState().publish({
       source: 'library',
       scope,
-      kind: selected.kind === 'elements' ? 'element' : selected.kind === 'styles' ? 'style' : 'function',
+      kind: 'function',
       name: selected.name,
       path: selected.path,
     })
   }, [selected, scope])
 
-  /* 引用数（扫描当前项目 UI/元素/函数资产；项目未打开时显示 —） */
+  /* 引用数（扫描当前项目蓝图 / 函数资产；项目未打开时显示 —） */
   useEffect(() => {
     setRefCount(null)
     if (!selected || !project) return
     let alive = true
-    const kind = selected.kind === 'elements' ? 'element' : selected.kind === 'styles' ? 'style' : 'function'
-    void countProjectReferences(project.path, kind, selected.path.startsWith('@library/') ? selected.path : kind === 'function' ? selected.name : selected.path)
+    void countFunctionReferences(project.path, selected.name)
       .then((n) => {
         if (alive) setRefCount(n)
       })
@@ -137,7 +111,7 @@ export function LibraryPanel() {
     return () => {
       alive = false
     }
-  }, [selected?.path, project?.path])
+  }, [selected?.name, selected?.path, project?.path])
 
   useEffect(() => watchLibrary(() => void load()), [load])
 
@@ -147,25 +121,18 @@ export function LibraryPanel() {
     setBusy(true)
     try {
       if (scope === 'builtin') {
-        await createLibraryEntry(kind, n, shellOf(kind, n))
-        // D4：内置条目创建后直接进入同款编辑器（元素=UI 编辑器 / 样式=样式编辑器 / 函数=函数编辑器）
-        openAssetPanel(
-          kind === 'elements' ? 'element' : kind === 'styles' ? 'style' : 'function',
-          `@library/${kind}/${n}`,
-        )
+        await createLibraryEntry('functions', n, shellOf(n))
+        openAssetPanel('function', `@library/functions/${n}`)
       } else if (project) {
-        const file = `${PROJECT_DIR[kind]}/${n}${kind === 'elements' ? '.elem.json' : kind === 'styles' ? '.uss.json' : '.fn.json'}`
+        const file = `${PROJECT_DIR}/${n}${SUFFIX}`
         const r = await fetch('/api/file', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: `${project.path}/${file}`, content: shellOf(kind, n) }),
+          body: JSON.stringify({ path: `${project.path}/${file}`, content: shellOf(n) }),
         })
         const j = (await r.json()) as { ok?: boolean; message?: string }
         if (!j.ok) throw new Error(j.message ?? '新建失败')
-        openAssetPanel(
-          kind === 'elements' ? 'element' : kind === 'styles' ? 'style' : 'function',
-          file,
-        )
+        openAssetPanel('function', file)
       }
       setName('')
       await load()
@@ -184,12 +151,10 @@ export function LibraryPanel() {
     try {
       const builtin = selected.path.startsWith('@library/')
       if (builtin) {
-        await renameLibraryEntry(selected.kind, selected.name, to)
+        await renameLibraryEntry('functions', selected.name, to)
       } else if (project) {
-        const suffix = selected.kind === 'elements' ? '.elem.json' : selected.kind === 'styles' ? '.uss.json' : '.fn.json'
-        const dir = PROJECT_DIR[selected.kind]
         const from = `${project.path}/${selected.path}`
-        const toPath = `${project.path}/${dir}/${to}${suffix}`
+        const toPath = `${project.path}/${PROJECT_DIR}/${to}${SUFFIX}`
         const r = await fetch('/api/move', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -198,19 +163,9 @@ export function LibraryPanel() {
         const j = (await r.json()) as { ok?: boolean; message?: string }
         if (!j.ok) throw new Error(j.message ?? '重命名失败')
       }
-      // v3 T13.1：改名级联当前项目引用
+      // 改名级联当前项目引用
       if (project) {
-        const suffix = selected.kind === 'elements' ? '.elem.json' : selected.kind === 'styles' ? '.uss.json' : '.fn.json'
-        const dir = PROJECT_DIR[selected.kind]
-        const oldPath = builtin
-          ? `@library/${selected.kind}/${selected.name}`
-          : selected.path
-        const newPath = builtin
-          ? `@library/${selected.kind}/${to}`
-          : `${dir}/${to}${suffix}`
-        if (selected.kind === 'elements') await cascadeElementRename(project.path, oldPath, newPath)
-        else if (selected.kind === 'styles') await cascadeStyleRename(project.path, oldPath, newPath)
-        else await cascadeFunctionRename(project.path, selected.name, to)
+        await cascadeFunctionRename(project.path, selected.name, to)
       }
       setSelected(null)
       await load()
@@ -226,7 +181,7 @@ export function LibraryPanel() {
     setBusy(true)
     try {
       if (selected.path.startsWith('@library/')) {
-        await deleteLibraryEntry(selected.kind, selected.name)
+        await deleteLibraryEntry('functions', selected.name)
       } else if (project) {
         await fetch(`/api/file?path=${encodeURIComponent(`${project.path}/${selected.path}`)}`, { method: 'DELETE' })
       }
@@ -241,9 +196,7 @@ export function LibraryPanel() {
 
   const onOpen = (): void => {
     if (!selected) return
-    if (selected.kind === 'elements') openAssetPanel('element', selected.path)
-    else if (selected.kind === 'styles') openAssetPanel('style', selected.path)
-    else openAssetPanel('function', selected.path)
+    openAssetPanel('function', selected.path)
   }
 
   const onExport = async (): Promise<void> => {
@@ -256,13 +209,13 @@ export function LibraryPanel() {
     try {
       for (const e of targets) {
         const r = await fetch(
-          `/api/library/export?kind=${encodeURIComponent(e.kind)}&name=${encodeURIComponent(e.name)}&format=zip`,
+          `/api/library/export?kind=functions&name=${encodeURIComponent(e.name)}&format=zip`,
         )
         if (!r.ok) throw new Error(`导出失败：HTTP ${r.status}`)
         const blob = await r.blob()
         const a = document.createElement('a')
         a.href = URL.createObjectURL(blob)
-        a.download = `${e.kind}-${e.name}.zip`
+        a.download = `functions-${e.name}.zip`
         a.click()
         URL.revokeObjectURL(a.href)
       }
@@ -344,21 +297,7 @@ export function LibraryPanel() {
       </div>
       <div className="library-body">
         <div className="library-kinds" role="tablist" aria-label="条目类型">
-          {(['elements', 'styles', 'functions'] as const).map((k) => (
-            <button
-              key={k}
-              type="button"
-              role="tab"
-              aria-selected={kind === k}
-              className={`library-kind${kind === k ? ' active' : ''}`}
-              onClick={() => {
-                setKind(k)
-                setSelected(null)
-              }}
-            >
-              {KIND_LABEL[k]}
-            </button>
-          ))}
+          <span className="library-kind active">函数</span>
         </div>
         <div className="library-list">
           {entries.length === 0 ? (
@@ -389,9 +328,7 @@ export function LibraryPanel() {
                   }}
                 />
                 <span className="library-row-name">{e.name}</span>
-                <span className="library-row-meta">
-                  {e.kind === 'elements' ? 'EL' : e.kind === 'styles' ? 'ST' : 'FN'}
-                </span>
+                <span className="library-row-meta">FN</span>
               </button>
             ))
           )}
@@ -427,7 +364,7 @@ export function LibraryPanel() {
           <div className="library-create">
             <input
               className="library-input"
-              placeholder={`新建${KIND_LABEL[kind]}名…`}
+              placeholder="新建函数名…"
               value={name}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {

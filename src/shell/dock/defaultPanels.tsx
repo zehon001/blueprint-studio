@@ -17,8 +17,6 @@ import { listPanels } from './registry'
 import { useDockStore } from './store'
 import { makeTabs, type DockNode } from './tree'
 import { registerFileSystemPanel } from '@/panels/file-system'
-import { registerInspectorPanel } from '@/panels/inspector'
-import { registerEventsPanel } from '@/panels/events'
 import { registerConsolePanel } from '@/panels/console'
 import { registerRuntimePanel } from '@/panels/runtime'
 import { registerLibraryPanel } from '@/panels/library'
@@ -27,24 +25,21 @@ import { ensureAssetPanelsInLayout, syncWorkspaceFromDock } from './assetPanel'
 /* 内置面板 id（跨卡契约：替换实现时保持 id 不变） */
 export const PANEL_ID_FILE_SYSTEM = 'file-system'
 export const PANEL_ID_RUNTIME = 'runtime'
-export const PANEL_ID_INSPECTOR = 'inspector'
-export const PANEL_ID_EVENTS = 'events'
 export const PANEL_ID_CONSOLE = 'console'
+export const PANEL_ID_LIBRARY = 'library'
 
 /* 面板注册（模块副作用；每面板一行） */
 registerFileSystemPanel() // T0.7 文件系统（id: 'file-system'）
-registerInspectorPanel() // T1.5 / T8.2 统一检视器（id: 'inspector'）
-registerEventsPanel() // T5.2 事件面板（id: 'events'）
 registerConsolePanel() // T1.6 控制台（id: 'console'）
 registerRuntimePanel() // T8.5 内置运行视图（iframe + embed；id: 'runtime'）
-registerLibraryPanel() // T11.5 资源库（默认不在布局，面板菜单打开；id: 'library'）
+registerLibraryPanel() // 资源库（函数；默认右列；id: 'library'）
 
 /** 单面板 tabs 组 */
 function oneTabs(panelId: string): DockNode {
   return makeTabs([panelId])
 }
 
-/** 默认布局（PLAN §4.1）：左列上下分、中央运行/资产、右列上下分、底部控制台 */
+/** 默认布局：左列文件系统、中央运行/资产、右列资源库、底部控制台 */
 export function buildDefaultLayout(): DockNode {
   return {
     kind: 'split',
@@ -58,8 +53,7 @@ export function buildDefaultLayout(): DockNode {
         children: [
           oneTabs(PANEL_ID_FILE_SYSTEM),
           oneTabs(PANEL_ID_RUNTIME),
-          // 检视器占满右列（UIToolkit 心智）；事件面板作为同组 tab，可切换
-          makeTabs([PANEL_ID_INSPECTOR, PANEL_ID_EVENTS]),
+          oneTabs(PANEL_ID_LIBRARY),
         ],
       },
       oneTabs(PANEL_ID_CONSOLE),

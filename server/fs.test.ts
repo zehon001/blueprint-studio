@@ -157,51 +157,28 @@ describe('模板与项目', () => {
       const created = createProject(root, '我的工具', 'empty')
       assert.equal(created.name, '我的工具')
       assert.equal(created.path, '我的工具')
-      assert.equal(created.mainUI, 'ui/main.ui.json')
-      for (const dir of ['ui', 'logic', 'assets', 'plugins', '.history']) {
+      assert.equal(created.mainBlueprint, 'logic/main.bp.json')
+      for (const dir of ['logic', 'assets', 'plugins', '.history']) {
         assert.ok(fs.statSync(path.join(root, '我的工具', dir)).isDirectory(), `缺少目录 ${dir}`)
       }
       const pf = JSON.parse(fs.readFileSync(path.join(root, '我的工具', 'project.json'), 'utf8')) as Record<string, unknown>
       assert.equal(pf.name, '我的工具')
-      assert.equal(pf.mainUI, 'ui/main.ui.json')
+      assert.equal(pf.mainBlueprint, 'logic/main.bp.json')
       assert.equal(pf.engineVersion, ENGINE_VERSION)
       assert.ok(!JSON.stringify(pf).includes('{{'), '模板变量未替换')
-      const ui = JSON.parse(fs.readFileSync(path.join(root, '我的工具', 'ui', 'main.ui.json'), 'utf8')) as {
+      const bp = JSON.parse(fs.readFileSync(path.join(root, '我的工具', 'logic', 'main.bp.json'), 'utf8')) as {
         version: number
-        root: { type: string }
+        graphs: Record<string, { nodes: Array<{ type: string }> }>
       }
-      assert.equal(ui.version, 3)
-      assert.equal(ui.root.type, 'vbox')
+      assert.equal(bp.version, 3)
+      assert.ok(bp.graphs.main?.nodes.some((n) => n.type === 'event.start'))
     })
   })
 
-  test('log-analyzer 模板：UI 骨架 + 合法 IR + sample.log', () => {
+  test('log-analyzer 模板：合法 IR + sample.log', () => {
     withRoot((root) => {
       createProject(root, '日志分析器', 'log-analyzer')
       const p = path.join(root, '日志分析器')
-      const ui = JSON.parse(fs.readFileSync(path.join(p, 'ui', 'main.ui.json'), 'utf8')) as {
-        version: number
-        root: { type: string; children: Array<{ name: string; type: string; logicAsset?: string; events?: string[] }> }
-        graphs?: Record<string, { nodes: Array<{ type: string }>; edges: unknown[] }>
-      }
-      assert.equal(ui.version, 3)
-      assert.equal(ui.root.type, 'vbox')
-      assert.equal(ui.root.children.length, 3)
-      assert.equal(ui.root.children[0].type, 'label')
-      const stat = ui.root.children[1] as unknown as { type: string; element?: string; props?: { value?: string } }
-      assert.equal(stat.type, '__element', '模板演示元素实例')
-      assert.equal(stat.element, 'ui/elements/StatCard.elem.json')
-      assert.equal(stat.props?.value, '42')
-      const list = ui.root.children[2]
-      assert.equal(list.type, 'list')
-      // v3：逻辑内嵌（不再引用 logicAsset）；事件图随 UI 资产
-      assert.equal(list.logicAsset, undefined)
-      assert.ok(ui.graphs?.event, 'v3 模板应内嵌事件图')
-      assert.equal(ui.graphs.event.nodes[0].type, 'event.start')
-      // v3：示例样式表 + 示例元素随模板分发
-      assert.ok(fs.existsSync(path.join(p, 'ui', 'styles', 'app.uss.json')))
-      assert.ok(fs.existsSync(path.join(p, 'ui', 'elements', 'StatCard.elem.json')))
-
       const ir = JSON.parse(fs.readFileSync(path.join(p, 'logic', 'main.bp.json'), 'utf8')) as {
         version: number
         entry: string
@@ -211,11 +188,11 @@ describe('模板与项目', () => {
       assert.equal(ir.version, 3)
       assert.equal(ir.entry, 'bind')
       assert.equal(ir.graphs.bind.nodes[0].type, 'event.start')
-      // T7.2 前置补全：开箱可跑（读文件 → 解析 → 填列表 → 打印），5 节点 5 边
+      // 开箱可跑（读文件 → 解析 → 计数 → 打印）
       const nodeTypes = ir.graphs.bind.nodes.map((n) => n.type)
       assert.ok(nodeTypes.includes('system.readFile'), '模板应含读文件节点')
       assert.ok(nodeTypes.includes('convert.androidLogParse'), '模板应含日志解析节点')
-      assert.ok(nodeTypes.includes('ui.listSetItems'), '模板应含列表填充节点')
+      assert.ok(nodeTypes.includes('array.length'), '模板应含计数节点')
       assert.equal(ir.graphs.bind.edges.length, 5)
       assert.ok(Array.isArray(ir.variables))
 
@@ -265,7 +242,7 @@ describe('模板与项目', () => {
       assert.equal(list.length, 2)
       const alpha = list.find((p) => p.path === 'Alpha')
       assert.ok(alpha)
-      assert.equal(alpha.mainUI, 'ui/main.ui.json')
+      assert.equal(alpha.mainBlueprint, 'logic/main.bp.json')
       assert.equal(alpha.engineVersion, ENGINE_VERSION)
       assert.ok(alpha.mtime)
       assert.equal(list.find((p) => p.path === 'NotAProject'), undefined)
@@ -341,7 +318,7 @@ describe('文件 CRUD', () => {
     withRoot((root) => {
       seed(root)
       expectFsError(() => readFileSafe(root, 'Proj/nope.txt'), 404, '不存在')
-      expectFsError(() => readFileSafe(root, 'Proj/ui'), 400, '读目录')
+      expectFsError(() => readFileSafe(root, 'Proj/logic'), 400, '读目录')
       const bin = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01])
       fs.writeFileSync(path.join(root, 'Proj', 'assets', 'img.png'), bin)
       const r = readFileSafe(root, 'Proj/assets/img.png')
@@ -409,9 +386,9 @@ describe('move', () => {
   test('非法 move：源缺失 404 / 移入自身 400 / 非项目目标 404 / 项目根被拒', () => {
     withRoot((root) => {
       seed(root)
-      fs.mkdirSync(path.join(root, 'Proj', 'ui', 'sub'), { recursive: true })
+      fs.mkdirSync(path.join(root, 'Proj', 'logic', 'sub'), { recursive: true })
       expectFsError(() => movePath(root, { from: 'Proj/missing.txt', to: 'Proj/x.txt' }), 404, '源缺失')
-      expectFsError(() => movePath(root, { from: 'Proj/ui', to: 'Proj/ui/sub/ui' }), 400, '目录移入自身')
+      expectFsError(() => movePath(root, { from: 'Proj/logic', to: 'Proj/logic/sub/logic' }), 400, '目录移入自身')
       expectFsError(() => movePath(root, { from: 'Proj/a.txt', to: 'loose/x.txt' }), 404, '目标不在项目内')
       expectFsError(() => movePath(root, { from: 'Proj', to: 'Proj2' }), 400, '移动项目根')
       expectFsError(() => movePath(root, {}), 400, '缺参数')
@@ -434,12 +411,12 @@ describe('tree', () => {
       const tree = readTree(root, 'Proj')
       assert.equal(tree.type, 'dir')
       assert.equal(tree.path, 'Proj')
-      const ui = tree.children.find((n) => n.name === 'ui')
-      assert.ok(ui?.children.some((n) => n.name === 'main.ui.json' && n.type === 'file' && n.ext === 'json'))
+      const logic0 = tree.children.find((n) => n.name === 'logic')
+      assert.ok(logic0?.children.some((n) => n.name === 'main.bp.json' && n.type === 'file' && n.ext === 'json'))
       assert.equal(tree.children.find((n) => n.name === '.history'), undefined, '.history 应隐藏')
       const logic = tree.children.find((n) => n.name === 'logic')
       assert.equal(logic?.children[0].name, 'util') // 目录排在文件前
-      const file = logic?.children[1]
+      const file = logic?.children[2]
       assert.equal(file?.name, 'z.bp.json')
       assert.equal(file?.ext, 'json')
       assert.equal(file?.path, 'Proj/logic/z.bp.json')
@@ -583,10 +560,10 @@ describe('importProjectFolder（T0.6）', () => {
       try {
         fs.writeFileSync(
           path.join(outside, 'project.json'),
-          JSON.stringify({ name: '外部项目', mainUI: 'ui/custom.ui.json', engineVersion: '0.1.0', plugins: {} }),
+          JSON.stringify({ name: '外部项目', mainBlueprint: 'logic/custom.bp.json', engineVersion: '0.1.0', plugins: {} }),
         )
-        fs.mkdirSync(path.join(outside, 'ui'))
-        fs.writeFileSync(path.join(outside, 'ui', 'custom.ui.json'), '{"version":2}')
+        fs.mkdirSync(path.join(outside, 'logic'))
+        fs.writeFileSync(path.join(outside, 'logic', 'custom.bp.json'), '{"version":3}')
         fs.writeFileSync(path.join(outside, 'README.md'), 'hello')
 
         const folderName = path.basename(outside)
@@ -596,7 +573,7 @@ describe('importProjectFolder（T0.6）', () => {
         assert.equal(r.renamed, false)
         assert.equal(r.project.path, folderName)
         assert.equal(r.project.name, '外部项目')
-        assert.equal(r.project.mainUI, 'ui/custom.ui.json')
+        assert.equal(r.project.mainBlueprint, 'logic/custom.bp.json')
         assert.equal(r.files, 3)
 
         const dest = path.join(root, folderName)
@@ -605,7 +582,6 @@ describe('importProjectFolder（T0.6）', () => {
           fs.readFileSync(path.join(outside, 'project.json'), 'utf8'),
           'project.json 应原样复制',
         )
-        assert.ok(fs.existsSync(path.join(dest, 'ui', 'custom.ui.json')))
         assert.ok(fs.existsSync(path.join(dest, 'README.md')))
 
         const list = listProjects(root)
@@ -618,7 +594,7 @@ describe('importProjectFolder（T0.6）', () => {
     })
   })
 
-  test('导入空文件夹：补脚手架（标准目录 + 最小 project.json + 空 main.ui.json）', () => {
+  test('导入空文件夹：补脚手架（标准目录 + 最小 project.json + 入门蓝图）', () => {
     withRoot((root) => {
       const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'bps-impempty-'))
       try {
@@ -629,47 +605,46 @@ describe('importProjectFolder（T0.6）', () => {
         assert.equal(r.renamed, false)
         assert.equal(r.project.path, '导入的空项目')
         assert.equal(r.project.name, '导入的空项目')
-        assert.equal(r.project.mainUI, 'ui/main.ui.json')
+        assert.equal(r.project.mainBlueprint, 'logic/main.bp.json')
 
         const dest = path.join(root, '导入的空项目')
-        for (const dir of ['ui', 'logic', 'assets', 'plugins', '.history']) {
+        for (const dir of ['logic', 'assets', 'plugins', '.history']) {
           assert.ok(fs.statSync(path.join(dest, dir)).isDirectory(), `缺少目录 ${dir}`)
         }
         const pf = JSON.parse(fs.readFileSync(path.join(dest, 'project.json'), 'utf8')) as Record<string, unknown>
         assert.equal(pf.name, '导入的空项目')
-        assert.equal(pf.mainUI, 'ui/main.ui.json')
+        assert.equal(pf.mainBlueprint, 'logic/main.bp.json')
         assert.equal(pf.engineVersion, ENGINE_VERSION)
-        const ui = JSON.parse(fs.readFileSync(path.join(dest, 'ui', 'main.ui.json'), 'utf8')) as {
+        const bp = JSON.parse(fs.readFileSync(path.join(dest, 'logic', 'main.bp.json'), 'utf8')) as {
           version: number
-          root: { type: string }
+          graphs: Record<string, { nodes: Array<{ type: string }> }>
         }
-        assert.equal(ui.version, 3)
-        assert.equal(ui.root.type, 'vbox')
+        assert.equal(bp.version, 3)
+        assert.ok(bp.graphs.main?.nodes.some((n) => n.type === 'event.start'))
       } finally {
         fs.rmSync(outside, { recursive: true, force: true })
       }
     })
   })
 
-  test('导入无 project.json 但含 ui/*.ui.json 的文件夹：mainUI 探测到第一个', () => {
+  test('导入无 project.json 但含 logic/*.bp.json 的文件夹：mainBlueprint 探测到第一个', () => {
     withRoot((root) => {
       const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'bps-impprobe-'))
       try {
-        fs.mkdirSync(path.join(outside, 'ui'))
-        fs.writeFileSync(path.join(outside, 'ui', 'detail.ui.json'), '{"version":2}')
-        fs.writeFileSync(path.join(outside, 'ui', 'main.ui.json'), '{"version":2}')
         fs.mkdirSync(path.join(outside, 'logic'))
+        fs.writeFileSync(path.join(outside, 'logic', 'detail.bp.json'), '{"version":3}')
+        fs.writeFileSync(path.join(outside, 'logic', 'main.bp.json'), '{"version":3}')
         fs.writeFileSync(path.join(outside, 'logic', 'helper.ts'), 'export const x = 1')
 
         const r = importProjectFolder(root, outside, '探测项目')
         assert.equal(r.scaffolded, true)
-        assert.equal(r.project.mainUI, 'ui/detail.ui.json', '应探测 ui/*.ui.json 的第一个（COLLATOR 排序）')
+        assert.equal(r.project.mainBlueprint, 'logic/detail.bp.json', '应探测 logic/*.bp.json 的第一个（COLLATOR 排序）')
 
         const dest = path.join(root, '探测项目')
-        assert.ok(fs.existsSync(path.join(dest, 'ui', 'detail.ui.json')), '源 UI 资产应原样保留')
+        assert.ok(fs.existsSync(path.join(dest, 'logic', 'detail.bp.json')), '源蓝图资产应原样保留')
         assert.ok(fs.existsSync(path.join(dest, 'logic', 'helper.ts')))
-        const pf = JSON.parse(fs.readFileSync(path.join(dest, 'project.json'), 'utf8')) as { mainUI: string }
-        assert.equal(pf.mainUI, 'ui/detail.ui.json')
+        const pf = JSON.parse(fs.readFileSync(path.join(dest, 'project.json'), 'utf8')) as { mainBlueprint: string }
+        assert.equal(pf.mainBlueprint, 'logic/detail.bp.json')
       } finally {
         fs.rmSync(outside, { recursive: true, force: true })
       }

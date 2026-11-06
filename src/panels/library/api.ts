@@ -3,7 +3,7 @@
  *
  * 与 server/index.ts /api/library/* 契约对齐；错误统一抛中文 Error。
  */
-export type LibraryKind = 'elements' | 'styles' | 'functions'
+export type LibraryKind = 'functions'
 
 async function jsonOf<T>(res: Response): Promise<T> {
   const body = (await res.json()) as { ok?: boolean; message?: string } & T

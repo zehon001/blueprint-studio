@@ -6,7 +6,7 @@
  * 解释器与脚本生成共用，避免各处重复展开字段表。
  */
 import type { IRNode, IRStructDef, PinSpec } from './types';
-import { isArrayType, isPrimitiveType, isUiHandleType, structDefOf } from './types';
+import { isArrayType, isPrimitiveType, structDefOf } from './types';
 
 /** 结构体字段禁用名（避免对象字面量 / 属性访问触达原型链） */
 export const RESERVED_STRUCT_FIELD_NAMES: ReadonlySet<string> = new Set([
@@ -21,11 +21,12 @@ export function isSafeStructFieldName(name: string): boolean {
   return trimmed !== '' && !RESERVED_STRUCT_FIELD_NAMES.has(trimmed);
 }
 
-/** 结构体名是否与内置类型 / 数组 / UiHandle 冲突（冲突会让类型选择器出现重复值） */
+/** 结构体名是否与内置类型 / 数组冲突（冲突会让类型选择器出现重复值） */
 export function isReservedStructTypeName(name: string): boolean {
   const trimmed = name.trim();
   if (trimmed === '') return true;
-  return isPrimitiveType(trimmed) || isArrayType(trimmed) || isUiHandleType(trimmed);
+  // 'session' 为 Agent 会话类型（agent 插件），结构体不得占用该名
+  return isPrimitiveType(trimmed) || isArrayType(trimmed) || trimmed === 'session';
 }
 
 export interface StructPins {

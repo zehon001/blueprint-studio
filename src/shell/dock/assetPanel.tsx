@@ -12,11 +12,9 @@ import type { ComponentType } from 'react'
 import { getPanel, registerPanel } from './registry'
 import { useDockStore } from './store'
 import { useWorkspaceStore, type OpenTabKind } from '@/shell/workspace-store'
-import { UITab } from '@/shell/workspace/UITab'
 import { BlueprintTab } from '@/shell/workspace/BlueprintTab'
 import { ScriptTab } from '@/script/editor'
-import { FunctionTab } from '@/ui-editor/functionTab'
-import { StyleTab } from '@/ui-editor/styleTab'
+import { FunctionTab } from '@/blueprint/functionTab'
 import {
   assetBadge,
   assetPanelId,
@@ -36,19 +34,12 @@ function AssetPanelHost({ panelId }: { panelId: string }) {
   const ref = parseAssetPanelId(panelId)
   if (!ref) return <div className="dock-panel-placeholder">未知资产面板：{panelId}</div>
   switch (ref.kind) {
-    case 'ui':
-      return <UITab assetPath={ref.path} panelId={panelId} />
     case 'blueprint':
       return <BlueprintTab assetPath={ref.path} panelId={panelId} />
     case 'script':
       return <ScriptTab assetPath={ref.path} />
-    case 'element':
-      // 元素编辑器 = UI 编辑器同款（kind=element 保留；T11.3）
-      return <UITab assetPath={ref.path} panelId={panelId} kind="element" />
     case 'function':
       return <FunctionTab path={ref.path} panelId={panelId} />
-    case 'style':
-      return <StyleTab path={ref.path} panelId={panelId} />
     default:
       return (
         <div className="dock-panel-placeholder">

@@ -3,8 +3,8 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { IRAsset, UIAsset, UINode } from './types'
-import { renameClass, renameElementPath, renameEvent, renameFunction, renameVariable } from './refactor'
+import type { IRAsset } from './types'
+import { renameFunction, renameVariable } from './refactor'
 
 function ir(): IRAsset {
   return {
@@ -28,42 +28,6 @@ function ir(): IRAsset {
   }
 }
 
-function ui(): UIAsset {
-  return {
-    version: 3,
-    name: 'x',
-    events: [{ name: 'loaded', params: [] }],
-    graphs: {
-      event: {
-        nodes: [{ id: 'e', type: 'event.send', params: { eventName: 'loaded' }, pinDefaults: {}, position: { x: 0, y: 0 } }],
-        edges: [],
-      },
-    },
-    root: {
-      id: 'r',
-      name: 'r',
-      type: 'vbox',
-      classes: ['old'],
-      events: ['loaded'],
-      transform: { position: { x: 0, y: 0 }, size: { w: 0, h: 0 }, rotation: 0 },
-      theme: {},
-      props: {},
-      children: [
-        {
-          id: 'c',
-          name: 'c',
-          type: '__element',
-          element: 'ui/elements/old.elem.json',
-          transform: { position: { x: 0, y: 0 }, size: { w: 0, h: 0 }, rotation: 0 },
-          theme: {},
-          props: {},
-          children: [],
-        } as UINode,
-      ],
-    },
-  }
-}
-
 test('renameVariable：变量/图节点/事件参数级联，入参不变', () => {
   const a = ir()
   const b = renameVariable(a, 'old', 'next')
@@ -82,13 +46,3 @@ test('renameFunction：graph 键/entry/layout/调用参数级联', () => {
   assert.ok(b.layout?.renamed)
 })
 
-test('renameElementPath / renameClass / renameEvent：UI 树与图级联', () => {
-  const e = renameElementPath(ui(), 'ui/elements/old.elem.json', 'ui/elements/new.elem.json')
-  assert.equal(e.root.children[0].element, 'ui/elements/new.elem.json')
-  const c = renameClass(ui(), 'old', 'new')
-  assert.deepEqual(c.root.classes, ['new'])
-  const ev = renameEvent(ui(), 'loaded', 'ready')
-  assert.equal(ev.events?.[0].name, 'ready')
-  assert.deepEqual(ev.root.events, ['ready'])
-  assert.equal(ev.graphs?.event.nodes[0].params.eventName, 'ready')
-})

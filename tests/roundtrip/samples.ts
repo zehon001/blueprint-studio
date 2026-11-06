@@ -54,9 +54,9 @@ import {
  *  - 解释器钩子类（运行时经 ctx 钩子执行，脚本视图暂无对应全局函数）：
  *    system.notify / system.clipboardWrite / system.openUrl。
  *
- * （原【二】「往返缺口」类——codegen 已映射、parser 无法还原的 flow.sequence /
- * ui.setTitle，经 parser-ts.ts 修复标记扫描正则与 ui 写值属性反查后已可往返，
- * 移回样本库 execNodeSampleDefs；后续再出现同类缺口仍按维护规则登记于此。）
+ * （原【二】「往返缺口」类——codegen 已映射、parser 无法还原的 flow.sequence，
+ * 经 parser-ts.ts 修复标记扫描正则后已可往返，移回样本库 execNodeSampleDefs；
+ * 后续再出现同类缺口仍按维护规则登记于此。）
  *
  * 维护规则：节点删除时同步清条目（auditCoverage.stale 会红灯提醒）；新增无法往返的
  * 执行节点必须登记于此（否则门禁红）；缺口修复后从清单移除并补样本（samples.ts）。
@@ -71,10 +71,6 @@ export const KNOWN_UNMAPPED_NODE_IDS: ReadonlySet<string> = new Set([
   'system.notify',
   'system.clipboardWrite',
   'system.openUrl',
-  // v3 M12 新增（T12.6/T12.7）：运行时反射/类型化写值，脚本视图暂无映射
-  'ui.getProp',
-  'ui.setProp',
-  'ui.setText',
   // v3.3 新增（ADR-019）：结构体节点引脚由资产 types 表动态展开，脚本侧暂无往返映射
   'struct.make',
   'struct.break',
@@ -298,85 +294,6 @@ function execVarSet(): IRAsset {
   );
 }
 
-/** ui.get：获取 UI 节点对象（数据型节点：无 exec 脚，属性式 ui.<n> 读出） */
-function execUiGet(): IRAsset {
-  return asset({
-    main: graph(
-      [
-        node('st', 'event.start'),
-        node('gv', 'ui.get', { pinDefaults: { name: 'list' } }),
-        node('pr', 'system.print'),
-      ],
-      [execEdge('x1', 'st', 'pr'), dataEdge('d1', 'gv', 'object', 'pr', 'value')],
-    ),
-  });
-}
-
-/** ui.setValue：写 UI 属性（attr 缺省 = spec 默认 'text' → 属性式赋值语句） */
-function execUiSetValue(): IRAsset {
-  return asset({
-    main: graph(
-      [
-        node('st', 'event.start'),
-        node('w', 'ui.setValue', { pinDefaults: { name: 'title', value: '你好' } }),
-        node('pr', 'system.print', { pinDefaults: { value: 'ok' } }),
-      ],
-      [execEdge('x1', 'st', 'w'), execEdge('x2', 'w', 'pr')],
-    ),
-  });
-}
-
-/** ui.setVisible：显隐（visible 显式非默认值 false → 引脚默认值往返） */
-function execUiSetVisible(): IRAsset {
-  return asset({
-    main: graph(
-      [
-        node('st', 'event.start'),
-        node('v', 'ui.setVisible', { pinDefaults: { name: 'list', visible: false } }),
-        node('pr', 'system.print', { pinDefaults: { value: 'ok' } }),
-      ],
-      [execEdge('x1', 'st', 'v'), execEdge('x2', 'v', 'pr')],
-    ),
-  });
-}
-
-/** ui.listSetItems：列表项（items 接数组变量 → 属性式赋值 + var.get 重建） */
-function execUiListSetItems(): IRAsset {
-  return asset(
-    {
-      main: graph(
-        [
-          node('st', 'event.start'),
-          node('rowsGet', 'var.get', { params: { varName: 'rows' } }),
-          node('l', 'ui.listSetItems', { pinDefaults: { name: 'list' } }),
-          node('pr', 'system.print', { pinDefaults: { value: 'ok' } }),
-        ],
-        [
-          execEdge('x1', 'st', 'l'),
-          execEdge('x2', 'l', 'pr'),
-          dataEdge('d1', 'rowsGet', 'value', 'l', 'items'),
-        ],
-      ),
-    },
-    { variables: [{ name: 'rows', type: 'string[]' }] },
-  );
-}
-
-/** ui.setTitle：设置标题（name/value 内联默认值，attr 走 spec 默认 'title' →
- * 属性式赋值语句 `ui.<n>.title = v`；解析端按属性名反查还原节点类型） */
-function execUiSetTitle(): IRAsset {
-  return asset({
-    main: graph(
-      [
-        node('st', 'event.start'),
-        node('t', 'ui.setTitle', { pinDefaults: { name: 'title', value: '你好' } }),
-        node('pr', 'system.print', { pinDefaults: { value: 'ok' } }),
-      ],
-      [execEdge('x1', 'st', 't'), execEdge('x2', 't', 'pr')],
-    ),
-  });
-}
-
 /** system.print：打印（value 内联默认值 → print(字面量)） */
 function execSystemPrint(): IRAsset {
   return asset({
@@ -406,11 +323,6 @@ const execNodeSampleDefs: ExecNodeSampleDef[] = [
   { id: 'flow.delay', build: execFlowDelay, note: 'await delay（字面量秒，done 续链）' },
   { id: 'array.forEach', build: execArrayForEach, note: 'for..of entries 遍历' },
   { id: 'var.set', build: execVarSet, note: '变量写入 + 缺省引脚值' },
-  { id: 'ui.get', build: execUiGet, note: '数据型节点：属性式 ui.<n>' },
-  { id: 'ui.setValue', build: execUiSetValue, note: '属性式写值（attr 走 spec 默认）' },
-  { id: 'ui.setTitle', build: execUiSetTitle, note: '设置标题（attr 缺省 title，属性反查重建）' },
-  { id: 'ui.setVisible', build: execUiSetVisible, note: '显隐（显式 false 引脚值）' },
-  { id: 'ui.listSetItems', build: execUiListSetItems, note: '列表项 ← 数组变量' },
   { id: 'system.print', build: execSystemPrint, note: 'print(字面量)' },
   { id: 'system.readFile', build: execSystemReadFile, note: '读项目文件 → 打印行数（路径字面量）' },
 ];
@@ -536,7 +448,7 @@ const scenarioSamples: RoundtripSample[] = [
     name: 'scenario:日志分析管线',
     kind: 'scenario',
     build: () => logPipelineAsset,
-    note: 'androidLogParse 双输出别名 + filter + ui.listSetItems（基座样本③）',
+    note: 'androidLogParse 双输出别名 + filter（基座样本③）',
   },
   {
     name: 'scenario:字符串处理链',

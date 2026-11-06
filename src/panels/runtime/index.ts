@@ -23,6 +23,5 @@ export { RuntimePanel, buildEmbedRuntimeUrl, buildExternalRuntimeUrl } from './R
 export {
   useRuntimeStore,
   RUNTIME_PANEL_ID,
-  type RuntimeMode,
   type RuntimeTarget,
 } from './store'

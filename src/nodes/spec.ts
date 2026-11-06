@@ -18,7 +18,6 @@ import type {
   NodeRunResult,
   NodeRunFn,
   IRValueType,
-  UiHandle,
 } from '../ir/types';
 
 export type {
@@ -30,7 +29,6 @@ export type {
   NodeRunResult,
   NodeRunFn,
   IRValueType,
-  UiHandle,
 };
 
 /** 内置节点分类（节点头配色 + 右键搜索分组；与 PLAN §13.1 目录一一对应） */
@@ -43,7 +41,6 @@ export type NodeCategory =
   | '容器'
   | '转换'
   | '结构体'
-  | '界面'
   | '系统';
 
 /** 全部分类（蓝图右键菜单分组顺序即此数组顺序） */
@@ -56,7 +53,6 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
   '容器',
   '转换',
   '结构体',
-  '界面',
   '系统',
 ];
 
@@ -214,24 +210,6 @@ export function clearAllStateSlots(): void {
  * 这里以「结构化可选句柄」探测：解释器注入则用，缺失则 ctx.print 提示并
  * 安全降级（保证蓝图可跑、不抛错）。缺口已上报 PM 协调（见 T13.1 汇报）。
  * ============================================================ */
-
-/**
- * 期望由解释器（T2.5）注入到 ctx.ui 的最小访问器接口（结构化，鸭子类型探测）。
- * 名称语义对齐 UI 资产 UINode：name 为树内唯一名（ui.<name> 查找键）。
- */
-// UiHandle 已升格为契约类型（ADR-005），真源在 src/ir/types.ts，经上方 export type 再导出。
-
-/** 探测 ctx.ui（缺失返回 null，由调用方决定降级行为） */
-export function probeUi(ctx: NodeRunContext): UiHandle | null {
-  const ui = (ctx as unknown as { ui?: UiHandle }).ui;
-  if (ui && typeof ui.find === 'function' && typeof ui.write === 'function') return ui;
-  return null;
-}
-
-/** 统一降级：缺句柄时经 ctx.print 输出提示（不抛错，保证蓝图可跑） */
-export function warnMissingHook(ctx: NodeRunContext, hook: string, node: string): void {
-  ctx.print(`[${node}] 运行上下文未提供 ${hook} 句柄，本节点已跳过（需解释器注入，见 T13.1 汇报）`);
-}
 
 /** 探测通用系统钩子（如 ctx.notify / ctx.clipboard / ctx.openUrl） */
 export function probeHook(ctx: NodeRunContext, hook: string): ((...args: unknown[]) => unknown) | null {

@@ -1,20 +1,17 @@
 /**
- * 内置运行视图状态（v3 T8.5 · PLAN §4.5）
+ * 内置运行视图状态（纯蓝图工作流）
  *
- * 单实例：F5/F6 只更新 target 与 nonce，并把 `runtime` 面板打开/聚焦到中央组；
+ * 单实例：运行按钮只更新 target 与 nonce，并把 `runtime` 面板打开/聚焦到中央组；
  * 面板以 iframe 承载（embed=1），nonce 变化即重跑（更新 iframe src，不双开）。
  */
 import { create } from 'zustand'
 import { useDockStore } from '@/shell/dock/store'
 
-export type RuntimeMode = 'main' | 'current'
-
 export interface RuntimeTarget {
   /** 项目文件夹名（FS API 安全根首段） */
   project: string
-  /** UI 资产路径（项目内相对）；mode=main 可缺省 */
-  ui?: string
-  mode: RuntimeMode
+  /** 蓝图资产路径（项目内相对，如 logic/main.bp.json） */
+  bp: string
 }
 
 export const RUNTIME_PANEL_ID = 'runtime'

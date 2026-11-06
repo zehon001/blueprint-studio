@@ -45,22 +45,19 @@ export function extOf(name: string): string {
   return dot > 0 ? lower.slice(dot + 1) : ''
 }
 
-/** 双击打开的资产类型（PLAN §6.2；.ui.json 优先于裸 .json 判定） */
-export type AssetOpenKind = 'ui' | 'blueprint' | 'script' | 'element' | 'style' | 'function'
+/** 双击打开的资产类型（PLAN §6.2） */
+export type AssetOpenKind = 'blueprint' | 'script' | 'function'
 
 export function assetKindOf(fileName: string): AssetOpenKind | null {
   const lower = fileName.toLowerCase()
-  if (lower.endsWith('.elem.json')) return 'element'
-  if (lower.endsWith('.uss.json')) return 'style'
   if (lower.endsWith('.fn.json')) return 'function'
-  if (lower.endsWith('.ui.json')) return 'ui'
   if (lower.endsWith('.bp.json')) return 'blueprint'
   if (lower.endsWith('.ts') || lower.endsWith('.py')) return 'script'
   return null
 }
 
 /** 双扩展名资产后缀（最长后缀优先；v3 PLAN §3.7） */
-export const ASSET_SUFFIXES = ['.ui.json', '.bp.json', '.elem.json', '.uss.json', '.fn.json'] as const
+export const ASSET_SUFFIXES = ['.bp.json', '.fn.json'] as const
 
 /** 文件名的双扩展名后缀（无则 ''；大小写不敏感） */
 export function assetSuffixOf(fileName: string): string {
@@ -73,7 +70,7 @@ export function assetSuffixOf(fileName: string): string {
 
 /**
  * 资产显示主名（v3 T8.4）：双扩展名去后缀；脚本/未知文件保留完整名。
- * 例：main.ui.json → main；app.uss.json → app；a.b.ts → a.b.ts；report.final.json → report.final.json
+ * 例：main.bp.json → main；a.b.ts → a.b.ts；report.final.json → report.final.json
  */
 export function displayNameOf(fileName: string): string {
   const suffix = assetSuffixOf(fileName)
@@ -92,10 +89,7 @@ export function extensionOf(fileName: string): string {
 /** 扩展名图标字符（树行左侧的等宽小徽标；目录行用折叠箭头，不在此列） */
 export function extLabelOf(fileName: string): string {
   const lower = fileName.toLowerCase()
-  if (lower.endsWith('.ui.json')) return 'UI'
   if (lower.endsWith('.bp.json')) return 'BP'
-  if (lower.endsWith('.elem.json')) return 'EL'
-  if (lower.endsWith('.uss.json')) return 'ST'
   if (lower.endsWith('.fn.json')) return 'FN'
   switch (extOf(lower)) {
     case 'ts':
@@ -122,15 +116,12 @@ export function extLabelOf(fileName: string): string {
   }
 }
 
-/** 新建文件模板类别：v3 资产用确定性骨架，其余为空文本 */
-export type NewFileTemplate = 'ui' | 'bp' | 'elem' | 'uss' | 'fn' | 'text'
+/** 新建文件模板类别：资产用确定性骨架，其余为空文本 */
+export type NewFileTemplate = 'bp' | 'fn' | 'text'
 
 export function newFileTemplateOf(fileName: string): NewFileTemplate {
   const lower = fileName.toLowerCase()
-  if (lower.endsWith('.elem.json')) return 'elem'
-  if (lower.endsWith('.uss.json')) return 'uss'
   if (lower.endsWith('.fn.json')) return 'fn'
-  if (lower.endsWith('.ui.json')) return 'ui'
   if (lower.endsWith('.bp.json')) return 'bp'
   return 'text'
 }
@@ -150,34 +141,6 @@ function newStartEventNode(): Record<string, unknown> {
   return { id: 'n_start', type: 'event.start', params: {}, pinDefaults: {}, position: { x: 120, y: 120 } }
 }
 
-/** 新建 .ui.json 的空 UI 资产（单 panel 根节点；结构对齐 src/ui-editor/schema 的 panel 默认值与 templates/empty） */
-export function uiAssetTemplate(name: string): string {
-  const asset = {
-    version: 3,
-    kind: 'scene',
-    name,
-    styles: [],
-    root: {
-      id: 'panel_root',
-      name: 'root',
-      type: 'panel',
-      layout: { position: 'relative', size: { w: '100%', h: '100%' } },
-      container: { direction: 'column', gap: 4, padding: { t: 8, r: 8, b: 8, l: 8 } },
-      transform: { position: { x: 0, y: 0 }, size: { w: 400, h: 300 }, rotation: 0 },
-      theme: {},
-      props: {},
-      children: [],
-    },
-    graphs: {
-      event: { kind: 'event', nodes: [newStartEventNode()], edges: [], comments: [] },
-    },
-    layout: {},
-    variables: [],
-    events: [],
-  }
-  return `${JSON.stringify(asset, null, 2)}\n`
-}
-
 /** 新建 .bp.json 的空 IR 资产（结构对齐 src/ir/types.ts 的 IRAsset） */
 export function bpAssetTemplate(name: string): string {
   const asset = {
@@ -191,40 +154,6 @@ export function bpAssetTemplate(name: string): string {
     layout: {},
   }
   return `${JSON.stringify(asset, null, 2)}\n`
-}
-
-/** 新建元素资产骨架（v3 ElementAsset；traits/事件/数据绑定由元素设置编辑） */
-export function elementAssetTemplate(name: string): string {
-  const asset = {
-    version: 3,
-    kind: 'element',
-    name,
-    traits: [],
-    styles: [],
-    root: {
-      id: 'element_root',
-      name: 'root',
-      type: 'vbox',
-      layout: { position: 'relative', size: { w: 320, h: 160 } },
-      container: { direction: 'column', gap: 4, padding: { t: 8, r: 8, b: 8, l: 8 } },
-      transform: { position: { x: 0, y: 0 }, size: { w: 320, h: 160 }, rotation: 0 },
-      theme: {},
-      props: {},
-      children: [],
-    },
-    graphs: {
-      event: { kind: 'event', nodes: [newStartEventNode()], edges: [], comments: [] },
-    },
-    layout: {},
-    variables: [],
-    events: [],
-  }
-  return `${JSON.stringify(asset, null, 2)}\n`
-}
-
-/** 新建样式表骨架 */
-export function styleAssetTemplate(name: string): string {
-  return `${JSON.stringify({ version: 1, classes: { [name]: { props: {} } } }, null, 2)}\n`
 }
 
 /** 新建函数资产骨架（项目/全局由创建入口决定 scope；这里给 project 默认） */
@@ -248,10 +177,7 @@ export function functionAssetTemplate(name: string, scope: 'project' | 'global' 
 export function contentForNewFile(fileName: string): string {
   const kind = newFileTemplateOf(fileName)
   const name = assetStemOf(fileName)
-  if (kind === 'ui') return uiAssetTemplate(name)
   if (kind === 'bp') return bpAssetTemplate(name)
-  if (kind === 'elem') return elementAssetTemplate(name)
-  if (kind === 'uss') return styleAssetTemplate(name)
   if (kind === 'fn') return functionAssetTemplate(name)
   return ''
 }
@@ -277,7 +203,7 @@ export function validateFileName(raw: string): string | null {
 export function dedupeName(existing: readonly string[], desired: string): string {
   const taken = new Set(existing.map((n) => n.toLowerCase()))
   if (!taken.has(desired.toLowerCase())) return desired
-  const doubleExt = desired.match(/\.(ui|bp)\.json$/i)
+  const doubleExt = desired.match(/\.(ui|bp|elem|uss|fn)\.json$/i)
   const base = doubleExt && doubleExt.index !== undefined ? desired.slice(0, doubleExt.index) : desired
   const ext = doubleExt
     ? desired.slice(doubleExt.index)

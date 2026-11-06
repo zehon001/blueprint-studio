@@ -9,7 +9,7 @@
  * 主窗启动顺序：
  *   1. 主题 token（theme.css，全部样式经 token 引用）；
  *   2. 面板注册（defaultPanels 模块副作用——两种模式都需要，弹窗用 registry 找面板组件）；
- *   3. 快捷键：内置默认表（T0.5 + T7.1 全表）+ F5/F6 运行（T1.6，runtime-launch 与顶栏按钮共用 handler）
+ *   3. 快捷键：内置默认表（T0.5 + T7.1 全表）+ F5 运行（runtime-launch 与顶栏按钮共用 handler）
  *      + 用户改键覆盖（T7.1：localStorage 加载，冲突项跳过）；
  *   4. 布局装配（defaultPanels：持久化还原 / 默认布局兜底）；
  *   5. 多窗同步桥（T0.4：主窗订阅 store 变更广播、执行弹窗转发动作）；
@@ -29,32 +29,18 @@ import {
 } from '@/shell/keymap/registry'
 import { applyKeymapOverrides } from '@/shell/keymap/customize'
 import { loadKeymapOverrides } from '@/shell/keymap/persist'
-import { launchRuntimeCurrent, launchRuntimeMain } from '@/shell/runtime-launch'
+import { launchRuntime } from '@/shell/runtime-launch'
 import { bootstrapDock } from '@/shell/dock/defaultPanels'
 import DockShell from '@/shell/dock/DockShell'
 import { ensureAssetPanelFromId } from '@/shell/dock/assetPanel'
 import PopoutApp from '@/shell/windows/PopoutApp'
 import { installMainBridge } from '@/shell/windows/bridge'
 import { popoutPanelIdFromLocation } from '@/shell/windows/popout'
-import { watchLibrary } from '@/panels/library/api'
-import { clearElementCache } from '@/ui-editor/element'
-import { clearPrefabCache } from '@/ui-editor/prefab'
-import { useUIEditorStore } from '@/ui-editor/store'
-import { invalidateValidationCache } from '@/ui-editor/validateOpen'
 import { useSettingsStore } from '@/shell/settings/store'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { useDockStore } from '@/shell/dock/store'
 import { runSaveHandler } from '@/shell/workspace/saveRegistry'
 import { openCommandPalette } from '@/shell/ui/CommandPalette'
-
-// v3 §7.6：库变更即时生效——失效元素/预制体缓存并刷新打开资产的样式与视口（保留草稿）
-watchLibrary(() => {
-  clearElementCache()
-  clearPrefabCache()
-  invalidateValidationCache()
-  void useUIEditorStore.getState().refreshStyleSheets()
-  useUIEditorStore.getState().bumpAssetEpoch()
-})
 
 // v3 D9：把设置里的库根同步到服务端（服务端启动时也能读到；空 = 默认根）
 const savedLibraryRoot = useSettingsStore.getState().libraryRoot
@@ -100,20 +86,13 @@ registerShortcut(
   },
   { force: true },
 )
-// 运行快捷键（T1.6）：与顶栏按钮共用 runtime-launch 的启动函数
-// （mode=main 的 ui 参数由运行窗口读 project.json.mainUI；current 由 workspace-store 拼 ui）
+// 运行快捷键：与顶栏按钮共用 runtime-launch 的启动函数（运行当前打开的蓝图）
 // T7.1：改用 registerDefaultShortcut —— 记入回放表，设置面板「恢复默认」后 F5/F6 不丢
 registerDefaultShortcut({
   id: 'run.main',
-  label: '运行（主 UI）',
+  label: '运行（当前蓝图）',
   keys: 'F5',
-  handler: () => launchRuntimeMain(),
-})
-registerDefaultShortcut({
-  id: 'run.current',
-  label: '运行当前',
-  keys: 'F6',
-  handler: () => launchRuntimeCurrent(),
+  handler: () => launchRuntime(),
 })
 // P2 命令面板：Ctrl/Cmd+K（与编辑器内输入框共存——attachKeyboard 跳过 defaultPrevented）
 registerDefaultShortcut({

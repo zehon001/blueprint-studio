@@ -464,7 +464,7 @@ describe('「已拆出占位」→「合回」状态机', () => {
 describe('同步桥：interpretAction（主窗执行动作）', () => {
   it('workspace / cmd.runPatches / cmd.undo 在主窗生效', () => {
     registerDomainState('inspector', { sel: 'a' })
-    interpretAction({ type: 'workspace.openAsset', kind: 'ui', assetPath: 'ui/x.ui.json' })
+    interpretAction({ type: 'workspace.openAsset', kind: 'blueprint', assetPath: 'ui/x.ui.json' })
     assert.ok(useWorkspaceStore.getState().openTabs.some((t) => t.assetPath === 'ui/x.ui.json'))
     interpretAction({
       type: 'cmd.runPatches',
@@ -476,7 +476,7 @@ describe('同步桥：interpretAction（主窗执行动作）', () => {
     assert.equal(useEditorStore.getState().undoStack[0]?.label, '选中节点')
     interpretAction({ type: 'cmd.undo' })
     assert.equal((useEditorStore.getState().domains['inspector'] as { sel: string }).sel, 'a')
-    interpretAction({ type: 'workspace.closeTab', id: tabIdOf('ui', 'ui/x.ui.json') })
+    interpretAction({ type: 'workspace.closeTab', id: tabIdOf('blueprint', 'ui/x.ui.json') })
     assert.ok(!useWorkspaceStore.getState().openTabs.some((t) => t.assetPath === 'ui/x.ui.json'))
   })
 })
@@ -490,7 +490,7 @@ describe('同步桥：applyRemoteState（弹窗镜像重放）', () => {
     applyRemoteState(fakeSync, 'snapshot', {
       workspace: {
         currentProject: { name: 'Demo', path: '/Demo' },
-        openTabs: [{ id: 'ui:a', kind: 'ui', assetPath: 'ui/a.ui.json', title: 'A', dirty: true }],
+        openTabs: [{ id: 'ui:a', kind: 'blueprint', assetPath: 'ui/a.ui.json', title: 'A', dirty: true }],
         activeTabId: 'ui:a',
       },
       domains: { blueprint: { v: 1 } },
@@ -498,7 +498,7 @@ describe('同步桥：applyRemoteState（弹窗镜像重放）', () => {
     })
     const ws = useWorkspaceStore.getState()
     assert.deepEqual(ws.currentProject, { name: 'Demo', path: '/Demo' })
-    assert.deepEqual(ws.openTabs, [{ id: 'ui:a', kind: 'ui', assetPath: 'ui/a.ui.json', title: 'A', dirty: true }])
+    assert.deepEqual(ws.openTabs, [{ id: 'ui:a', kind: 'blueprint', assetPath: 'ui/a.ui.json', title: 'A', dirty: true }])
     assert.equal(ws.activeTabId, 'ui:a')
     assert.deepEqual(useEditorStore.getState().domains['blueprint'], { v: 1 })
     assert.equal(useWindowLinkStore.getState().undoCount, 3)
@@ -584,10 +584,10 @@ describe('同步桥：双向改 store 均同步（内存总线集成）', () => 
 
     // 主窗侧改（任意路径触达共享 store）→ 镜像同步 dirty 标记
     // v3：不再预置占位 tab，先打开 UI 资产再标脏
-    useWorkspaceStore.getState().openAsset({ kind: 'ui', assetPath: 'ui/main.ui.json' })
-    useWorkspaceStore.getState().markDirty(tabIdOf('ui', 'ui/main.ui.json'))
+    useWorkspaceStore.getState().openAsset({ kind: 'blueprint', assetPath: 'logic/main.bp.json' })
+    useWorkspaceStore.getState().markDirty(tabIdOf('blueprint', 'logic/main.bp.json'))
     assert.equal(
-      useWorkspaceStore.getState().openTabs.find((t) => t.id === tabIdOf('ui', 'ui/main.ui.json'))?.dirty,
+      useWorkspaceStore.getState().openTabs.find((t) => t.id === tabIdOf('blueprint', 'logic/main.bp.json'))?.dirty,
       true,
     )
     popout.dispose()
@@ -672,7 +672,7 @@ describe('同步桥：双向改 store 均同步（内存总线集成）', () => 
     const main = track(installMainBridge({ channelName: 'br-two', channelFactory: factory }))
     const popA = track(installPopoutBridge({ panelId: 'inspector' }, { channelName: 'br-two', channelFactory: factory }))
     const popB = track(installPopoutBridge({ panelId: 'console' }, { channelName: 'br-two', channelFactory: factory }))
-    useWorkspaceStore.getState().openAsset({ kind: 'ui', assetPath: 'ui/shared.ui.json' })
+    useWorkspaceStore.getState().openAsset({ kind: 'blueprint', assetPath: 'ui/shared.ui.json' })
     assert.ok(bus.log.length > 0)
     // 定向控制消息（pong → popA）不串台
     let aPong = 0

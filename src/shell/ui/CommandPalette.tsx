@@ -17,7 +17,6 @@ import {
   FilePlus2,
   LayoutDashboard,
   Play,
-  PlayCircle,
   Redo2,
   RotateCcw,
   Save,
@@ -27,7 +26,7 @@ import {
 } from 'lucide-react'
 import { getBindings } from '@/shell/keymap/registry'
 import { undo, redo } from '@/shell/commands'
-import { launchRuntimeCurrent, launchRuntimeMain } from '@/shell/runtime-launch'
+import { launchRuntime } from '@/shell/runtime-launch'
 import { usePanels } from '@/shell/dock/registry'
 import { useDockStore } from '@/shell/dock/store'
 import { findTabsByPanel, type DockNode } from '@/shell/dock/tree'
@@ -150,19 +149,11 @@ export function CommandPalette() {
     () => [
       {
         id: 'cmd.run.main',
-        label: '运行（主 UI）',
+        label: '运行当前蓝图',
         hint: 'F5',
-        value: '运行 主 UI run main F5',
+        value: '运行 蓝图 run F5',
         icon: <Icon icon={Play} size={14} />,
-        onSelect: () => launchRuntimeMain(),
-      },
-      {
-        id: 'cmd.run.current',
-        label: '运行当前',
-        hint: 'F6',
-        value: '运行 当前 run current F6',
-        icon: <Icon icon={PlayCircle} size={14} />,
-        onSelect: () => launchRuntimeCurrent(),
+        onSelect: () => launchRuntime(),
       },
       {
         id: 'cmd.save',

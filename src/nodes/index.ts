@@ -12,25 +12,12 @@ import { mathNodes } from './math';
 import { stringNodes } from './string';
 import { containerNodes } from './container';
 import { convertNodes } from './convert';
-import { uiNodes } from './ui';
-import { reflectNodes } from './reflect';
 import { systemNodes } from './system';
 import { structNodes } from './struct';
 
 /** 内置节点定义基础设施（defineNode / 帮助函数 / 状态槽 / UiHandle） */
 export * from './spec';
 export { parseAndroidLogLine, type LogRow } from './convert';
-/** 反射节点 + 反射条目生成纯函数（T12.6 节点侧；蓝图右键「设计器」分组后续调用） */
-export {
-  reflectNodes,
-  getProp,
-  setProp,
-  listReflectableProps,
-  reflectionEntries,
-  type ReflectableProp,
-  type ReflectTargetNode,
-  type ReflectionEntry,
-} from './reflect';
 
 /** 各分类节点清单（顺序即注册顺序；去重由 builtinSpecMap 兜底） */
 const BUILTIN_GROUPS: NodeSpec[][] = [
@@ -41,8 +28,6 @@ const BUILTIN_GROUPS: NodeSpec[][] = [
   stringNodes,
   containerNodes,
   convertNodes,
-  uiNodes,
-  reflectNodes,
   systemNodes,
   structNodes,
 ];

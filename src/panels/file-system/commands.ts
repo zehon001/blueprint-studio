@@ -144,15 +144,9 @@ export function redoActionOf(op: FsOp): FsDiskAction {
   }
 }
 
-/** create 操作对应的写入内容（ui/bp 用确定性模板重建；text 用记录的内容） */
+/** create 操作对应的写入内容（bp/fn 用确定性模板重建；text 用记录的内容） */
 export function contentForCreate(op: FsOp): string {
-  if (
-    op.template === 'ui' ||
-    op.template === 'bp' ||
-    op.template === 'elem' ||
-    op.template === 'uss' ||
-    op.template === 'fn'
-  ) {
+  if (op.template === 'bp' || op.template === 'fn') {
     return contentForNewFile(baseName(op.path ?? ''))
   }
   return op.content ?? ''

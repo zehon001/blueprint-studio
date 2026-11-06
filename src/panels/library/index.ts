@@ -17,7 +17,5 @@ export function registerLibraryPanel(): PanelApi {
   })
 }
 
-export { ElementLibraryPanel, ELEMENT_DIR } from './ElementLibraryPanel'
-export { StyleLibraryPanel } from './StyleLibraryPanel'
 export { LibraryPanel } from './LibraryPanel'
 export type { LibraryKind } from './api'

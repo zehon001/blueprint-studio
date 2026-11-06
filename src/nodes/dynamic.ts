@@ -389,7 +389,11 @@ export async function loadPluginSpecs(
         specs.push(spec);
       }
     }
-    const result: PluginSpecsLoadResult = { specs, warnings };
+    // agent 插件：模型 / 思考强度 / 权限下拉注入真实能力表（服务端 /api/agents/capabilities）
+    const enriched = manifests.some((m) => m.id === 'agent')
+      ? await enrichAgentSpecOptions(specs, warnings)
+      : specs;
+    const result: PluginSpecsLoadResult = { specs: enriched, warnings };
     specsCache.set(key, result);
     return result;
   })();
@@ -399,6 +403,69 @@ export async function loadPluginSpecs(
     return await task;
   } finally {
     inflight.delete(key);
+  }
+}
+
+/* ============================================================
+ * 3. agent 插件能力注入（模型 / 思考强度 / 权限的真实选项）
+ * ============================================================ */
+
+/** GET /api/agents/capabilities 响应体（server/agents/handler.ts 契约） */
+interface AgentCapabilitiesBody {
+  ok?: boolean;
+  platforms?: Array<{
+    platform?: unknown;
+    connected?: unknown;
+    models?: unknown;
+    reasoningLevels?: unknown;
+    permissions?: unknown;
+  }>;
+}
+
+/** 字符串数组防御（能力表字段） */
+function strList(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x !== '') : [];
+}
+
+/**
+ * agent.sendMessage 的 model / reasoning / permissions 参数注入能力表选项：
+ * 服务端可达且平台已连接 → 真实下拉；不可达 → 选项留空（检视器降级文本输入）。
+ * 失败静默（spec 结构不受影响，蓝图可跑）。
+ */
+async function enrichAgentSpecOptions(
+  specs: readonly NodeSpec[],
+  warnings: string[],
+): Promise<NodeSpec[]> {
+  try {
+    const f = moduleConfig.fetchImpl ?? fetch;
+    const res = await f('/api/agents/capabilities');
+    const body = (await res.json().catch(() => null)) as AgentCapabilitiesBody | null;
+    if (!body || body.ok !== true || !Array.isArray(body.platforms)) return [...specs];
+    const dsh = body.platforms.find((p) => p?.platform === 'dsh');
+    if (!dsh || dsh.connected !== true) return [...specs];
+    const modelOpts = strList(dsh.models).map((m) => ({ value: m, label: m }));
+    const reasoningOpts = strList(dsh.reasoningLevels).map((r) => ({ value: r, label: r }));
+    const permissionOpts = [
+      { value: '', label: '（默认）' },
+      ...strList(dsh.permissions).map((p) => ({ value: p, label: p })),
+    ];
+    return specs.map((spec) => {
+      if (spec.id !== 'agent.sendMessage') return spec;
+      return {
+        ...spec,
+        inputs: spec.inputs.map((pin) => {
+          if (pin.id === 'model') return { ...pin, options: modelOpts };
+          if (pin.id === 'reasoning') return { ...pin, options: reasoningOpts };
+          if (pin.id === 'permissions') return { ...pin, options: permissionOpts };
+          return pin;
+        }),
+      };
+    });
+  } catch (err) {
+    warnings.push(
+      `Agent 能力表不可达（模型 / 思考强度 / 权限下拉按空处理）：${err instanceof Error ? err.message : String(err)}`,
+    );
+    return [...specs];
   }
 }
 
@@ -415,6 +482,19 @@ export function mergePluginSpecs(
     if (!merged.has(spec.id)) merged.set(spec.id, spec);
   }
   return merged;
+}
+
+/**
+ * 插件是否可用（节点可见性 / 类型可见性门禁）：
+ * 按加载后的插件节点 specs 判断（插件清单存在且声明了节点 → 可用）。
+ * Agent 相关节点 / 会话变量类型据此隐藏（未安装 agent 插件时不显示）。
+ */
+export async function hasPluginNodes(
+  project: string | null | undefined,
+  pluginId: string,
+): Promise<boolean> {
+  const { specs } = await loadPluginSpecs(project ?? undefined);
+  return specs.some((s) => s.id.startsWith(pluginNodePrefix(pluginId)));
 }
 
 /**

@@ -2,7 +2,7 @@
  * 顶栏（T0.3 · PLAN §6.2 · UI-REDESIGN P5）
  *
  * 左：Logo（Boxes + 字标）+ 项目 chip（点击返回项目管理器切换项目）；
- * 中：运行（实心强调）/ 运行当前（outline）/ 调试（ghost）/ 分隔线 / 保存（附带脏状态点）；
+ * 中：运行（实心强调，运行当前打开的蓝图）/ 调试（ghost）/ 分隔线 / 保存（附带脏状态点）；
  * 右：撤销 / 重做 IconButton、面板菜单（统一 Menu）、重置布局、设置。
  * F5/F6 快捷键注册在入口 main.tsx（attachKeyboard 已 preventDefault，不触发浏览器刷新）。
  */
@@ -15,7 +15,6 @@ import {
   LayoutDashboard,
   Package,
   Play,
-  PlayCircle,
   Redo2,
   RotateCcw,
   Save,
@@ -32,7 +31,7 @@ import {
   type CommandEntry,
 } from '@/shell/commands'
 import { getBindings } from '@/shell/keymap/registry'
-import { launchRuntimeCurrent, launchRuntimeMain } from '@/shell/runtime-launch'
+import { launchRuntime } from '@/shell/runtime-launch'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { usePanels } from '@/shell/dock/registry'
 import { useDockStore } from '@/shell/dock/store'
@@ -119,24 +118,14 @@ export default function Toolbar() {
           <button
             type="button"
             className="toolbar-btn toolbar-primary"
-            onClick={() => launchRuntimeMain()}
-            title="运行主 UI（F5）—— 内置运行视图（可拆出独立窗口），ui 取 project.json.mainUI"
+          onClick={() => void launchRuntime()}
+          title="运行（F5）—— 运行当前打开的蓝图（内置运行视图，可拆出独立窗口）"
           >
             <Icon icon={Play} size={13} />
             运行
             <kbd className="toolbar-kbd">F5</kbd>
           </button>
         )}
-        <button
-          type="button"
-          className="toolbar-btn toolbar-outline"
-          onClick={() => launchRuntimeCurrent()}
-          title="运行当前 UI（F6）—— 内置运行视图运行激活的 .ui.json 资产"
-        >
-          <Icon icon={PlayCircle} size={13} />
-          运行当前
-          <kbd className="toolbar-kbd">F6</kbd>
-        </button>
         <button type="button" className="toolbar-btn" disabled title="调试开关 —— T5.4 调试观察通道接入">
           <Icon icon={Bug} size={13} />
           调试

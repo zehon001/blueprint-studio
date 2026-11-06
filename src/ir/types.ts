@@ -13,11 +13,7 @@
  * 追加记录：ADR-005 附加说明（T6.4）为 NodeRunContext 增补可选 projectName / callPlugin
  * （插件节点动态注册的运行上下文扩展；均为可选字段，旧运行路径不受影响，详见字段注释）。
  *
- * 追加记录：ADR-009（T7.3）为 UINode 增补可选 prefab 字段（UI 预制体实例引用——项目内
- * 相对路径指向另一个 .ui.json；合并/循环检测/断开物化语义见 docs/v2/adr/009-ui-prefab.md）。
- * version 不升：可选字段向后兼容，旧资产读取即无预制体。
- *
- * 追加记录：ADR-019（v3.3）为 IRAsset / UIAsset / ElementAsset 增补可选 types
+ * 追加记录：ADR-019（v3.3）为 IRAsset 增补可选 types
  * （用户自定义结构体表）与 NodeRunContext.types；新增 struct.make / struct.break
  * 动态引脚节点。version 不升：可选字段向后兼容，旧资产读取即无自定义类型。
  *
@@ -29,7 +25,7 @@
  * 0. 通用基础类型
  * ============================================================ */
 
-/** 二维向量（蓝图画布坐标 / UI 节点位置共用） */
+/** 二维向量（蓝图画布坐标等 2D 位置共用） */
 export interface Vec2 {
   /** 横坐标（像素） */
   x: number;
@@ -144,38 +140,11 @@ export function isTypeAssignable(from: IRValueType, to: IRValueType): boolean {
   if (from === 'any' || to === 'any') return true;
   // 具体值（结构体 / 数组 / 标量）都可交给通用 object 引脚；反向仍需显式转换
   if (to === 'object' && !isExecType(from)) return true;
-  // v3 T12.4：UiHandle 族 —— to 要求的 trait 必须全部由 from 提供；
-  // 裸 'uiHandle' 视为「未声明 trait」（宽松兼容 ui.get 的静态输出）。
-  if (isUiHandleType(from) && isUiHandleType(to)) {
-    const fromTraits = uiHandleTraits(from);
-    const toTraits = uiHandleTraits(to);
-    if (fromTraits.length === 0) return true;
-    if (toTraits.length === 0) return true;
-    return toTraits.every((t) => fromTraits.includes(t));
-  }
   if (from === 'int' && to === 'float') return true;
   if (isArrayType(from) && isArrayType(to)) {
     return isTypeAssignable(elementType(from), elementType(to));
   }
   return false;
-}
-
-/** 是否为 UiHandle 值类型（`uiHandle` / `uiHandle<text,value>`） */
-export function isUiHandleType(t: IRValueType): boolean {
-  return typeof t === 'string' && (t === 'uiHandle' || t.startsWith('uiHandle<'));
-}
-
-/** 解析 UiHandle 的 trait 列表（`uiHandle<text,value>` → ['text','value']） */
-export function uiHandleTraits(t: IRValueType): string[] {
-  if (typeof t !== 'string') return [];
-  const m = /^uiHandle<(.+)>$/.exec(t);
-  if (!m) return [];
-  return m[1]!.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
-}
-
-/** 生成带 trait 的 UiHandle 类型串 */
-export function uiHandleTypeOf(traits: readonly string[]): IRValueType {
-  return traits.length > 0 ? `uiHandle<${traits.join(',')}>` : 'uiHandle';
 }
 
 /** 函数入参 / 函数返回值 / 事件参数的声明项 */
@@ -340,7 +309,7 @@ export interface IRComment {
 
 /** 一张图（主图或函数子图） */
 export interface IRGraph {
-  /** 图种类（v3：UI/元素/预制体恰有一张 event 图，其余为 function；逻辑资产省略） */
+  /** 图种类（逻辑资产省略；预留扩展） */
   kind?: 'event' | 'function';
   /** 节点实例列表 */
   nodes: IRNode[];
@@ -362,7 +331,7 @@ export interface IRAsset {
   version: 2 | 3;
   /** 资产名（如 '日志查看器'；默认与文件名一致） */
   name: string;
-  /** 主图名（graphs 的键；绑定 UI 节点时作为事件入口图） */
+  /** 主图名（graphs 的键；运行入口图） */
   entry: string;
   /** 图集合：主图 + 函数子图（键 = 图名 / 函数名，函数名即 codegen 后的方法名） */
   graphs: Record<string, IRGraph>;
@@ -397,184 +366,12 @@ export function migrateIR(raw: unknown): IRAsset {
 export interface ProjectFile {
   /** 项目名（显示名，可含中文） */
   name: string;
-  /** 主 UI 资产路径（相对项目根，如 'ui/main.ui.json'；F5 运行的入口） */
-  mainUI: string;
+  /** 主蓝图资产路径（相对项目根，如 'logic/main.bp.json'；运行入口） */
+  mainBlueprint: string;
   /** 创建项目时的引擎版本（升级兼容检查用） */
   engineVersion: string;
   /** 已启用插件表（键 = 插件 id，值 = 是否启用；未列出的插件视为未启用） */
   plugins: Record<string, boolean>;
-}
-
-/** UI 节点锚点（骨架）：键与语义由 T1.1 的属性 schema 细化后替换为具体类型 */
-export type UIAnchors = Record<string, number>;
-
-/** UI 节点的变换属性（容器布局优先时，子项的 size / position 可能被布局覆盖） */
-export interface UITransform {
-  /** 位置（相对父节点坐标系，像素） */
-  position: Vec2;
-  /** 尺寸（像素） */
-  size: Size2;
-  /** 旋转角度（度，顺时针） */
-  rotation: number;
-  /** 锚点（骨架，具体 schema 由 T1.1 细化；容器布局的子项通常省略） */
-  anchors?: UIAnchors;
-}
-
-/* ---------------- v3 flex 布局契约（ADR-011；v2 字段保留为兼容层） ---------------- */
-
-/** v3 长度：像素数值 / auto / 百分比字符串 */
-export type UILength = number | 'auto' | `${number}%`;
-
-/** v3 四向边距（t/r/b/l 像素） */
-export interface UIEdges {
-  t: number;
-  r: number;
-  b: number;
-  l: number;
-}
-
-/** v3 节点布局（作为父容器的流式子项 + 自身定位） */
-export interface UILayout {
-  /** 定位模式：relative（默认，参与父 flex 流）/ absolute（脱离流，left/top/right/bottom） */
-  position?: 'relative' | 'absolute';
-  grow?: number;
-  shrink?: number;
-  basis?: UILength;
-  alignSelf?: 'auto' | 'start' | 'center' | 'end' | 'stretch';
-  order?: number;
-  /** 首选尺寸（流式）/ 实际尺寸（absolute） */
-  size?: { w: UILength; h: UILength };
-  margin?: Partial<UIEdges>;
-  /** absolute 专属（px 或 %；可成对拉伸） */
-  left?: UILength;
-  top?: UILength;
-  right?: UILength;
-  bottom?: UILength;
-}
-
-/** v3 容器布局（容器原语与元素根） */
-export interface UIContainer {
-  direction?: 'row' | 'column';
-  wrap?: 'nowrap' | 'wrap' | 'wrap-reverse';
-  justify?: 'start' | 'center' | 'end' | 'space-between' | 'space-around' | 'space-evenly';
-  align?: 'start' | 'center' | 'end' | 'stretch' | 'baseline';
-  gap?: number;
-  padding?: Partial<UIEdges>;
-  overflow?: 'visible' | 'hidden' | 'scroll';
-}
-
-/** UI 节点（*.ui.json 资产树中的一个节点） */
-export interface UINode {
-  /** 节点实例 id（资产内唯一） */
-  id: string;
-  /** 树内唯一名（ui 访问器的查找键：ui.<name> 即绑定节点子树中名为 name 的节点） */
-  name: string;
-  /** UI 节点类型（PLAN §7.1 节点库，如 vbox / button / list；类型枚举由 T1.1 schema 定义） */
-  type: string;
-  /** v3 布局（存在即走 flex 引擎；覆盖 transform 的 position/size） */
-  layout?: UILayout;
-  /** v3 容器布局（容器节点 / 元素根） */
-  container?: UIContainer;
-  /** v3 样式类（§3.3；M11 解析） */
-  classes?: string[];
-  /** v3 元素实例引用（§3.2；M11 实现） */
-  element?: string;
-  /** v3 元素/预制体实例的提升变量覆盖（§8.3） */
-  vars?: Record<string, unknown>;
-  /** 变换属性（v2 兼容层：无 layout 时由渲染器/视口读取） */
-  transform: UITransform;
-  /** 主题样式属性（键 = T1.1 属性 schema 定义的样式名） */
-  theme: Record<string, unknown>;
-  /** 业务属性（键 = T1.1 属性 schema 定义的属性名） */
-  props: Record<string, unknown>;
-  /** 绑定的事件名列表（事件面板展示与跳转用） */
-  events?: string[];
-  /** 挂载的逻辑资产路径（相对项目根，如 'logic/main.bp.json'） */
-  logicAsset?: string;
-  /**
-   * 预制体引用（ADR-009，可选）：项目内相对路径（如 'ui/prefabs/list-item.ui.json'），
-   * 设有该字段的节点为「实例节点」——渲染/检视器展示以「展开后的有效节点」为准：
-   * 结构（type/children）取预制体根，name/transform/id 保留实例自身值，
-   * props/theme 由实例浅覆盖预制体根；循环引用与超深嵌套在展开期检出（中文错误）。
-   */
-  prefab?: string;
-  /** 子节点列表（叶子节点为空数组；实例节点的 children 被忽略——结构以预制体为准） */
-  children: UINode[];
-}
-
-/**
- * v3 元素自定义属性声明（PropDef 的字段子集）。
- * @deprecated v3.2 起由「提升变量 + 数据绑定」替代；仅保留读取以兼容旧资产，
- * 不再提供编辑 UI，新建资产不要写入。
- */
-export interface ElementPropDef {
-  id: string;
-  label?: string;
-  type?: string;
-  default?: unknown;
-  doc?: string;
-}
-
-/**
- * v3.2 元素数据绑定：把元素蓝图变量写到内部节点属性。
- * 单向（变量 → 节点），类型按目标 PropDef 做显示转换；实例变量覆盖后重新求值。
- */
-export interface ElementBindingDef {
-  /** 目标内部节点 id（元素资产 root 子树内） */
-  target: string;
-  /** 目标属性 id（写入展开节点的 UINode.props；name/position/size/rotation 除外） */
-  attr: string;
-  /** 源变量名（ElementAsset.variables；exposed = 实例外部可覆盖） */
-  source: string;
-}
-
-/** v3 元素资产（*.elem.json；与 UIAsset 同构 + 数据绑定/事件/traits） */
-export interface ElementAsset {
-  version: 3;
-  kind: 'element';
-  name: string;
-  /** 显示名（元素设置里配置；缺省用文件名；UI 树 / 元素库展示用） */
-  title?: string;
-  /**
-   * 旧版自定义属性声明（仅兼容读取；展开时仍会合并到元素根 props）。
-   * @deprecated 新资产请用 variables + bindings。
-   */
-  props?: ElementPropDef[];
-  /** v3.2 数据绑定（源变量 → 内部节点属性） */
-  bindings?: ElementBindingDef[];
-  events?: IREventDef[];
-  traits?: string[];
-  styles?: string[];
-  root: UINode;
-  graphs?: Record<string, IRGraph & { kind?: 'event' | 'function' }>;
-  variables?: IRVariable[];
-  /** v3.3 用户自定义结构体表（ADR-019） */
-  types?: IRStructDef[];
-  layout?: Record<string, IRGraphLayout>;
-}
-
-/** UI 资产（*.ui.json 的序列化对象） */
-export interface UIAsset {
-  /** 资产格式版本（v3 = 3；v2 = 2 仅过渡兼容，T13.2 后拒载） */
-  version: 2 | 3;
-  /** 资产名（默认与文件名一致） */
-  name: string;
-  /** v3：场景 / 预制体（缺省 scene）；元素资产在 UI 编辑器内复用同构视图 */
-  kind?: 'scene' | 'prefab' | 'element';
-  /** v3：本资产应用的样式表引用（§3.8；M11 解析） */
-  styles?: string[];
-  /** v3：内嵌蓝图图集合（§3.1；M10 接入） */
-  graphs?: Record<string, IRGraph & { kind?: 'event' | 'function' }>;
-  /** v3：图视图状态（键 = 图名） */
-  layout?: Record<string, IRGraphLayout>;
-  /** v3 变量表（内嵌蓝图，M10） */
-  variables?: IRVariable[];
-  /** v3.3 用户自定义结构体表（ADR-019） */
-  types?: IRStructDef[];
-  /** v3：自定义事件声明 */
-  events?: IREventDef[];
-  /** UI 树根节点 */
-  root: UINode;
 }
 
 /* ============================================================
@@ -626,16 +423,6 @@ export interface PinSpec {
   defaultValue?: unknown;
 }
 
-/** UI 访问器（ADR-005：解释器注入到 NodeRunContext.ui；缺失时节点须降级不抛错） */
-export interface UiHandle<T = unknown> {
-  /** 按名查找绑定 UI 子树中的节点（找到返回节点对象，找不到返回 null） */
-  find(name: string): T | null;
-  /** 读 UI 节点属性值（attr 如 text / value / checked / items / visible） */
-  read(name: string, attr: string): unknown;
-  /** 写 UI 节点属性值 */
-  write(name: string, attr: string, value: unknown): void;
-}
-
 /** 节点运行上下文（解释器构造，NodeRunFn 第一参数） */
 export interface NodeRunContext {
   /** 当前执行的节点实例 id（调试观察 / 高亮上报用） */
@@ -644,7 +431,7 @@ export interface NodeRunContext {
   params: Record<string, unknown>;
   /** 读资产变量（未声明变量返回 undefined） */
   getVar(name: string): unknown;
-  /** 写资产变量（暴露变量的写入会同步到绑定 UI） */
+  /** 写资产变量 */
   setVar(name: string, value: unknown): void;
   /** 发送自定义事件（params 的键 = IREventDef.params 的 name） */
   emit(event: string, params?: Record<string, unknown>): void;
@@ -667,8 +454,6 @@ export interface NodeRunContext {
    * GET /api/file 读取。缺失时节点经 ctx.print 降级提示，不抛错。
    */
   readProjectFile?(path: string): Promise<string>;
-  /** UI 访问器（ADR-005：绑定 UI 节点运行时由解释器注入；未绑定为 undefined，ui.* 节点降级） */
-  ui?: UiHandle;
   /** 通用系统钩子（system.notify / clipboardWrite / openUrl 用；缺失时节点降级） */
   notify?(message: string): void;
   clipboardWrite?(text: string): void;
@@ -749,13 +534,6 @@ export interface NodeSpec {
    * 超过 maxSteps 视为疑似 exec 死循环并中止。
    */
   unlimitedFires?: boolean;
-  /**
-   * 节点入参所需的 UI trait 清单（ADR-018；T12.4 契约的节点侧最小可选字段）：
-   * 供蓝图右键选择器 / PinDragMenu / 连线校验按 trait 过滤 UiHandle 族入参
-   * （如 ui.setText 要求 'text'、ui.setValue 要求 'value'、ui.listSetItems 要求 'items'）。
-   * 省略 = 不按 trait 过滤（旧节点 / 旧资产行为不变，向后兼容，version 不升）。
-   */
-  traits?: string[];
   /** 节点运行函数（解释器执行该节点时调用；纯节点求值同样走 run，next 被忽略） */
   run?: NodeRunFn;
   /** 节点说明文档（蓝图检视器 / 帮助浮层显示） */

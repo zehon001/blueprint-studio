@@ -15,7 +15,7 @@
  *    forLoop/whileLoop/forEach → 真 for/while 语句（循环变量以 let 预声明提升，支持
  *    循环后引用，最后一次迭代值语义与解释器状态机一致）；sequence → __bps-seq 标记 +
  *    按序内联各出口子链；delay → await delay(ms)；event.send → emit(...)；
- *    var.get/set → this.<name> 读写；ui.* → 属性式访问 / ui.write 调用形态。
+ *    var.get/set → this.<name> 读写。
  *  - 纯节点链 → 内联表达式（EXPR_TABLE）；出度 >1 的纯节点与执行节点透传输出以
  *    const __bps_vN 别名一次性求值（解析端据别名重建单一节点）；表外纯节点 →
  *    bps.<节点id>(...) 兜底调用；无人引用的纯节点 → bps 调用语句保持往返。
@@ -720,17 +720,6 @@ class Codegen {
         return this.emitFuncReturn(ctx, node);
       case SNIPPET_NODE_TYPE:
         return this.emitSnippetNode(ctx, node);
-      case 'ui.setValue':
-      case 'ui.setText':
-      case 'ui.setVisible':
-      case 'ui.listSetItems':
-      case 'ui.setTitle':
-        return this.emitUiWrite(ctx, node);
-      case 'ui.setProp':
-        return this.emitUiSetProp(ctx, node);
-      case 'ui.getProp':
-        // 值出口按 ui.read 表达式内联；执行链本身无语句
-        return { out: { nodeId: node.id, pin: 'exec' } };
       default:
         break;
     }
@@ -1274,49 +1263,6 @@ class Codegen {
     return out;
   }
 
-  /** ui 写值节点 → 属性式 ui.<n>.<attr> = v（名字/属性可静态化时）或 ui.write 调用形态 */
-  private emitUiWrite(ctx: MethodCtx, node: IRNode): NodeEmit {
-    const valuePin = node.type === 'ui.listSetItems' ? 'items' : node.type === 'ui.setVisible' ? 'visible' : 'value';
-    const value = this.expectSingle(ctx, node, valuePin, node.type);
-    let attrText: string | null = null; // null = 属性动态，需要调用形态
-    if (node.type === 'ui.setVisible') attrText = 'visible';
-    else if (node.type === 'ui.listSetItems') attrText = 'items';
-    else if (node.type === 'ui.setText') attrText = 'text';
-    else {
-      const attrLit = this.inputLiteral(ctx, node, 'attr');
-      if (attrLit !== NONE && typeof attrLit === 'string') attrText = attrLit;
-    }
-    const nameLit = this.inputLiteral(ctx, node, 'name');
-    this.flushPending(ctx);
-    if (attrText !== null && nameLit !== NONE && typeof nameLit === 'string' && isSafeIdentifier(nameLit)) {
-      this.push(`ui.${nameLit}.${attrText} = ${value};`);
-    } else {
-      const attrExpr =
-        node.type === 'ui.setVisible' || node.type === 'ui.listSetItems' || node.type === 'ui.setText'
-          ? JSON.stringify(attrText ?? '')
-          : this.expectSingle(ctx, node, 'attr', node.type);
-      this.push(`ui.write(${this.expectSingle(ctx, node, 'name', node.type)}, ${attrExpr}, ${value});`);
-    }
-    return { out: { nodeId: node.id, pin: 'exec' } };
-  }
-
-  /** v3 反射写值：ui.setProp(nodeName, propId, value) → ui.write(名, 属性id, 值) */
-  private emitUiSetProp(ctx: MethodCtx, node: IRNode): NodeEmit {
-    const nodeName = typeof node.params?.nodeName === 'string' ? node.params.nodeName : '';
-    const propId = typeof node.params?.propId === 'string' ? node.params.propId : '';
-    if (!nodeName || !propId) {
-      throw new CodegenError(
-        `反射节点「${node.id}」（ui.setProp）缺少 nodeName/propId 参数`,
-        ctx.graphName,
-        node.id,
-      );
-    }
-    const value = this.expectSingle(ctx, node, 'value', node.type);
-    this.flushPending(ctx);
-    this.push(`ui.write(${JSON.stringify(nodeName)}, ${JSON.stringify(propId)}, ${value});`);
-    return { out: { nodeId: node.id, pin: 'exec' } };
-  }
-
   /* ============================================================
    * 数据求值（引脚 → 表达式）
    * ============================================================ */
@@ -1376,12 +1322,9 @@ class Codegen {
         src.id,
       );
     }
-    // v3 反射读值：ui.getProp 虽有 exec 入/出，但 value 出口可按表达式内联
-    if (src.type === 'ui.getProp') return this.uiGetPropExpr(ctx, src);
     const spec = specOfType(src.type);
     const isDataOnly = !!spec && !spec.pure && !spec.inputs.some((p) => p.type === 'exec');
     if ((spec?.pure ?? false) || isDataOnly) {
-      if (src.type === 'ui.get') return this.uiGetExpr(ctx, src);
       return this.pureExpr(ctx, src, from.pin);
     }
     throw new CodegenError(
@@ -1413,7 +1356,6 @@ class Codegen {
   /** 纯节点单次求值表达式（不含别名分支，供别名声明复用） */
   private pureSingleExpr(ctx: MethodCtx, node: IRNode, pin: string): string {
     if (node.type === 'var.get') return this.varGetExpr(ctx, node);
-    if (node.type === 'ui.getValue') return this.uiGetValueExpr(ctx, node);
     if (node.type === 'struct.make' || node.type === 'struct.break') {
       // 结构体节点引脚由资产 types 表动态展开；脚本侧暂不做往返映射（避免静默丢失节点）
       throw new CodegenError(
@@ -1482,40 +1424,6 @@ class Codegen {
       throw new CodegenError(`var.get 节点「${node.id}」缺少 varName 参数`, _ctx.graphName, node.id);
     }
     return isSafeIdentifier(varName) ? `this.${varName}` : `this[${JSON.stringify(varName)}]`;
-  }
-
-  /** ui.get → 属性式 ui.<name>（字面量名）或 ui.find(expr)（连线名） */
-  private uiGetExpr(ctx: MethodCtx, node: IRNode): string {
-    const nameLit = this.inputLiteral(ctx, node, 'name');
-    if (nameLit !== NONE && typeof nameLit === 'string') {
-      return isSafeIdentifier(nameLit) ? `ui.${nameLit}` : `ui[${JSON.stringify(nameLit)}]`;
-    }
-    return `ui.find(${this.expectSingle(ctx, node, 'name', 'ui.get')})`;
-  }
-
-  /** v3 反射读值：ui.getProp → ui.read(nodeName, propId) */
-  private uiGetPropExpr(ctx: MethodCtx, node: IRNode): string {
-    const nodeName = typeof node.params?.nodeName === 'string' ? node.params.nodeName : '';
-    const propId = typeof node.params?.propId === 'string' ? node.params.propId : '';
-    if (!nodeName || !propId) {
-      throw new CodegenError(
-        `反射节点「${node.id}」（ui.getProp）缺少 nodeName/propId 参数`,
-        ctx.graphName,
-        node.id,
-      );
-    }
-    return `ui.read(${JSON.stringify(nodeName)}, ${JSON.stringify(propId)})`;
-  }
-
-  /** ui.getValue → 属性式 ui.<name>.<attr>（名字/属性均可静态化）或 ui.read(n, attr) 调用形态 */
-  private uiGetValueExpr(ctx: MethodCtx, node: IRNode): string {
-    const nameLit = this.inputLiteral(ctx, node, 'name');
-    const attrLit = this.inputLiteral(ctx, node, 'attr');
-    if (nameLit !== NONE && typeof nameLit === 'string' && attrLit !== NONE && typeof attrLit === 'string') {
-      const base = isSafeIdentifier(nameLit) ? `ui.${nameLit}` : `ui[${JSON.stringify(nameLit)}]`;
-      return isSafeIdentifier(attrLit) ? `${base}.${attrLit}` : `${base}[${JSON.stringify(attrLit)}]`;
-    }
-    return `ui.read(${this.expectSingle(ctx, node, 'name', 'ui.getValue')}, ${this.expectSingle(ctx, node, 'attr', 'ui.getValue')})`;
   }
 
   /** 为（节点，引脚）生成一次性求值别名（出度 >1 的共享纯链 / 执行节点透传输出） */

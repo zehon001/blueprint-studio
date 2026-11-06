@@ -6,8 +6,6 @@
  *  - RuntimeOptions：createRuntime 的可选项（调试回调 / print 旁路 / ADR-005 句柄注入 / 变量初值）
  *  - RuntimeHandle ：运行实例句柄（T2.6 绑定运行 / T5.1 事件总线接线面）
  */
-import type { UiHandle } from '@/ir/types';
-
 /** 调试探针事件种类 */
 export type DebugEventKind =
   | 'nodeEnter' // 即将执行某节点（含纯节点按需求值）
@@ -45,8 +43,6 @@ export interface RuntimeOptions {
    * 不提供时 print 静默丢弃；T2.6 运行窗口据此接控制台面板。
    */
   onPrint?: (...parts: unknown[]) => void;
-  /** UI 访问器（ADR-005，T2.6 绑定 UI 后注入；缺失时 ui.* 节点自行降级） */
-  ui?: UiHandle;
   /** 系统通知钩子（system.notify 用，透传进 ctx） */
   notify?: (message: string) => void;
   /** 剪贴板写入钩子（system.clipboardWrite 用，透传进 ctx） */

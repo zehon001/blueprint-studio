@@ -111,11 +111,11 @@ function fileNode(name: string, path: string): FsNode {
   return { name, path, type: 'file', ext: dot > 0 ? name.toLowerCase().slice(dot + 1) : '', children: [] }
 }
 
-/** 标准样例树：P/ui/main.ui.json · P/logic/main.bp.json · P/assets/a.log */
+/** 标准样例树：P/logic/main.bp.json · P/library/functions · P/assets/a.log */
 function sampleTree(): FsNode {
   return dirNode('P', 'P', [
-    dirNode('ui', 'P/ui', [fileNode('main.ui.json', 'P/ui/main.ui.json')]),
     dirNode('logic', 'P/logic', [fileNode('main.bp.json', 'P/logic/main.bp.json')]),
+    dirNode('library', 'P/library', [dirNode('functions', 'P/library/functions', [fileNode('fmt.fn.json', 'P/library/functions/fmt.fn.json')])]),
     dirNode('assets', 'P/assets', [fileNode('a.log', 'P/assets/a.log')]),
   ])
 }
@@ -145,9 +145,9 @@ describe('路径工具（posix）', () => {
     assert.equal(baseName('MyTool'), 'MyTool')
   })
 
-  it('assetKindOf：.ui.json→ui、.bp.json→blueprint、.ts/.py→script、其余 null', () => {
-    assert.equal(assetKindOf('main.ui.json'), 'ui')
-    assert.equal(assetKindOf('MAIN.UI.JSON'), 'ui')
+  it('assetKindOf：.bp.json→blueprint、.fn.json→function、.ts/.py→script、其余 null', () => {
+    assert.equal(assetKindOf('fmt.fn.json'), 'function')
+    assert.equal(assetKindOf('FMT.FN.JSON'), 'function')
     assert.equal(assetKindOf('logic.bp.json'), 'blueprint')
     assert.equal(assetKindOf('a.ts'), 'script')
     assert.equal(assetKindOf('b.py'), 'script')
@@ -156,11 +156,8 @@ describe('路径工具（posix）', () => {
     assert.equal(assetKindOf('e.ui.json.bak'), null)
   })
 
-  it('extLabelOf 扩展名图标字符（v3：新增 EL/ST/FN）', () => {
-    assert.equal(extLabelOf('main.ui.json'), 'UI')
+  it('extLabelOf 扩展名图标字符（BP/FN）', () => {
     assert.equal(extLabelOf('main.bp.json'), 'BP')
-    assert.equal(extLabelOf('card.elem.json'), 'EL')
-    assert.equal(extLabelOf('base.uss.json'), 'ST')
     assert.equal(extLabelOf('fmt.fn.json'), 'FN')
     assert.equal(extLabelOf('a.ts'), 'TS')
     assert.equal(extLabelOf('b.py'), 'PY')
@@ -170,30 +167,27 @@ describe('路径工具（posix）', () => {
   })
 
   it('v3 T8.4：资产显示主名 / 最长后缀 / 重命名保扩展', () => {
-    assert.equal(displayNameOf('main.ui.json'), 'main')
-    assert.equal(displayNameOf('MAIN.UI.JSON'), 'MAIN')
-    assert.equal(displayNameOf('card.elem.json'), 'card')
-    assert.equal(displayNameOf('base.uss.json'), 'base')
     assert.equal(displayNameOf('fmt.fn.json'), 'fmt')
+    assert.equal(displayNameOf('main.bp.json'), 'main')
     assert.equal(displayNameOf('a.ts'), 'a.ts') // 脚本保留完整名
     assert.equal(displayNameOf('report.final.json'), 'report.final.json') // 未知 json 原样
     assert.equal(displayNameOf('noext'), 'noext')
-    assert.equal(assetSuffixOf('main.ui.json'), '.ui.json')
     assert.equal(assetSuffixOf('x.fn.json'), '.fn.json')
+    assert.equal(assetSuffixOf('x.bp.json'), '.bp.json')
     assert.equal(assetSuffixOf('x.ts'), '')
-    assert.equal(extensionOf('main.ui.json'), '.ui.json')
+    assert.equal(extensionOf('x.fn.json'), '.fn.json')
     assert.equal(extensionOf('a.ts'), '.ts')
     assert.equal(extensionOf('noext'), '')
-    assert.equal(assetStemOf('card.elem.json'), 'card')
+    assert.equal(assetStemOf('fmt.fn.json'), 'fmt')
     assert.equal(assetStemOf('a.ts'), 'a')
   })
 
   it('dedupeName：同名加 " (n)" 后缀（大小写不敏感，双扩展名后缀在主干上）', () => {
-    assert.equal(dedupeName([], 'a.ui.json'), 'a.ui.json')
-    assert.equal(dedupeName(['a.ui.json'], 'a.ui.json'), 'a (2).ui.json')
-    assert.equal(dedupeName(['a.ui.json', 'a (2).ui.json'], 'a.ui.json'), 'a (3).ui.json')
+    assert.equal(dedupeName([], 'a.fn.json'), 'a.fn.json')
+    assert.equal(dedupeName(['a.fn.json'], 'a.fn.json'), 'a (2).fn.json')
+    assert.equal(dedupeName(['a.fn.json', 'a (2).fn.json'], 'a.fn.json'), 'a (3).fn.json')
     // 大小写不敏感判定冲突，输出保留用户输入的大小写
-    assert.equal(dedupeName(['a.ui.json'], 'A.UI.JSON'), 'A (2).UI.JSON')
+    assert.equal(dedupeName(['a.fn.json'], 'A.FN.JSON'), 'A (2).FN.JSON')
     assert.equal(dedupeName(['新文件夹'], '新文件夹'), '新文件夹 (2)')
   })
 
@@ -213,28 +207,25 @@ describe('路径工具（posix）', () => {
     assert.match(validateFileName('')!, /不能为空/)
     assert.match(validateFileName('a/b')!, /不能包含/)
     assert.match(validateFileName('con.txt')!, /保留设备名/)
-    assert.equal(validateFileName('a.ui.json'), null)
+    assert.equal(validateFileName('a.bp.json'), null)
     assert.equal(validateFileName('  x.ts '), null)
   })
 
-  it('newFileTemplateOf / contentForNewFile：.ui.json 与 .bp.json 模板、其余空文本', () => {
-    assert.equal(newFileTemplateOf('a.ui.json'), 'ui')
+  it('newFileTemplateOf / contentForNewFile：.fn.json 与 .bp.json 模板、其余空文本', () => {
+    assert.equal(newFileTemplateOf('fmt.fn.json'), 'fn')
     assert.equal(newFileTemplateOf('a.bp.json'), 'bp')
     assert.equal(newFileTemplateOf('a.ts'), 'text')
-    const ui = JSON.parse(contentForNewFile('main.ui.json')) as {
+    const fn = JSON.parse(contentForNewFile('fmt.fn.json')) as {
       version: number
       kind: string
+      scope: string
       name: string
-      root: { type: string; children: unknown[]; container?: { direction?: string } }
-      graphs: { event: { nodes: Array<{ type: string }>; edges: unknown[] } }
+      graph: { nodes: unknown[]; edges: unknown[] }
     }
-    assert.equal(ui.version, 3)
-    assert.equal(ui.kind, 'scene')
-    assert.equal(ui.name, 'main')
-    assert.equal(ui.root.type, 'panel') // 单 panel 根节点
-    assert.equal(ui.root.container?.direction, 'column')
-    assert.deepEqual(ui.root.children, [])
-    assert.equal(ui.graphs.event.nodes[0]?.type, 'event.start', '新场景事件图带开始事件')
+    assert.equal(fn.version, 3)
+    assert.equal(fn.kind, 'function')
+    assert.equal(fn.name, 'fmt')
+    assert.deepEqual(fn.graph.nodes, [])
     const bp = JSON.parse(contentForNewFile('main.bp.json')) as {
       version: number
       entry: string
@@ -253,12 +244,6 @@ describe('路径工具（posix）', () => {
     assert.deepEqual(bp.events, [])
     assert.deepEqual(bp.snippets, [])
     assert.deepEqual(bp.layout, {})
-    const elem = JSON.parse(contentForNewFile('card.elem.json')) as {
-      kind: string
-      graphs: { event: { nodes: Array<{ type: string }> } }
-    }
-    assert.equal(elem.kind, 'element')
-    assert.equal(elem.graphs.event.nodes[0]?.type, 'event.start', '新元素事件图带开始事件')
     assert.equal(contentForNewFile('a.txt'), '')
     assert.equal(contentForNewFile('noext'), '')
   })
@@ -291,25 +276,25 @@ describe('树排序（目录优先 / collator）', () => {
 
 describe('SSE 事件增量合并（applyFsEvents）', () => {
   it('add：文件落入已有目录并保持排序', () => {
-    const tree = applyFsEvents(sampleTree(), [ev('add', 'ui/aaa.ui.json', 'file')])!
-    const ui = findNode(tree, 'P/ui')!
+    const tree = applyFsEvents(sampleTree(), [ev('add', 'logic/aaa.bp.json', 'file')])!
+    const logic = findNode(tree, 'P/logic')!
     assert.deepEqual(
-      ui.children.map((c) => c.name),
-      ['aaa.ui.json', 'main.ui.json'],
+      logic.children.map((c) => c.name),
+      ['aaa.bp.json', 'main.bp.json'],
     )
-    const added = findNode(tree, 'P/ui/aaa.ui.json')!
+    const added = findNode(tree, 'P/logic/aaa.bp.json')!
     assert.equal(added.type, 'file')
     assert.equal(added.ext, 'json')
   })
 
   it('add：已存在幂等（不产生重复节点）', () => {
     const tree = applyFsEvents(sampleTree(), [
-      ev('add', 'ui/main.ui.json', 'file'),
-      ev('add', 'ui/main.ui.json', 'file'),
+      ev('add', 'logic/main.bp.json', 'file'),
+      ev('add', 'logic/main.bp.json', 'file'),
     ])!
-    const ui = findNode(tree, 'P/ui')!
-    assert.equal(ui.children.filter((c) => c.name === 'main.ui.json').length, 1)
-    assert.equal(ui.children.length, 1)
+    const logic = findNode(tree, 'P/logic')!
+    assert.equal(logic.children.filter((c) => c.name === 'main.bp.json').length, 1)
+    assert.equal(logic.children.length, 1)
   })
 
   it('add：父目录级联补齐（深层路径一次建全）', () => {
@@ -340,12 +325,12 @@ describe('SSE 事件增量合并（applyFsEvents）', () => {
       ev('unlink', 'logic'),
     ])!
     assert.equal(findNode(tree, 'P/logic'), null)
-    assert.equal(findNode(tree, 'P/ui')!.name, 'ui')
+    assert.equal(findNode(tree, 'P/library')!.name, 'library')
   })
 
   it('change：不改变结构（返回原引用，调用方据此跳过刷新）', () => {
     const tree = sampleTree()
-    assert.equal(applyFsEvents(tree, [ev('change', 'ui/main.ui.json')]), tree)
+    assert.equal(applyFsEvents(tree, [ev('change', 'logic/main.bp.json')]), tree)
   })
 
   it('批合并：多条 add/unlink 按序生效', () => {
@@ -366,7 +351,7 @@ describe('SSE 事件增量合并（applyFsEvents）', () => {
   it('监视根级事件（path 为空）→ 返回 undefined 要求整体重载', () => {
     const tree = sampleTree()
     assert.equal(applyFsEvents(tree, [ev('unlink', '')]), undefined)
-    assert.equal(applyFsEvents(tree, [ev('add', 'ui/x.json')]), undefined) // 缺 kind → 不可安全合并
+    assert.equal(applyFsEvents(tree, [ev('add', 'logic/x.json')]), undefined) // 缺 kind → 不可安全合并
   })
 })
 
@@ -377,29 +362,29 @@ describe('SSE 事件增量合并（applyFsEvents）', () => {
 describe('checkFsMove（拖入目录的落点校验）', () => {
   it('文件 / 目录移入其它目录：给出目标路径', () => {
     const tree = sampleTree()
-    assert.deepEqual(checkFsMove(tree, 'P/ui/main.ui.json', 'P/logic'), {
+    assert.deepEqual(checkFsMove(tree, 'P/logic/main.bp.json', 'P/library/functions'), {
       ok: true,
-      to: 'P/logic/main.ui.json',
+      to: 'P/library/functions/main.bp.json',
     })
-    assert.deepEqual(checkFsMove(tree, 'P/ui', 'P/assets'), { ok: true, to: 'P/assets/ui' })
+    assert.deepEqual(checkFsMove(tree, 'P/assets', 'P/logic'), { ok: true, to: 'P/logic/assets' })
   })
 
   it('项目根不可移动；不能移动到自身或自身子树内', () => {
     const tree = sampleTree()
-    assert.equal(checkFsMove(tree, 'P', 'P/ui').reason, '项目根不可移动')
-    assert.equal(checkFsMove(tree, 'P/ui', 'P/ui').reason, '不能移动到自身')
+    assert.equal(checkFsMove(tree, 'P', 'P/logic').reason, '项目根不可移动')
+    assert.equal(checkFsMove(tree, 'P/logic', 'P/logic').reason, '不能移动到自身')
     const nested = dirNode('P', 'P', [dirNode('a', 'P/a', [dirNode('b', 'P/a/b')])])
     assert.equal(checkFsMove(nested, 'P/a', 'P/a/b').reason, '不能把文件夹移动到其自身内部')
   })
 
   it('只能落到目录：文件行不是落点', () => {
     const tree = sampleTree()
-    assert.equal(checkFsMove(tree, 'P/logic/main.bp.json', 'P/ui/main.ui.json').reason, '只能移动到文件夹')
+    assert.equal(checkFsMove(tree, 'P/logic/main.bp.json', 'P/library/functions/fmt.fn.json').reason, '只能移动到文件夹')
   })
 
   it('已在目标目录中 / 目标重名：不产生移动', () => {
     const tree = sampleTree()
-    assert.equal(checkFsMove(tree, 'P/ui/main.ui.json', 'P/ui').reason, '已在目标文件夹中')
+    assert.equal(checkFsMove(tree, 'P/logic/main.bp.json', 'P/logic').reason, '已在目标文件夹中')
     const clash = dirNode('P', 'P', [
       dirNode('a', 'P/a', [fileNode('x.txt', 'P/a/x.txt')]),
       dirNode('b', 'P/b', [fileNode('X.TXT', 'P/b/X.TXT')]),
@@ -409,8 +394,8 @@ describe('checkFsMove（拖入目录的落点校验）', () => {
 
   it('源 / 目标不存在时拒绝', () => {
     const tree = sampleTree()
-    assert.equal(checkFsMove(tree, 'P/ui/ghost.json', 'P/logic').reason, '源文件或文件夹不存在')
-    assert.equal(checkFsMove(tree, 'P/ui/main.ui.json', 'P/ghost').reason, '目标文件夹不存在')
+    assert.equal(checkFsMove(tree, 'P/logic/ghost.json', 'P/library').reason, '源文件或文件夹不存在')
+    assert.equal(checkFsMove(tree, 'P/logic/main.bp.json', 'P/ghost').reason, '目标文件夹不存在')
   })
 })
 
@@ -424,11 +409,11 @@ describe('filesystem 命令日志与 undo 映射（T0.7 DoD）', () => {
   })
 
   it('runFsCommand 入域日志；undo 移出；redo 加回（结构操作可撤销）', () => {
-    const r = runFsCommand('新建文件「a.ui.json」', {
+    const r = runFsCommand('新建文件「a.bp.json」', {
       kind: 'create',
-      path: 'P/ui/a.ui.json',
+      path: 'P/logic/a.bp.json',
       targetKind: 'file',
-      template: 'ui',
+      template: 'bp',
     })
     assert.equal(r.changed, true)
     assert.equal(r.domain, 'filesystem')
@@ -443,8 +428,8 @@ describe('filesystem 命令日志与 undo 映射（T0.7 DoD）', () => {
     const ops = getDomainState<FsDomainState>('filesystem').ops
     assert.equal(ops.length, 1)
     assert.equal(ops[0].kind, 'create')
-    assert.equal(ops[0].path, 'P/ui/a.ui.json')
-    assert.equal(ops[0].label, '新建文件「a.ui.json」')
+    assert.equal(ops[0].path, 'P/logic/a.bp.json')
+    assert.equal(ops[0].label, '新建文件「a.bp.json」')
     assert.equal(typeof ops[0].ts, 'string')
   })
 
@@ -461,8 +446,8 @@ describe('filesystem 命令日志与 undo 映射（T0.7 DoD）', () => {
   it('inverseActionOf：rename→move 回去、create/import→delete、delete→restore 快照（T7.4）', () => {
     const rename = inverseActionOf({ kind: 'rename', label: '', ts: '', from: 'P/a.ts', to: 'P/b.ts' })
     assert.deepEqual(rename, { action: 'move', from: 'P/b.ts', to: 'P/a.ts' })
-    const create = inverseActionOf({ kind: 'create', label: '', ts: '', path: 'P/ui/a.ui.json' })
-    assert.deepEqual(create, { action: 'delete', path: 'P/ui/a.ui.json' })
+    const create = inverseActionOf({ kind: 'create', label: '', ts: '', path: 'P/logic/a.bp.json' })
+    assert.deepEqual(create, { action: 'delete', path: 'P/logic/a.bp.json' })
     const imp = inverseActionOf({ kind: 'import', label: '', ts: '', path: 'P/assets/x.log', sourcePath: 'D:/s.log' })
     assert.deepEqual(imp, { action: 'delete', path: 'P/assets/x.log' })
     // T7.4：文件删除在服务端自动留了快照 → 撤销 = 恢复最新快照
@@ -477,19 +462,19 @@ describe('filesystem 命令日志与 undo 映射（T0.7 DoD）', () => {
     const rename = redoActionOf({ kind: 'rename', label: '', ts: '', from: 'P/a.ts', to: 'P/b.ts' })
     assert.deepEqual(rename, { action: 'move', from: 'P/a.ts', to: 'P/b.ts' })
 
-    const ui = redoActionOf({
+    const fn = redoActionOf({
       kind: 'create',
       label: '',
       ts: '',
-      path: 'P/ui/main.ui.json',
+      path: 'P/library/functions/fmt.fn.json',
       targetKind: 'file',
-      template: 'ui',
+      template: 'fn',
     })
-    assert.ok(ui.action === 'write')
-    if (ui.action === 'write') {
-      const asset = JSON.parse(ui.content) as { version: number; root: { type: string } }
+    assert.ok(fn.action === 'write')
+    if (fn.action === 'write') {
+      const asset = JSON.parse(fn.content) as { version: number; kind: string }
       assert.equal(asset.version, 3)
-      assert.equal(asset.root.type, 'panel')
+      assert.equal(asset.kind, 'function')
     }
 
     const bp = contentForCreate({ kind: 'create', label: '', ts: '', path: 'P/logic/a.bp.json', targetKind: 'file', template: 'bp' })

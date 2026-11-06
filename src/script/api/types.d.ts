@@ -7,12 +7,10 @@
  * 补全扩展见 ./completion.ts（scriptTypesExtension）。
  *
  * 本文件必须保持「零 import」自包含（编辑器 TS 环境单独加载本文件即可用）：
- * - UI 属性名 UIAttrName 是 src/ui-editor/schema 各 PropDef.id + 公共属性的快照
- *   （T3.2 落盘时的权威清单）；schema 增删属性时同步本清单；
- * - LogRow / UIListRow 与 src/nodes/convert.ts、src/ui-editor/schema/types.ts
- *   的同名结构逐字对齐（复制声明以保证自包含，运行时为同一形状）。
+ * - LogRow 与 src/nodes/convert.ts 的同名结构逐字对齐（复制声明以保证自包含，
+ *   运行时为同一形状）。
  *
- * 全局注入方式：底部 declare global 块声明 9 个内建全局（ui / vars / emit /
+ * 全局注入方式：底部 declare global 块声明 9 个内建全局（vars / emit /
  * onEvent / plugins / print / convert / format / delay）。其中 print 以 function
  * 形式声明——与 lib.dom.d.ts 的 `print(): void` 按重载合并（DOM 环境不冲突，
  * 运行窗口中 print 为脚本控制台输出而非 window.print，见 ts.ts 实现）。
@@ -24,8 +22,7 @@
 
 /**
  * 结构化日志行（与 src/nodes/convert.ts 的 LogRow、手机日志插件 PLAN §14.3 共用同一形状；
- * 用 type 别名声明以保留到 Record<string, unknown> 的隐式索引签名——
- * 使 LogRow[] 可直接赋给 ui.list.items）。
+ * 用 type 别名声明以保留到 Record<string, unknown> 的隐式索引签名。
  */
 export type LogRow = {
   /** 时间戳（epoch ms；解析失败行为 0） */
@@ -40,93 +37,6 @@ export type LogRow = {
   msg: string;
   /** 原始行 */
   raw: string;
-};
-
-/** 列表 / 表格行数据（与 src/ui-editor/schema/types.ts 的 UIListRow 同义；键 = ListColumn.field） */
-export type UIListRow = Record<string, unknown>;
-
-/**
- * UI 节点属性名清单（权威来源：src/ui-editor/schema 的 PropDef.id + 公共属性，
- * T3.2 快照；运行时警告与补全从 schema 注册表现取，见 ts.ts 的 knownUIAttrNames）。
- * 分组：公共（name/position/size/rotation/visible/tooltip/expand）+ 各节点业务属性。
- */
-export type UIAttrName =
-  // 公共属性（commonProps）
-  | 'name'
-  | 'position'
-  | 'size'
-  | 'rotation'
-  | 'visible'
-  | 'tooltip'
-  | 'expand'
-  // 内容 / 数据
-  | 'text'
-  | 'value'
-  | 'checked'
-  | 'items'
-  | 'columns'
-  | 'title'
-  | 'placeholder'
-  | 'suffix'
-  | 'src'
-  | 'fit'
-  | 'showPercent'
-  | 'activeIndex'
-  | 'splitPosition'
-  // 外观 / 行为
-  | 'variant'
-  | 'direction'
-  | 'align'
-  | 'wrap'
-  | 'padding'
-  | 'spacing'
-  | 'min'
-  | 'max'
-  | 'step'
-  | 'readOnly'
-  | 'password';
-
-/**
- * UI 节点属性代理（ui.<节点名> 的返回值）。
- * 常用属性给出具体类型；其余属性经索引签名透传（未知属性运行时 print 提示一次，
- * 仍按原样读写 UiHandle）。
- */
-export interface UINodeAttrs {
-  /** 显示 / 说明文本（label / button / checkBox 等） */
-  text: string;
-  /** 当前值（lineEdit 为 string；spinBox / slider 为 number） */
-  value: string | number;
-  /** 是否勾选（checkBox） */
-  checked: boolean;
-  /** 是否可见（公共属性，运行态关闭则不渲染） */
-  visible: boolean;
-  /** 行数据（list / table；元素键对应 columns.field） */
-  items: UIListRow[];
-  /** 标题（groupBox） */
-  title: string;
-  /** 占位灰字（lineEdit 等输入类） */
-  placeholder: string;
-  /** 任意属性透传（与渲染器 PropDef 对齐；未知属性运行时提示） */
-  [attr: string]: unknown;
-}
-
-/**
- * UI 节点访问器（ui 全局）。
- * - 属性式访问（推荐）：`ui.<节点名>.<属性>` 直接读写——PLAN §9.2 写法
- *   `ui.list.items = rows`；`ui.<节点名>` 指向绑定节点子树中名为该名的节点；
- *   find 失败（无此节点 / 未绑定 UI）返回安全空对象并 print 警告一次，不抛错。
- * - 通用方法：find / read / write 直通 UiHandle（ADR-005），适合动态属性名。
- */
-export type UIAccessor = {
-  /** 按名查找绑定 UI 子树中的节点；找到返回属性代理，找不到返回 null（并 print 警告一次） */
-  find(name: string): UINodeAttrs | null;
-  /** 读 UI 节点属性值（直通 UiHandle.read；attr 推荐 UIAttrName 清单内的名字） */
-  read(name: string, attr: UIAttrName | (string & {})): unknown;
-  /** 写 UI 节点属性值（直通 UiHandle.write） */
-  write(name: string, attr: UIAttrName | (string & {}), value: unknown): void;
-} & {
-  /** 属性式访问：ui.<节点名> → 该节点的属性代理（节点名来自 UI 树，编辑器补全给出候选） */
-  [nodeName: string]: UINodeAttrs;
 };
 
 /**
@@ -192,8 +102,6 @@ export interface ConvertApi {
 
 /** 脚本内建全局集合（types.d.ts 的 declare global 与本接口逐字段一致） */
 export interface ScriptGlobals {
-  /** UI 节点访问器：ui.<节点名>.<属性> 属性式读写；ui.find/read/write 通用访问 */
-  ui: UIAccessor;
   /** 资产变量访问器：vars.x 读 / vars.x = v 写；Object.keys(vars) 列出全部 */
   vars: VarsAccessor;
   /** 发送自定义事件（对齐 event.send 节点参数规范化，见下方 declare global 文档） */
@@ -219,12 +127,6 @@ export interface ScriptGlobals {
  * ============================================================ */
 
 declare global {
-  /**
-   * UI 节点访问器：ui.<节点名> 指向绑定节点子树中名为 <节点名> 的节点，
-   * `.text/.value/.checked/.visible/.items` 等属性直接读写（如 ui.list.items = rows）。
-   * 未知节点返回安全空对象并 print 警告一次；通用访问用 ui.find / ui.read / ui.write。
-   */
-  var ui: UIAccessor;
   /**
    * 资产变量访问器（Proxy）：vars.x 读 getVar('x')，vars.x = v 写 setVar('x', v)；
    * Object.keys(vars) 列出全部变量名。未声明变量读出 undefined。

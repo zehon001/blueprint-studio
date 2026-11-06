@@ -415,7 +415,13 @@ class BlueprintRuntime implements RuntimeHandle {
     return targets;
   }
 
-  /** 自定义事件目标：event.custom（params.eventName 绑定，title 命中已声明事件名回退）+ event.listen（eventName 引脚绑定） */
+  /**
+   * 自定义事件目标：
+   *  - event.custom（params.eventName 绑定，title 命中已声明事件名回退）；
+   *  - event.listen（eventName 引脚绑定）；
+   *  - 插件事件节点（无 exec 入、有 exec 出）：params.eventName 绑定（缺省 = 节点 id），
+   *    params.sessionVar 指定会话变量时按变量值的 sessionId 过滤（Agent 会话事件节点语义）。
+   */
   private async findEventTargets(ev: QueuedEvent): Promise<EventTarget[]> {
     const def = (this.asset.events ?? []).find((e) => e.name === ev.name);
     const targets: EventTarget[] = [];
@@ -436,10 +442,42 @@ class BlueprintRuntime implements RuntimeHandle {
               seed: { ...buildEventOutputs(def, ev.args), args: { ...ev.args } },
             });
           }
+        } else {
+          const spec = this.specs.get(node.type);
+          if (spec && spec.inputs.length === 0 && spec.outputs.some((p) => p.type === 'exec')) {
+            if (this.pluginEventBindingOf(node) === ev.name && this.sessionMatches(node, ev.args)) {
+              targets.push({ graph: g, nodeId: node.id, seed: buildEventOutputs(def, ev.args) });
+            }
+          }
         }
       }
     }
     return targets;
+  }
+
+  /** 插件事件节点绑定的事件名：params.eventName 优先，缺省 = 节点类型 id */
+  private pluginEventBindingOf(node: IRNode): string {
+    const p = node.params?.eventName;
+    if (typeof p === 'string' && p !== '') return p;
+    return node.type;
+  }
+
+  /**
+   * 会话过滤（Agent 会话事件节点）：params.sessionVar 指向会话类型变量时，
+   * 只在事件 args.sessionId 与变量值 sessionId 一致时触发；未配置变量 = 不过滤。
+   */
+  private sessionMatches(node: IRNode, args: Record<string, unknown>): boolean {
+    const varName = node.params?.sessionVar;
+    if (typeof varName !== 'string' || varName === '') return true;
+    const evSessionId = args.sessionId;
+    if (typeof evSessionId !== 'string' || evSessionId === '') return true;
+    const value = this.getVar(varName);
+    if (value === undefined || value === null) return false;
+    const sessionId =
+      typeof value === 'object'
+        ? (value as Record<string, unknown>).sessionId
+        : value;
+    return typeof sessionId === 'string' && sessionId === evSessionId;
   }
 
   /** event.custom 实例绑定的事件名：params.eventName 优先，回退「title 命中已声明事件名」 */
@@ -837,7 +875,6 @@ class BlueprintRuntime implements RuntimeHandle {
         return await self.resolveInputs(frame, node, self.inputPinsOf(node, spec), fresh);
       },
       signal: self.signal,
-      ui: self.opts.ui,
       readProjectFile: self.opts.readProjectFile,
       notify: self.opts.notify,
       clipboardWrite: self.opts.clipboardWrite,

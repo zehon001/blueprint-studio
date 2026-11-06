@@ -231,6 +231,6 @@ test('store：结构体名不能与内置类型冲突', () => {
   const st = useBlueprintStore.getState();
   assert.equal(st.addStructType('string'), false);
   assert.equal(st.addStructType('LogRow[]'), false);
-  assert.equal(st.addStructType('uiHandle'), false);
+  assert.equal(st.addStructType('session'), false);
   assert.equal(st.addStructType('Row'), true);
 });

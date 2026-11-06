@@ -37,12 +37,12 @@ class LogViewer extends UILogic {
 
   @on('start')
   onStart(): void {
-    ui.title.text = '日志分析'
+    vars.greeting = '日志分析'
   }
 
   @on('btnFetch', 'pressed')
   fetch(): void {
-    ui.list.items = convert.androidLogParse(ui.input.value)
+    vars.rows = convert.androidLogParse(vars.input)
     emit('loaded', 1)
   }
 }
@@ -141,12 +141,12 @@ function reverseAsset(): IRAsset {
         nodes: [
           { id: 'st', type: 'event.start', params: {}, pinDefaults: {}, position: { x: 0, y: 0 } },
           { id: 'evt1', type: 'event.custom', params: { eventName: 'pressed' }, pinDefaults: {}, position: { x: 0, y: 0 } },
-          { id: 'uiw1', type: 'ui.setValue', params: {}, pinDefaults: { name: 'title', value: '日志分析' }, position: { x: 0, y: 0 } },
-          { id: 'uiw2', type: 'ui.listSetItems', params: {}, pinDefaults: { name: 'list', items: [] }, position: { x: 0, y: 0 } },
+          { id: 'w1', type: 'var.set', params: { varName: 'greeting' }, pinDefaults: { value: '日志分析' }, position: { x: 0, y: 0 } },
+          { id: 'w2', type: 'var.set', params: { varName: 'rows' }, pinDefaults: {}, position: { x: 0, y: 0 } },
         ],
         edges: [
-          { id: 'x1', from: { node: 'st', pin: 'exec' }, to: { node: 'uiw1', pin: 'exec' }, kind: 'exec' },
-          { id: 'x2', from: { node: 'evt1', pin: 'exec' }, to: { node: 'uiw2', pin: 'exec' }, kind: 'exec' },
+          { id: 'x1', from: { node: 'st', pin: 'exec' }, to: { node: 'w1', pin: 'exec' }, kind: 'exec' },
+          { id: 'x2', from: { node: 'evt1', pin: 'exec' }, to: { node: 'w2', pin: 'exec' }, kind: 'exec' },
         ],
       },
     },
@@ -306,9 +306,8 @@ test('DOM：@expose → 蓝图 My Blueprint 变量列表 + 右键「插入 Get/S
     })
     await waitFor(() => dom.document.querySelector('.fs-menu') === null)
     const mainNodes = getDomainState<{ asset: IRAsset }>('blueprint').asset.graphs['main']?.nodes ?? []
-    const getNode = mainNodes.find((n) => n.type === 'var.get')
+    const getNode = mainNodes.find((n) => n.type === 'var.get' && n.params?.varName === 'packageName')
     assert.ok(getNode, '插入 Get：主图出现 var.get 节点（@expose → 蓝图 Get/Set 语义闭环）')
-    assert.equal(getNode?.params?.varName, 'packageName')
     // 再插入 Set
     act(() => {
       pkgRow?.dispatchEvent(
@@ -324,8 +323,8 @@ test('DOM：@expose → 蓝图 My Blueprint 变量列表 + 右键「插入 Get/S
     })
     await waitFor(() => dom.document.querySelector('.fs-menu') === null)
     const nodes2 = getDomainState<{ asset: IRAsset }>('blueprint').asset.graphs['main']?.nodes ?? []
-    const setNode = nodes2.find((n) => n.type === 'var.set')
-    assert.ok(setNode && setNode.params?.varName === 'packageName', '插入 Set：主图出现 var.set 节点')
+    const setNode = nodes2.find((n) => n.type === 'var.set' && n.params?.varName === 'packageName')
+    assert.ok(setNode, '插入 Set：主图出现 var.set 节点')
     // 事件分节：@on 绑定的 pressed 应出现在事件列表（事件表由解析器按 @on 方法收集）
     const text = dom.document.body.textContent ?? ''
     assert.ok(text.includes('pressed'), '事件分节含 @on 绑定的事件名')

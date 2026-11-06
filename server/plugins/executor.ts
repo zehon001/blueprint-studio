@@ -593,6 +593,13 @@ export class PluginPushHub {
     }
   }
 
+  /** 广播给全部已订阅项目（未登记归属的外部事件用） */
+  broadcastAll(payload: Record<string, unknown>): void {
+    for (const project of [...this.subscribers.keys()]) {
+      this.broadcast(project, payload)
+    }
+  }
+
   /** 释放停流排程（测试收尾用；hub 本体可继续工作） */
   dispose(): void {
     for (const t of this.idleTimers.values()) clearTimeout(t)
@@ -894,6 +901,13 @@ export async function handleInvoke(
   const manifest = result.manifests.find((m) => m.id === plugin) ?? null
 
   const runCmd = deps.runCmd ?? runCommand
+
+  // ⓪ agent 插件（Agent 会话：dsh-plugin-orchestrator 网关；见 server/agents/*）
+  if (plugin === 'agent' && isPluginNodeId(plugin, node)) {
+    const { invokeAgentNode } = await import('../agents/handler')
+    const payload = await invokeAgentNode(node, args, { project })
+    return { status: 200, payload }
+  }
 
   // ① phone-log：专属执行器（双模式读取 + 持续流，见 phone-log.ts）
   if (plugin === 'phone-log' && isPluginNodeId(plugin, node)) {

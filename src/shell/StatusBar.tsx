@@ -12,7 +12,6 @@ import { parseAssetPanelId } from '@/shell/dock/assetPanelModel'
 import { useDockStore } from '@/shell/dock/store'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { useBlueprintStore } from '@/blueprint/store/blueprint-store'
-import { collectUINodeIds, useSceneTreeDomain } from '@/ui-editor/store'
 import { useStatusStore } from './status-store'
 
 type BackendState = 'checking' | 'online' | 'offline'
@@ -25,7 +24,6 @@ export function StatusBar() {
   const activePanelId = useDockStore((s) => s.activePanelId)
   const blueprintAsset = useBlueprintStore((s) => s.asset)
   const graphName = useBlueprintStore((s) => s.graphName)
-  const uiDomain = useSceneTreeDomain()
   const zoom = useStatusStore((s) => s.zoom)
   const [backend, setBackend] = useState<BackendState>('checking')
 
@@ -51,11 +49,7 @@ export function StatusBar() {
   const ref = activePanelId ? parseAssetPanelId(activePanelId) : null
   const isBlueprint = ref?.kind === 'blueprint'
   const graph = isBlueprint && blueprintAsset ? blueprintAsset.graphs[graphName] : null
-  const nodeCount = graph
-    ? graph.nodes.length
-    : uiDomain.asset
-      ? collectUINodeIds(uiDomain.asset.root).length
-      : 0
+  const nodeCount = graph ? graph.nodes.length : 0
   const edgeCount = graph?.edges.length ?? 0
   const assetPath = ref?.path ?? '未打开资产'
 

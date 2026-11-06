@@ -2,8 +2,8 @@
  * Blueprint Studio v2 —— 脚本内建全局 CodeMirror 补全扩展（T3.2 × T3.1 咬合点）
  *
  * T3.1 脚本编辑器 `import { scriptTypesExtension } from '@/script/api'` 加进扩展列表即可：
- * 内建全局（ui/vars/emit/onEvent/plugins/print/convert/format/delay）与成员
- * （convert.xxx / plugins.<id> / ui.<节点>.<属性>）作为补全项，签名在 detail、
+ * 内建全局（vars/emit/onEvent/plugins/print/convert/format/delay）与成员
+ * （convert.xxx / plugins.<id>）作为补全项，签名在 detail、
  * JSDoc 同源文档在 info（悬浮展示）。
  *
  * 接入说明（两档，按 T3.1 的编辑器配置二选一）：
@@ -12,20 +12,14 @@
  *  - 需要完全接管补全时：用导出的 scriptCompletionSource 接入
  *    `autocompletion({ override: [scriptCompletionSource] })`。
  *
- * 属性清单取自 src/ui-editor/schema（PropDef.id 权威来源，经 ts.ts 的
- * knownUIAttrNames 与「未知属性警告」共用同一集合）；文档取各 PropDef.doc。
- * UI 节点名 / 插件 id 是资产级动态数据，经 ScriptCompletionOptions 注入
- *（缺省补全本期必做插件 phoneLog，不补全节点名）。
+ * 插件 id 是资产级动态数据，经 ScriptCompletionOptions 注入
+ *（缺省补全本期必做插件 phoneLog）。
  */
 import type { Completion, CompletionContext, CompletionResult, CompletionSource } from '@codemirror/autocomplete';
 import { EditorState, type Extension } from '@codemirror/state';
-import { uiNodeSchemas } from '@/ui-editor/schema';
-import { knownUIAttrNames } from './ts';
 
 /** 补全扩展的可选配置（资产级动态数据；缺省给出无资产上下文的通用补全） */
 export interface ScriptCompletionOptions {
-  /** UI 节点名清单（ui.<节点名> 一级补全用；来自当前 UI 资产树。缺省不补全一级节点名） */
-  uiNames?: readonly string[];
   /** 已启用插件 id（plugins.<id> 补全用；缺省 ['phoneLog']——本期唯一必做插件，PLAN §14.3） */
   pluginIds?: readonly string[];
 }
@@ -36,12 +30,6 @@ export interface ScriptCompletionOptions {
 
 /** 顶层内建全局（9 项，与 types.d.ts declare global 一一对应） */
 const GLOBAL_COMPLETIONS: Completion[] = [
-  {
-    label: 'ui',
-    type: 'variable',
-    detail: 'UIAccessor',
-    info: 'UI 节点访问器：ui.<节点名>.<属性> 直接读写（如 ui.list.items = rows、ui.title.text = "你好"）；ui.find/read/write 通用访问；未知节点返回安全空对象并提示一次。',
-  },
   {
     label: 'vars',
     type: 'variable',
@@ -117,34 +105,16 @@ const PLUGIN_METHODS: Readonly<Record<string, Completion[]>> = {
   ],
 };
 
-/** UI 属性补全（清单 = knownUIAttrNames；文档 = 各 schema PropDef.doc 首个非空者） */
-function attrCompletions(): Completion[] {
-  const docById = new Map<string, string>();
-  for (const schema of uiNodeSchemas) {
-    for (const def of schema.props) {
-      if (!docById.has(def.id) && def.doc) docById.set(def.id, def.doc);
-    }
-  }
-  return knownUIAttrNames().map((id) => ({
-    label: id,
-    type: 'property',
-    detail: 'UI 属性',
-    info: docById.get(id) ?? 'UI 节点属性（与渲染器 PropDef 对齐，读写直通 UiHandle）',
-  }));
-}
-
 /* ============================================================
  * 2. 补全源
  * ============================================================ */
 
 /**
- * 构造脚本补全源（可传资产级 uiNames / pluginIds 精化）。
+ * 构造脚本补全源（可传资产级 pluginIds 精化）。
  * 上下文识别：顶层标识符 → 9 全局；`convert.` → 转换函数；
- * `plugins.<id>` / `plugins.<id>.<method>` → 插件命名空间与方法；
- * `ui.<节点>` → 节点名；`ui.<节点>.` → UI 属性。
+ * `plugins.<id>` / `plugins.<id>.<method>` → 插件命名空间与方法。
  */
 export function makeScriptCompletionSource(opts: ScriptCompletionOptions = {}): CompletionSource {
-  const attrComps = attrCompletions();
   const pluginIds = opts.pluginIds ?? ['phoneLog'];
   const pluginComps: Completion[] = pluginIds.map((id) => ({
     label: id,
@@ -152,13 +122,6 @@ export function makeScriptCompletionSource(opts: ScriptCompletionOptions = {}): 
     detail: '插件命名空间',
     info: `plugins.${id}：await plugins.${id}.<方法>(...args)；方法清单取决于插件清单（T6.4 插件桥接入）`,
   }));
-  const uiNodeComps: Completion[] = (opts.uiNames ?? []).map((name) => ({
-    label: name,
-    type: 'variable',
-    detail: 'UI 节点',
-    info: `ui.${name}：<属性> 直接读写（text/value/checked/visible/items…）`,
-  }));
-
   return (ctx: CompletionContext): CompletionResult | null => {
     const line = ctx.state.doc.lineAt(ctx.pos);
     const before = line.text.slice(0, ctx.pos - line.from);
@@ -173,16 +136,6 @@ export function makeScriptCompletionSource(opts: ScriptCompletionOptions = {}): 
     // plugins.<id*>
     m = /\bplugins\.(\w*)$/.exec(before);
     if (m) return { from: ctx.pos - m[1].length, options: pluginComps, validFor: /^\w*$/ };
-
-    // ui.<节点>.<attr*>
-    m = /\bui\.\w+\.(\w*)$/.exec(before);
-    if (m) return { from: ctx.pos - m[1].length, options: attrComps, validFor: /^\w*$/ };
-    // ui.<节点*>
-    m = /\bui\.(\w*)$/.exec(before);
-    if (m) {
-      if (uiNodeComps.length === 0) return null; // 无资产上下文：不臆造节点名
-      return { from: ctx.pos - m[1].length, options: uiNodeComps, validFor: /^\w*$/ };
-    }
 
     // 顶层标识符（前面不是点 / 标识符字符）
     m = /(^|[^\w$.])([A-Za-z_]\w*)$/.exec(before);

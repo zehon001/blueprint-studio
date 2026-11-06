@@ -15,7 +15,6 @@
  */
 export {
   createScriptGlobals,
-  knownUIAttrNames,
   PLUGIN_BRIDGE_MISSING,
   type ScriptGlobalsOptions,
 } from './ts';
@@ -32,10 +31,6 @@ export type {
   PluginsAccessor,
   ScriptEventHandler,
   ScriptGlobals,
-  UIAccessor,
-  UIAttrName,
-  UIListRow,
-  UINodeAttrs,
   VarsAccessor,
 } from './types';
 

@@ -35,6 +35,8 @@ import { Menu } from '../../panels/file-system/Menu';
 import type { MenuItem } from '../../panels/file-system/Menu';
 import { useBlueprintStore } from '../store/blueprint-store';
 import { TypeSelect } from '../type-picker';
+import { hasPluginNodes } from '@/nodes/dynamic';
+import { useWorkspaceStore } from '../../shell/workspace-store';
 import {
   cleanParamRows,
   findEventNode,
@@ -153,10 +155,29 @@ function Section(props: {
  * ＋新建 的行内表单
  * ============================================================ */
 
-/** ＋新建变量：行内命名 + 类型下拉（基础 / 数组 / 自定义结构体） */
+/** agent 插件可用性（会话类型变量门禁：未安装该插件时类型下拉不出现会话项） */
+function useAgentPluginAvailable(): boolean {
+  const project = useWorkspaceStore((s) => s.currentProject?.path ?? null);
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void hasPluginNodes(project, 'agent')
+      .then((ok) => {
+        if (alive) setAvailable(ok);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [project]);
+  return available;
+}
+
+/** ＋新建变量：行内命名 + 类型下拉（基础 / 数组 / 自定义结构体 / Agent 会话） */
 function AddVariableRow(props: {
   existingNames: readonly string[];
   types?: readonly IRStructDef[];
+  sessionAvailable?: boolean;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState(() => nextVariableName(props.existingNames));
@@ -187,6 +208,7 @@ function AddVariableRow(props: {
         value={type}
         ariaLabel="变量类型"
         types={props.types}
+        sessionAvailable={props.sessionAvailable}
         onChange={setType}
       />
       <button type="button" className="bp-mb-btn bp-mb-btn--ok" title="确认新建" disabled={duplicate || draft.trim() === ''} onClick={confirm}>
@@ -628,6 +650,7 @@ export function MyBlueprint({
   const [editingDefault, setEditingDefault] = useState<string | null>(null);
   /** 行右键菜单（受控渲染） */
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  const sessionAvailable = useAgentPluginAvailable();
 
   if (!asset) return null;
 
@@ -832,7 +855,12 @@ export function MyBlueprint({
             </div>
           ))}
           {adding === 'vars' ? (
-            <AddVariableRow existingNames={variableNames} types={asset.types} onClose={closeAdd} />
+            <AddVariableRow
+              existingNames={variableNames}
+              types={asset.types}
+              sessionAvailable={sessionAvailable}
+              onClose={closeAdd}
+            />
           ) : null}
           {asset.variables.length === 0 && adding !== 'vars' ? (
             <div className="bp-mb-empty">暂无变量</div>

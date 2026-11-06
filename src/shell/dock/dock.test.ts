@@ -467,7 +467,7 @@ describe('dock store：布局动作与持久化', () => {
 
 describe('openPanel：文档落点（主编辑组优先）', () => {
   it('运行面板移到底部后，新资产面板仍并入主编辑组而非控制台组', () => {
-    const center = makeTabs(['asset:ui:ui/main.ui.json'])
+    const center = makeTabs(['asset:blueprint:ui/main.ui.json'])
     const bottom = makeTabs(['console', 'runtime'])
     const root: DockNode = {
       kind: 'split',
@@ -492,7 +492,7 @@ describe('openPanel：文档落点（主编辑组优先）', () => {
     )
     assert.equal(placed?.node.id, center.id, '新资产应并入含文档的主编辑组')
     assert.deepEqual(placed?.node.panels, [
-      'asset:ui:ui/main.ui.json',
+      'asset:blueprint:ui/main.ui.json',
       'asset:element:ui/elements/StatCard.elem.json',
     ])
   })
@@ -556,8 +556,8 @@ describe('openPanel：文档落点（主编辑组优先）', () => {
       children: [center, t('console')],
     }
     useDockStore.getInitialState().initDockLayout(root, root, 'runtime')
-    useDockStore.getState().openPanel('asset:ui:ui/other.ui.json', 'center')
-    const placed = findTabsByPanel(useDockStore.getState().root, 'asset:ui:ui/other.ui.json')
+    useDockStore.getState().openPanel('asset:blueprint:ui/other.ui.json', 'center')
+    const placed = findTabsByPanel(useDockStore.getState().root, 'asset:blueprint:ui/other.ui.json')
     assert.equal(placed?.node.id, center.id)
   })
 })
@@ -657,10 +657,10 @@ describe('workspace store：项目上下文与资产 tabs', () => {
 
   it('openAsset：重复打开去重并激活；新打开追加并缺省命名', () => {
     const s = ws.useWorkspaceStore.getState()
-    s.openAsset({ kind: 'ui', assetPath: 'ui/main.ui.json' })
+    s.openAsset({ kind: 'blueprint', assetPath: 'logic/main.bp.json' })
     let st = ws.useWorkspaceStore.getState()
     assert.equal(st.openTabs.length, 1)
-    assert.equal(st.activeTabId, ws.tabIdOf('ui', 'ui/main.ui.json'))
+    assert.equal(st.activeTabId, ws.tabIdOf('blueprint', 'logic/main.bp.json'))
 
     st.openAsset({ kind: 'script', assetPath: 'logic/parser.ts' }) // 新增
     st = ws.useWorkspaceStore.getState()
@@ -671,7 +671,7 @@ describe('workspace store：项目上下文与资产 tabs', () => {
 
   it('closeTab：关闭激活 tab 时右邻优先、末位取左邻', () => {
     const s = ws.useWorkspaceStore.getState()
-    s.openAsset({ kind: 'ui', assetPath: 'ui/main.ui.json' })
+    s.openAsset({ kind: 'blueprint', assetPath: 'logic/main.bp.json' })
     s.openAsset({ kind: 'script', assetPath: 'logic/parser.ts' })
     const st = ws.useWorkspaceStore.getState()
     const first = st.openTabs[0].id
@@ -685,7 +685,7 @@ describe('workspace store：项目上下文与资产 tabs', () => {
 
   it('markDirty / clearDirty 脏标记', () => {
     const s = ws.useWorkspaceStore.getState()
-    s.openAsset({ kind: 'ui', assetPath: 'ui/main.ui.json' })
+    s.openAsset({ kind: 'blueprint', assetPath: 'logic/main.bp.json' })
     const id = ws.useWorkspaceStore.getState().openTabs[0].id
     ws.useWorkspaceStore.getState().markDirty(id)
     assert.equal(ws.useWorkspaceStore.getState().openTabs[0].dirty, true)

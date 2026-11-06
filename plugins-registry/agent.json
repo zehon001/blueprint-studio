@@ -1,0 +1,67 @@
+{
+  "id": "agent",
+  "name": "Agent 会话",
+  "kind": "custom",
+  "description": "Agent 会话桥：经 dsh-plugin-orchestrator 创建会话 / 发送消息 / 监听会话通知（DSH 真实连接，Codex / Claude 预留）。默认随引擎安装；未安装时相关节点与会话变量类型不显示。",
+  "nodes": [
+    {
+      "id": "agent.createSession",
+      "title": "创建 Agent 会话",
+      "kind": "action",
+      "keywords": ["agent", "session", "会话", "创建", "dsh", "codex", "claude", "编排"],
+      "inputs": [
+        { "id": "exec", "type": "exec" },
+        { "id": "platform", "type": "string", "label": "平台", "options": [
+          { "value": "dsh", "label": "DSH" },
+          { "value": "codex", "label": "Codex（预留）" },
+          { "value": "claude", "label": "Claude（预留）" }
+        ] },
+        { "id": "title", "type": "string", "label": "会话标题", "optional": true }
+      ],
+      "outputs": [
+        { "id": "exec", "type": "exec" },
+        { "id": "session", "type": "session", "label": "会话" },
+        { "id": "sessionId", "type": "string", "label": "会话ID" }
+      ]
+    },
+    {
+      "id": "agent.sessionEvent",
+      "title": "会话事件",
+      "kind": "event",
+      "keywords": ["agent", "notification", "会话", "通知", "监听", "事件", "dsh"],
+      "doc": "监听会话通知（DSH 推送）：检视器「会话变量」选择会话类型变量后，仅该会话的通知触发本节点。出脚：通知类型（message=回复 / tool_call / status / error / completed）、内容文本、原始 JSON、会话ID。",
+      "params": [
+        { "id": "sessionVar", "label": "会话变量", "type": "variable", "default": "", "group": "监听" },
+        { "id": "eventName", "label": "事件名", "type": "string", "default": "agent.notification", "group": "高级" }
+      ],
+      "inputs": [],
+      "outputs": [
+        { "id": "exec", "type": "exec" },
+        { "id": "kind", "type": "string", "label": "通知类型" },
+        { "id": "content", "type": "string", "label": "内容" },
+        { "id": "raw", "type": "string", "label": "原始数据" },
+        { "id": "sessionId", "type": "string", "label": "会话ID" }
+      ]
+    },
+    {
+      "id": "agent.sendMessage",
+      "title": "发送 Agent 消息",
+      "kind": "action",
+      "keywords": ["agent", "message", "发送", "消息", "提示词", "prompt", "模型", "思考", "权限"],
+      "inputs": [
+        { "id": "exec", "type": "exec" },
+        { "id": "session", "type": "session", "label": "会话" },
+        { "id": "message", "type": "string", "label": "消息内容（提示词）", "optional": true },
+        { "id": "waitForCompletion", "type": "bool", "label": "等待完成通知", "defaultValue": true },
+        { "id": "model", "type": "string", "label": "大模型", "optional": true, "options": [] },
+        { "id": "reasoning", "type": "string", "label": "思考强度", "optional": true, "options": [] },
+        { "id": "permissions", "type": "string", "label": "权限", "optional": true, "options": [] }
+      ],
+      "outputs": [
+        { "id": "exec", "type": "exec" },
+        { "id": "reply", "type": "string", "label": "回复" },
+        { "id": "sent", "type": "bool", "label": "已发送" }
+      ]
+    }
+  ]
+}

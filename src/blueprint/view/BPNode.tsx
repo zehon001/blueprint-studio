@@ -13,14 +13,10 @@ import { memo, useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { FunctionSquare, GitBranch, Puzzle, Sigma, TriangleAlert, Zap, type LucideIcon } from 'lucide-react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { IRNode, NodeSpec, PinSpec, UINode } from '../../ir/types';
+import type { IRNode, NodeSpec, PinSpec } from '../../ir/types';
 import { Icon } from '../../shell/ui/Icon';
 import { PIN_COLORS, pinColor } from '../../shell/theme/tokens';
 import type { DebugHighlightKind } from '../../shell/debug/overlay-state';
-import { useSceneTreeDomain } from '../../ui-editor/store';
-import { uiTraitsForType } from '../../ui-editor/schema';
-import { getCachedElement } from '../../ui-editor/element';
-import { getCachedPrefab } from '../../ui-editor/prefab';
 import {
   headColorFor,
   headIconFor,
@@ -158,71 +154,6 @@ function SelectDefaultEditor({ pin, value, onCommit }: EditorProps) {
   );
 }
 
-/** 这些 UI 访问器节点的 `name` 引脚可用图属主树节点名下拉（v3 子节点选择器） */
-const UI_NAME_PIN_TYPES = new Set([
-  'ui.get',
-  'ui.getValue',
-  'ui.setText',
-  'ui.setValue',
-  'ui.setVisible',
-  'ui.listSetItems',
-  'ui.setTitle',
-])
-
-/** UI 访问器需要的 trait（无 = 不过滤） */
-const ACCESSOR_TRAIT: Readonly<Record<string, string>> = {
-  'ui.setText': 'text',
-  'ui.setTitle': 'text',
-  'ui.setValue': 'value',
-  'ui.listSetItems': 'items',
-}
-
-function traitsOfUiNode(n: UINode): string[] {
-  if (n.element) return [...(getCachedElement(n.element)?.traits ?? [])]
-  if (n.prefab) {
-    const root = getCachedPrefab(n.prefab)?.root
-    return root ? uiTraitsForType(root.type) : []
-  }
-  return uiTraitsForType(n.type)
-}
-
-function UiNodeNameDefaultEditor({
-  pin,
-  value,
-  onCommit,
-  accessorType,
-}: EditorProps & { accessorType: string }) {
-  const { asset } = useSceneTreeDomain()
-  const required = ACCESSOR_TRAIT[accessorType]
-  const names: string[] = []
-  const walk = (n: UINode): void => {
-    if (!required || traitsOfUiNode(n).includes(required)) names.push(n.name)
-    for (const c of n.children ?? []) walk(c)
-  }
-  if (asset) walk(asset.root)
-  const initial = String(initialValueOf(pin, value) ?? '')
-  // 树为空（独立 .bp.json / 嵌入前）退回文本输入，保证仍可手填
-  if (names.length === 0) return <TextDefaultEditor pin={pin} value={value} onCommit={onCommit} />
-  const options = initial && !names.includes(initial) ? [initial, ...names] : names
-  return (
-    <select
-      className="bp-pin-default bp-pin-default--select"
-      value={initial}
-      onChange={(e) => onCommit(e.target.value)}
-      onClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-      aria-label="选择 UI 节点"
-    >
-      <option value="">（选择节点）</option>
-      {options.map((name) => (
-        <option key={name} value={name}>
-          {name}
-        </option>
-      ))}
-    </select>
-  )
-}
-
 function TextDefaultEditor({ pin, value, onCommit }: EditorProps) {
   const initial = String(initialValueOf(pin, value) ?? '');
   const [draft, setDraft] = useState(initial);
@@ -328,16 +259,6 @@ function PinDefaultEditor({ nodeId, pin, data }: { nodeId: string; pin: PinSpec;
     // TODO(T2.2/T2.4)：经统一命令栈写入 IRNode.pinDefaults（可撤销）；本卡仅透传可选回调 + 本地 state
     data.onPinDefaultChange?.(nodeId, pin.id, next);
   };
-  if (pin.id === 'name' && UI_NAME_PIN_TYPES.has(data.node.type)) {
-    return (
-      <UiNodeNameDefaultEditor
-        pin={pin}
-        value={value}
-        onCommit={onCommit}
-        accessorType={data.node.type}
-      />
-    );
-  }
   switch (editorKindOf(pin)) {
     case 'bool': return <BoolDefaultEditor pin={pin} value={value} onCommit={onCommit} />;
     case 'number': return <NumberDefaultEditor pin={pin} value={value} onCommit={onCommit} />;

@@ -29,8 +29,20 @@ const PRIMITIVES: { value: IRValueType; label: string }[] = [
   { value: 'any', label: '任意 (any)' },
 ];
 
-/** 构建类型选项分组（结构体来自当前资产 types 表） */
-export function typeOptionGroups(types?: readonly IRStructDef[]): TypeOptionGroup[] {
+/** Agent 会话类型（agent 插件安装时出现；未安装完全不显示） */
+const SESSION_TYPE_OPTION: { value: IRValueType; label: string } = {
+  value: 'session',
+  label: '会话 (session)',
+};
+
+/** 类型选项附加组（agent 插件可用性等门禁结果） */
+export interface TypeOptionExtras {
+  /** 显示 Agent 会话类型（session） */
+  session?: boolean;
+}
+
+/** 构建类型选项分组（结构体来自当前资产 types 表；session 由插件可用性门禁） */
+export function typeOptionGroups(types?: readonly IRStructDef[], extras?: TypeOptionExtras): TypeOptionGroup[] {
   const groups: TypeOptionGroup[] = [
     { label: '基础类型', options: PRIMITIVES },
     {
@@ -48,17 +60,20 @@ export function typeOptionGroups(types?: readonly IRStructDef[]): TypeOptionGrou
       options: types.map((t) => ({ value: `${t.name}[]` as IRValueType, label: `结构体数组：${t.name}` })),
     });
   }
+  if (extras?.session) {
+    groups.push({ label: 'Agent', options: [SESSION_TYPE_OPTION] });
+  }
   return groups;
 }
 
 /** 某类型是否在可选表中（含当前值兜底判断） */
-export function isKnownTypeOption(type: IRValueType, types?: readonly IRStructDef[]): boolean {
-  return typeOptionGroups(types).some((g) => g.options.some((o) => o.value === type));
+export function isKnownTypeOption(type: IRValueType, types?: readonly IRStructDef[], extras?: TypeOptionExtras): boolean {
+  return typeOptionGroups(types, extras).some((g) => g.options.some((o) => o.value === type));
 }
 
 /** 类型显示名（选择器 / 徽标 tooltip 共用；未知类型原样） */
-export function typeOptionLabel(type: IRValueType, types?: readonly IRStructDef[]): string {
-  for (const group of typeOptionGroups(types)) {
+export function typeOptionLabel(type: IRValueType, types?: readonly IRStructDef[], extras?: TypeOptionExtras): string {
+  for (const group of typeOptionGroups(types, extras)) {
     const hit = group.options.find((o) => o.value === type);
     if (hit) return hit.label;
   }
@@ -69,12 +84,14 @@ export function TypeSelect(props: {
   value: IRValueType;
   onChange: (type: IRValueType) => void;
   types?: readonly IRStructDef[];
+  /** Agent 会话类型是否可选（agent 插件安装时 true） */
+  sessionAvailable?: boolean;
   className?: string;
   style?: CSSProperties;
   ariaLabel?: string;
   disabled?: boolean;
 }) {
-  const groups = typeOptionGroups(props.types);
+  const groups = typeOptionGroups(props.types, { session: props.sessionAvailable });
   const all = groups.flatMap((g) => g.options.map((o) => o.value));
   const current = props.value ?? '';
   const custom = current !== '' && !all.includes(current);

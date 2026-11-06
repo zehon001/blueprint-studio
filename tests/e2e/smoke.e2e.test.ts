@@ -202,22 +202,21 @@ test('场景① 新建项目（log-analyzer 模板）：目录结构与 project.
     // 项目列表在列
     const list = await api('GET', '/api/projects')
     assert.equal(list.status, 200)
-    const projects = list.json.projects as Array<{ path?: unknown; name?: unknown; mainUI?: unknown }>
+    const projects = list.json.projects as Array<{ path?: unknown; name?: unknown; mainBlueprint?: unknown }>
     const created = projects.find((p) => p.path === name)
     assert.ok(created, `项目列表应包含 ${name}`)
     assert.equal(created.name, name, '模板变量 {{PROJECT_NAME}} 应已替换')
-    assert.equal(created.mainUI, 'ui/main.ui.json')
+    assert.equal(created.mainBlueprint, 'logic/main.bp.json')
 
     // 目录树：模板资产 + 五个标准子目录（.history 隐藏）
     const tree = await api('GET', `/api/tree?path=${encodeURIComponent(name)}`)
     assert.equal(tree.status, 200)
     const root = tree.json.tree as unknown as TreeNodeLike
-    for (const dir of ['ui', 'logic', 'assets', 'plugins']) {
+    for (const dir of ['logic', 'assets', 'plugins']) {
       assert.equal(findChild(root, dir)?.type, 'dir', `标准子目录 ${dir} 应存在`)
     }
     assert.ok(!findChild(root, '.history'), '.history 应在目录树中隐藏')
     assert.equal(findChild(root, 'project.json')?.type, 'file')
-    assert.equal(findChild(root, 'ui')?.children?.some((c) => c.name === 'main.ui.json'), true, '模板 UI 资产应存在')
     assert.equal(
       findChild(root, 'logic')?.children?.some((c) => c.name === 'main.bp.json'),
       true,
@@ -235,7 +234,7 @@ test('场景① 新建项目（log-analyzer 模板）：目录结构与 project.
     assert.equal(pf.json.ok, true)
     const projectJson = JSON.parse(pf.json.content as string) as Record<string, unknown>
     assert.equal(projectJson.name, name)
-    assert.equal(projectJson.mainUI, 'ui/main.ui.json')
+    assert.equal(projectJson.mainBlueprint, 'logic/main.bp.json')
     assert.equal(projectJson.engineVersion, '3.0.0')
     assert.deepEqual(projectJson.plugins, {})
   } finally {
@@ -243,67 +242,50 @@ test('场景① 新建项目（log-analyzer 模板）：目录结构与 project.
   }
 })
 
-test('场景② 写 UI 资产（PUT /api/file）→ 读回一致', { skip: srvSkip }, async () => {
+test('场景② 写蓝图资产（PUT /api/file）→ 读回一致', { skip: srvSkip }, async () => {
   const name = projectName('s2')
   await createScenarioProject(name, 'empty')
 
   try {
-    // 覆写模板 main.ui.json：日志查看器主界面（vbox + 标题 + 列表）
-    const uiJson = JSON.stringify(
+    // 覆写模板 main.bp.json：最小蓝图（开始事件）
+    const bpJson = JSON.stringify(
       {
-        version: 2,
+        version: 3,
         name: 'main',
-        root: {
-          id: 'ui_root',
-          name: 'root',
-          type: 'vbox',
-          transform: { position: { x: 0, y: 0 }, size: { w: 960, h: 640 }, rotation: 0 },
-          theme: { padding: 8 },
-          props: { spacing: 4 },
-          children: [
-            {
-              id: 'ui_title',
-              name: 'title',
-              type: 'label',
-              transform: { position: { x: 0, y: 0 }, size: { w: 944, h: 32 }, rotation: 0 },
-              theme: {},
-              props: { text: '手机日志查看器' },
-              children: [],
-            },
-            {
-              id: 'ui_list',
-              name: 'list',
-              type: 'list',
-              transform: { position: { x: 0, y: 0 }, size: { w: 944, h: 560 }, rotation: 0 },
-              theme: {},
-              props: {},
-              children: [],
-            },
-          ],
+        entry: 'main',
+        graphs: {
+          main: {
+            nodes: [{ id: 'n_start', type: 'event.start', params: {}, pinDefaults: {}, position: { x: 0, y: 0 } }],
+            edges: [],
+          },
         },
+        variables: [],
+        events: [],
+        snippets: [],
+        layout: {},
       },
       null,
       2,
     )
-    const put = await api('PUT', '/api/file', { path: `${name}/ui/main.ui.json`, content: uiJson })
+    const put = await api('PUT', '/api/file', { path: `${name}/logic/main.bp.json`, content: bpJson })
     assert.equal(put.status, 200)
     assert.equal(put.json.ok, true, 'PUT 成功响应须带 ok:true（编辑器各保存/新建流程按 json.ok 判定成败）')
-    assert.equal(put.json.path, `${name}/ui/main.ui.json`)
-    assert.equal(put.json.size, Buffer.byteLength(uiJson, 'utf8'))
+    assert.equal(put.json.path, `${name}/logic/main.bp.json`)
+    assert.equal(put.json.size, Buffer.byteLength(bpJson, 'utf8'))
 
     // 读回逐字节一致（utf8 文本不走 base64）
-    const back = await api('GET', `/api/file?path=${encodeURIComponent(`${name}/ui/main.ui.json`)}`)
+    const back = await api('GET', `/api/file?path=${encodeURIComponent(`${name}/logic/main.bp.json`)}`)
     assert.equal(back.status, 200)
     assert.equal(back.json.encoding, 'utf8')
-    assert.equal(back.json.content, uiJson, 'UI 资产写读应逐字节一致')
+    assert.equal(back.json.content, bpJson, '蓝图资产写读应逐字节一致')
 
     // 新子路径写入：父目录不存在时自动创建
     const nested = await api('PUT', '/api/file', {
-      path: `${name}/ui/panels/log-panel.ui.json`,
+      path: `${name}/logic/panels/sub.bp.json`,
       content: '{"version":2,"name":"log-panel"}',
     })
     assert.equal(nested.status, 200)
-    const nestedBack = await api('GET', `/api/file?path=${encodeURIComponent(`${name}/ui/panels/log-panel.ui.json`)}`)
+    const nestedBack = await api('GET', `/api/file?path=${encodeURIComponent(`${name}/logic/panels/sub.bp.json`)}`)
     assert.equal(nestedBack.json.content, '{"version":2,"name":"log-panel"}')
   } finally {
     removeProjectDir(name)

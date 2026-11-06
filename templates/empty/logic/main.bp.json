@@ -1,0 +1,32 @@
+{
+  "version": 3,
+  "name": "main",
+  "entry": "main",
+  "graphs": {
+    "main": {
+      "nodes": [
+        {
+          "id": "n_start",
+          "type": "event.start",
+          "params": {},
+          "pinDefaults": {},
+          "position": { "x": 80, "y": 160 }
+        },
+        {
+          "id": "n_print",
+          "type": "system.print",
+          "params": {},
+          "pinDefaults": { "value": "蓝图已启动" },
+          "position": { "x": 400, "y": 160 }
+        }
+      ],
+      "edges": [
+        { "id": "e1", "kind": "exec", "from": { "node": "n_start", "pin": "exec" }, "to": { "node": "n_print", "pin": "exec" } }
+      ]
+    }
+  },
+  "variables": [],
+  "events": [],
+  "snippets": [],
+  "layout": { "main": { "zoom": 1, "pan": [0, 0] } }
+}

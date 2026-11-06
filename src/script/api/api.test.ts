@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { CompletionContext, type CompletionResult, type CompletionSource } from '@codemirror/autocomplete';
 import { EditorState } from '@codemirror/state';
 import { createScriptGlobals, PLUGIN_BRIDGE_MISSING, type ScriptGlobalsOptions } from './ts';
-import { makeScriptCompletionSource, scriptCompletionSource, scriptTypesExtension } from './completion';
+import { scriptCompletionSource, scriptTypesExtension } from './completion';
 
 /* ============================================================
  * 测试工具：录制器与全局名清单
@@ -33,9 +33,8 @@ interface Recorder {
   delays: number[];
 }
 
-/** 选项录制器：ui/getVar/setVar/emit/print/delay 全量记录；callPlugin 等经 extra 覆盖/去除 */
+/** 选项录制器：getVar/setVar/emit/print/delay 全量记录；callPlugin 等经 extra 覆盖/去除 */
 function makeRecorder(
-  nodes: Record<string, Record<string, unknown>> = {},
   extra: Partial<ScriptGlobalsOptions> = {},
 ): { rec: Recorder; opts: ScriptGlobalsOptions } {
   const rec: Recorder = {
@@ -49,16 +48,6 @@ function makeRecorder(
     delays: [],
   };
   const opts: ScriptGlobalsOptions = {
-    ui: {
-      find: (name) => (name in nodes ? { name } : null),
-      read: (name, attr) => {
-        rec.reads.push({ name, attr });
-        return nodes[name]?.[attr];
-      },
-      write: (name, attr, value) => {
-        rec.writes.push({ name, attr, value });
-      },
-    },
     getVar: (name) => rec.varStore.get(name),
     setVar: (name, value) => {
       rec.varStore.set(name, value);
@@ -86,81 +75,15 @@ function makeRecorder(
   return { rec, opts };
 }
 
-/** 内建全局清单（types.d.ts declare global 与 ScriptGlobals 的 9 项） */
-const GLOBAL_NAMES = ['ui', 'vars', 'emit', 'onEvent', 'plugins', 'print', 'convert', 'format', 'delay'] as const;
+/** 内建全局清单（types.d.ts declare global 与 ScriptGlobals 的 8 项） */
+const GLOBAL_NAMES = ['vars', 'emit', 'onEvent', 'plugins', 'print', 'convert', 'format', 'delay'] as const;
 
-/* ============================================================
- * 1. ui 两级 Proxy
- * ============================================================ */
-
-test('ui 代理：属性式读写直通 UiHandle（ui.list.items = rows / ui.title.text）', () => {
-  const { rec, opts } = makeRecorder({ list: {}, title: { text: '旧' } });
-  const g = createScriptGlobals(opts);
-
-  g.ui.list.items = [{ level: 'INFO', message: '就绪' }];
-  assert.deepEqual(rec.writes[0], { name: 'list', attr: 'items', value: [{ level: 'INFO', message: '就绪' }] });
-
-  g.ui.title.text = '日志分析';
-  assert.deepEqual(rec.writes[1], { name: 'title', attr: 'text', value: '日志分析' });
-
-  assert.equal(g.ui.title.text, '旧'); // 读 → handle.read('title','text')
-  assert.ok(rec.reads.some((r) => r.name === 'title' && r.attr === 'text'));
-});
-
-test('ui 代理：find/read/write 通用方法直通；find 未命中返回 null', () => {
-  const { rec, opts } = makeRecorder({ title: { text: '旧' } });
-  const g = createScriptGlobals(opts);
-
-  assert.ok(g.ui.find('title') !== null);
-  assert.equal(g.ui.find('missing'), null);
-
-  // 通用 read / write 直通
-  assert.equal(g.ui.read('title', 'text'), '旧');
-  g.ui.write('title', 'text', '新');
-  assert.deepEqual(rec.writes.at(-1), { name: 'title', attr: 'text', value: '新' });
-  assert.ok(rec.reads.some((r) => r.name === 'title' && r.attr === 'text'));
-});
-
-test('ui 代理：未知节点 → 安全空对象（读 undefined / 写吞掉）+ print 提示恰好一次', () => {
-  const { rec, opts } = makeRecorder({ list: {} });
-  const g = createScriptGlobals(opts);
-
-  const ghost = g.ui.ghost;
-  assert.equal(ghost.text, undefined); // 安全空对象：读 undefined
-  ghost.anything = 1; // 写被吞，不抛错
-  g.ui.ghost.other = 2; // 再次访问不重复提示
-  assert.equal(rec.prints.filter((p) => p.includes('ghost')).length, 1);
-});
-
-test('ui 代理：未知属性 → print 提示（仍按原样透传读写）', () => {
-  const { rec, opts } = makeRecorder({ list: {} });
-  const g = createScriptGlobals(opts);
-
-  const v = g.ui.list.notARealAttr;
-  assert.equal(v, undefined);
-  g.ui.list.notARealAttr = 1; // 同 key 只提示一次
-  assert.equal(rec.prints.filter((p) => p.includes('notARealAttr')).length, 1);
-  assert.deepEqual(rec.writes.at(-1), { name: 'list', attr: 'notARealAttr', value: 1 });
-});
-
-test('ui 代理：未提供 opts.ui（ADR-005 降级）→ 读写无操作 + print 提示一次，不抛错', () => {
-  const bare = makeRecorder({}, { ui: undefined });
-  const g = createScriptGlobals(bare.opts);
-
-  assert.equal(g.ui.title.text, undefined); // 读 undefined
-  g.ui.title.text = 'x'; // 写吞掉，不抛错
-  assert.equal(bare.rec.writes.length, 0);
-  assert.equal(bare.rec.prints.filter((p) => p.includes('title')).length, 1);
-  assert.ok(bare.rec.prints[0].includes('UI 访问器未接入'));
-  assert.equal(g.ui.find('title'), null); // find 静默返回 null
-});
-
-test('createScriptGlobals：返回值恰为 10 个内建全局', () => {
+test('createScriptGlobals：返回值恰为 9 个内建全局', () => {
   const { opts } = makeRecorder();
   const g = createScriptGlobals(opts);
   assert.deepEqual(
     Object.keys(g).sort(),
-    ['convert', 'delay', 'emit', 'format', 'onEvent', 'plugins', 'print', 'readFile', 'ui', 'vars'],
+    ['convert', 'delay', 'emit', 'format', 'onEvent', 'plugins', 'print', 'readFile', 'vars'],
   );
 });
 
@@ -219,7 +142,7 @@ test('onEvent：转发 onEventRegister（同名同引用）；未接入时提示
   assert.equal(rec.registered[0].handler, handler);
 
   // 未提供 onEventRegister：print 提示、不抛错、不注册
-  const bare = makeRecorder({}, { onEventRegister: undefined });
+  const bare = makeRecorder({ onEventRegister: undefined });
   const g2 = createScriptGlobals(bare.opts);
   g2.onEvent('x', handler);
   assert.ok(bare.rec.prints.some((p) => p.includes('onEventRegister')));
@@ -241,7 +164,7 @@ test('plugins：无 callPlugin → 调用抛「插件桥未接入」；有 → �
   ]);
 
   // 无桥：rejected promise，文案含「插件桥未接入」
-  const bare = makeRecorder({}, { callPlugin: undefined });
+  const bare = makeRecorder({ callPlugin: undefined });
   const g2 = createScriptGlobals(bare.opts);
   await assert.rejects(g2.plugins.phoneLog.read({ mode: 'adb' }), /插件桥未接入/);
   assert.match(PLUGIN_BRIDGE_MISSING, /插件桥未接入/);
@@ -374,18 +297,6 @@ test('completion：convert. / plugins. 成员补全（签名在 detail）', () =
 
   const result = complete(scriptCompletionSource, 'await plugins.phoneLog.');
   assert.match(result?.options[0].detail ?? '', /LogRow/);
-});
-
-test('completion：ui.<节点>.<属性> 属性补全来自 schema PropDef 清单', () => {
-  const attrs = labels(complete(scriptCompletionSource, 'ui.list.'));
-  for (const attr of ['text', 'value', 'checked', 'visible', 'items', 'columns']) {
-    assert.ok(attrs.includes(attr), `UI 属性补全缺 ${attr}`);
-  }
-
-  // 一级节点名来自 uiNames 注入；未注入时不臆造
-  const withNames = makeScriptCompletionSource({ uiNames: ['list', 'title'] });
-  assert.deepEqual(labels(complete(withNames, 'ui.')).sort(), ['list', 'title']);
-  assert.deepEqual(labels(complete(scriptCompletionSource, 'ui.')), []);
 });
 
 test('scriptTypesExtension：注册 languageData 补全源（T3.1 咬合点）', () => {
