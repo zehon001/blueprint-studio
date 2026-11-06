@@ -16,9 +16,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Plus, X } from 'lucide-react';
 import { Icon } from '../../shell/ui/Icon';
-import type { IRAsset, IRGraph, IRNode, IRParamSpec, IRValueType, NodeSpec } from '../../ir/types';
+import type { IRAsset, IRGraph, IRNode, IRParamSpec, IRStructDef, IRValueType, NodeSpec, PinSpec } from '../../ir/types';
+import { structPinsOf } from '../../ir/structs';
 import { useBlueprintStore } from '../store/blueprint-store';
-import { VARIABLE_TYPES } from '../my-blueprint/model';
+import { TypeSelect } from '../type-picker';
 import { commonParamRows, connectedInputPins, groupParams } from './details-model';
 import { ParamFieldRow, PinDefaultRow } from './param-editors';
 
@@ -49,6 +50,7 @@ function CollapsibleGroup(props: { title: string; badge?: string; children: Reac
 /** 单行：参数名（失焦提交）+ 类型下拉（即改即提交）+ 删除 */
 function InterfaceRow(props: {
   row: IRParamSpec;
+  types?: readonly IRStructDef[];
   onName: (name: string) => void;
   onType: (type: IRValueType) => void;
   onRemove: () => void;
@@ -83,18 +85,13 @@ function InterfaceRow(props: {
         }}
         onBlur={commit}
       />
-      <select
+      <TypeSelect
         className="bp-det-select"
         value={props.row.type}
-        aria-label="参数类型"
-        onChange={(e) => props.onType(e.target.value as IRValueType)}
-      >
-        {VARIABLE_TYPES.map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </select>
+        ariaLabel="参数类型"
+        types={props.types}
+        onChange={props.onType}
+      />
       <button type="button" className="bp-det-btn" title="删除该行" onClick={props.onRemove}>
         <Icon icon={X} size={12} />
       </button>
@@ -105,6 +102,7 @@ function InterfaceRow(props: {
 /** 接口行组：增删行 / 改名改类型；整组经 onChange 提交（一次一条命令） */
 function InterfaceRows(props: {
   rows: IRParamSpec[];
+  types?: readonly IRStructDef[];
   addText: string;
   onChange: (rows: IRParamSpec[]) => void;
 }) {
@@ -114,6 +112,7 @@ function InterfaceRows(props: {
         <InterfaceRow
           key={i}
           row={row}
+          types={props.types}
           onName={(name) => props.onChange(props.rows.map((r, j) => (j === i ? { ...r, name } : r)))}
           onType={(type) => props.onChange(props.rows.map((r, j) => (j === i ? { ...r, type } : r)))}
           onRemove={() => props.onChange(props.rows.filter((_, j) => j !== i))}
@@ -178,6 +177,7 @@ function GraphSettingsSection(props: {
       <CollapsibleGroup title="入参" badge={`${paramRows.length}`}>
         <InterfaceRows
           rows={paramRows}
+          types={asset.types}
           addText="入参"
           onChange={(rows) => useBlueprintStore.getState().setGraphParams(graphName, rows)}
         />
@@ -185,6 +185,7 @@ function GraphSettingsSection(props: {
       <CollapsibleGroup title="返回值" badge={`${returnRows.length}`}>
         <InterfaceRows
           rows={returnRows}
+          types={asset.types}
           addText="返回值"
           onChange={(rows) => useBlueprintStore.getState().setGraphReturns(graphName, rows)}
         />
@@ -198,13 +199,32 @@ function GraphSettingsSection(props: {
  * 选中 1 节点
  * ============================================================ */
 
-function SingleNodeSection(props: { node: IRNode; spec: NodeSpec | null; graph: IRGraph | null }) {
-  const { node, spec, graph } = props;
-  const title = node.title ?? spec?.title ?? node.type;
+function SingleNodeSection(props: {
+  node: IRNode;
+  spec: NodeSpec | null;
+  graph: IRGraph | null;
+  asset: IRAsset;
+}) {
+  const { node, spec, graph, asset } = props;
+  const title =
+    node.title ??
+    (node.type === 'struct.make' || node.type === 'struct.break'
+      ? `${node.type === 'struct.make' ? '创建' : '拆分'} ${String(node.params?.['typeName'] ?? '结构体')}`
+      : spec?.title ?? node.type);
   const params = spec?.params ?? [];
   const paramGroups = groupParams(params);
   const hasGroups = params.some((p) => p.group);
-  const dataInputs = (spec?.inputs ?? []).filter((p) => p.type !== 'exec');
+  // var.get/set 的 spec 引脚恒为 any：按变量声明类型给出正确的默认值控件
+  const varType =
+    node.type === 'var.get' || node.type === 'var.set'
+      ? asset.variables.find((v) => v.name === node.params?.['varName'])?.type
+      : undefined;
+  // 结构体节点字段脚由资产 types 表动态展开（与画布/运行时同源）
+  const structPins = structPinsOf(node, asset.types);
+  const mergedInputs = new Map<string, PinSpec>();
+  for (const pin of spec?.inputs ?? []) mergedInputs.set(pin.id, pin);
+  for (const pin of structPins?.inputs ?? []) if (!mergedInputs.has(pin.id)) mergedInputs.set(pin.id, pin);
+  const dataInputs = [...mergedInputs.values()].filter((p) => p.type !== 'exec');
   const connected = connectedInputPins(graph, node.id);
   const unknownParams = spec ? [] : Object.entries(node.params ?? {});
 
@@ -260,7 +280,7 @@ function SingleNodeSection(props: { node: IRNode; spec: NodeSpec | null; graph: 
           {dataInputs.map((pin) => (
             <PinDefaultRow
               key={pin.id}
-              pin={pin}
+              pin={varType && pin.id === 'value' ? { ...pin, type: varType } : pin}
               written={node.pinDefaults?.[pin.id]}
               connected={connected.has(pin.id)}
               onCommit={(value) => useBlueprintStore.getState().setPinDefault(node.id, pin.id, value)}
@@ -363,6 +383,7 @@ export function Details({ className }: { className?: string }) {
             node={selectedNodes[0]!}
             spec={specs.get(selectedNodes[0]!.type) ?? null}
             graph={graph}
+            asset={asset}
           />
         ) : (
           <MultiNodeSection nodes={selectedNodes} specs={specs} />

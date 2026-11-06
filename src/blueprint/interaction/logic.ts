@@ -22,12 +22,14 @@ import type {
   IREdge,
   IRGraph,
   IRNode,
+  IRStructDef,
   IRValueType,
   IRVariable,
   NodeSpec,
   PinSpec,
   Vec2,
 } from '../../ir/types';
+import { structPinsOf } from '../../ir/structs';
 
 /** 网格吸附步长（新建节点 / 对齐分布共用；PLAN §8.2「吸附到最近网格 10px」） */
 export const GRID_SIZE = 10;
@@ -106,17 +108,49 @@ export function pinTypeOf(
 }
 
 /** 解析画布端点为 PinRef（未知节点降级为 any 语义：type 'any'） */
+export interface PinTypeContext {
+  /** 资产结构体表（struct.make / struct.break 动态引脚） */
+  types?: readonly IRStructDef[];
+  /** 资产变量表（var.get / var.set 按声明类型判定） */
+  variables?: readonly IRVariable[];
+}
+
+/** 动态引脚类型：结构体字段 / 变量声明类型（静态 spec 查不到时使用） */
+function dynamicPinTypeOf(
+  node: IRNode,
+  pinId: string,
+  dir: 'in' | 'out',
+  ctx?: PinTypeContext,
+): IRValueType | null {
+  const structPins = structPinsOf(node, ctx?.types);
+  if (structPins) {
+    const pin = dir === 'in' ? structPins.inputs : structPins.outputs;
+    const hit = pin.find((p) => p.id === pinId);
+    if (hit) return hit.type;
+  }
+  if ((node.type === 'var.get' || node.type === 'var.set') && pinId === 'value') {
+    const varName = node.params?.['varName'];
+    if (typeof varName === 'string' && ctx?.variables) {
+      const variable = ctx.variables.find((v) => v.name === varName);
+      if (variable) return variable.type;
+    }
+  }
+  return null;
+}
+
 export function resolvePinRef(
   specs: ReadonlyMap<string, NodeSpec>,
   graphNodes: readonly IRNode[],
   nodeId: string,
   pinId: string,
   dir: 'in' | 'out',
+  ctx?: PinTypeContext,
 ): PinRef | null {
   const node = graphNodes.find((n) => n.id === nodeId);
   if (!node) return null;
   const spec = specs.get(node.type);
-  const type = pinTypeOf(spec, pinId, dir);
+  // 动态类型优先：结构体字段 / var.get/set 的声明类型要覆盖静态 any 占位
+  const type = dynamicPinTypeOf(node, pinId, dir, ctx) ?? pinTypeOf(spec, pinId, dir);
   return {
     nodeId,
     pinId,
@@ -142,9 +176,10 @@ export function checkConnection(
   graphNodes: readonly IRNode[],
   source: { node: string; pin: string },
   target: { node: string; pin: string },
+  ctx?: PinTypeContext,
 ): ConnectionVerdict {
-  const from = resolvePinRef(specs, graphNodes, source.node, source.pin, 'out');
-  const to = resolvePinRef(specs, graphNodes, target.node, target.pin, 'in');
+  const from = resolvePinRef(specs, graphNodes, source.node, source.pin, 'out', ctx);
+  const to = resolvePinRef(specs, graphNodes, target.node, target.pin, 'in', ctx);
   if (!from || !to) {
     return { verdict: 'reject', reason: 'unknown-endpoint', message: '无法连接：连线端点不存在（节点或引脚无效）' };
   }
@@ -184,9 +219,10 @@ export function isConnectionShapeValid(
   existingEdges: readonly IREdge[],
   source: { node: string; pin: string },
   target: { node: string; pin: string },
+  ctx?: PinTypeContext,
 ): boolean {
-  const from = resolvePinRef(specs, graphNodes, source.node, source.pin, 'out');
-  const to = resolvePinRef(specs, graphNodes, target.node, target.pin, 'in');
+  const from = resolvePinRef(specs, graphNodes, source.node, source.pin, 'out', ctx);
+  const to = resolvePinRef(specs, graphNodes, target.node, target.pin, 'in', ctx);
   if (!from || !to) return false;
   if (from.nodeId === to.nodeId) return false;
   const fromType = from.type ?? 'any';

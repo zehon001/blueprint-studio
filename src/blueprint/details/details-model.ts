@@ -10,13 +10,23 @@
  * 观感一致，但蓝图域独立实现、不共用代码。
  */
 import type { IRGraph, IRNode, NodeSpec, ParamSpec, PinSpec } from '../../ir/types';
+import { isArrayType } from '../../ir/types';
 
 /* ============================================================
  * 1. 编辑器控件种类映射
  * ============================================================ */
 
 /** 检视器值编辑器种类（ParamType → 控件；未知种类回落 text） */
-export type EditorKind = 'bool' | 'number' | 'text' | 'select' | 'color' | 'variable' | 'nodeSelector';
+export type EditorKind =
+  | 'bool'
+  | 'number'
+  | 'text'
+  | 'select'
+  | 'color'
+  | 'variable'
+  | 'nodeSelector'
+  | 'json'
+  | 'structType';
 
 /**
  * ParamSpec → 编辑器控件种类（DoD：number/string/bool/select/color/…）：
@@ -39,6 +49,8 @@ export function paramEditorKindOf(param: ParamSpec): EditorKind {
       return 'variable';
     case 'nodeSelector':
       return 'nodeSelector';
+    case 'structType':
+      return 'structType';
     default:
       return 'text';
   }
@@ -46,16 +58,24 @@ export function paramEditorKindOf(param: ParamSpec): EditorKind {
 
 /**
  * PinSpec → 引脚默认值编辑器种类（未连线数据输入引脚的内联编辑）：
- *  - exec → null（执行引脚无默认值）；object / any / 数组 / 自定义别名 → null
- *   （与画布 BPNode 的 editorKindOf 口径一致：不提供内联编辑框）；
- *  - bool / int / float / string（含 select 型 string+options）→ 对应控件。
+ *  - exec → null（执行引脚无默认值）；
+ *  - bool / int / float / string（含 select 型 string+options）→ 对应控件；
+ *  - object / any / 数组 / 自定义结构体 → JSON 编辑器（值可以是嵌套对象 / 列表）。
  */
 export function pinEditorKindOf(pin: PinSpec): EditorKind | null {
   if (pin.type === 'exec') return null;
   if (pin.type === 'bool') return 'bool';
   if (pin.type === 'int' || pin.type === 'float') return 'number';
   if (pin.type === 'string') return pin.options && pin.options.length > 0 ? 'select' : 'text';
-  return null;
+  return 'json';
+}
+
+/** 引脚默认值是否必须为合法 JSON（object / 数组 / 自定义结构体）；any 同时允许纯文本 */
+export function pinJsonStrict(pin: PinSpec): boolean {
+  if (pin.type === 'any') return false;
+  if (pin.type === 'object') return true;
+  if (isArrayType(pin.type)) return true;
+  return !['bool', 'int', 'float', 'string', 'exec'].includes(pin.type);
 }
 
 /* ============================================================

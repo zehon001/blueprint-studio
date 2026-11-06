@@ -630,6 +630,13 @@ class Codegen {
     if (dangling.length === 0) return;
     ctx.pending.push('// 未被引用的纯节点（保持往返完整，无副作用）：');
     for (const n of dangling) {
+      if (n.type === 'struct.make' || n.type === 'struct.break') {
+        throw new CodegenError(
+          `结构体节点「${n.id}」（${n.type}）暂不支持脚本视图——请使用蓝图视图编辑`,
+          ctx.graphName,
+          n.id,
+        );
+      }
       const spec = specOfType(n.type)!;
       ctx.pending.push(`${this.bpsCallExpr(ctx, n, spec)};`);
     }
@@ -1407,6 +1414,14 @@ class Codegen {
   private pureSingleExpr(ctx: MethodCtx, node: IRNode, pin: string): string {
     if (node.type === 'var.get') return this.varGetExpr(ctx, node);
     if (node.type === 'ui.getValue') return this.uiGetValueExpr(ctx, node);
+    if (node.type === 'struct.make' || node.type === 'struct.break') {
+      // 结构体节点引脚由资产 types 表动态展开；脚本侧暂不做往返映射（避免静默丢失节点）
+      throw new CodegenError(
+        `结构体节点「${node.id}」（${node.type}）暂不支持脚本视图——请使用蓝图视图编辑`,
+        ctx.graphName,
+        node.id,
+      );
+    }
     if (node.type === 'map.set') {
       const flat = this.tryFlattenMapSet(ctx, node);
       if (flat !== null) return flat;

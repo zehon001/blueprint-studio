@@ -244,6 +244,14 @@
   background: color-mix(in srgb, var(--pin-color, var(--bg-input)) 12%, var(--bg-input));
 }
 
+/* 行内类型下拉：外观与徽标一致（修改后立即更新变量所有 Get/Set 节点） */
+.bp-mb-type--select {
+  max-width: 108px;
+  padding: 1px 2px;
+  cursor: pointer;
+  font-size: 10px;
+}
+
 .bp-mb-cat {
   flex: none;
   max-width: 64px;
@@ -277,6 +285,112 @@
   font-size: var(--font-xs);
   color: var(--text-disabled);
   user-select: none;
+}
+
+/* ---- 用户自定义结构体（ADR-019）：类型行 + 展开字段编辑 ---- */
+
+.bp-mb-struct-count {
+  flex: none;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+}
+
+.bp-mb-struct-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 8px 6px 16px;
+  border-left: 2px solid var(--border);
+  margin-left: 8px;
+}
+
+.bp-mb-field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.bp-mb-field-row .bp-mb-inline-input {
+  min-width: 0;
+}
+
+.bp-mb-hint {
+  padding: 2px 0 0;
+  font-size: 10px;
+  color: var(--text-disabled);
+  line-height: 1.4;
+}
+
+/* ---- 变量默认值编辑（右键「编辑默认值…」） ---- */
+
+.bp-mb-default-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px 6px 16px;
+  margin-left: 8px;
+  border-left: 2px solid var(--border);
+}
+
+.bp-mb-default-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.bp-mb-default-type {
+  font-family: var(--font-mono);
+  color: var(--text-disabled);
+}
+
+.bp-mb-default-input,
+.bp-mb-default-json {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 5px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.bp-mb-default-json {
+  resize: vertical;
+  line-height: 1.4;
+  white-space: pre;
+}
+
+.bp-mb-default-input:focus,
+.bp-mb-default-json:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.bp-mb-default-bool {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--text);
+}
+
+.bp-mb-default-error {
+  font-size: 10px;
+  color: var(--danger, #e06c75);
+}
+
+.bp-mb-default-actions {
+  display: flex;
+  gap: var(--space-1);
 }
 
 /* —— 行内编辑 —— */

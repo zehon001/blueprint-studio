@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import {
+  Box,
   Braces,
   Check,
   ChevronDown,
@@ -28,21 +29,22 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Icon } from '../../shell/ui/Icon';
-import type { IRComment, IRParamSpec, IRValueType } from '../../ir/types';
+import type { IRComment, IRParamSpec, IRStructDef, IRValueType, IRVariable } from '../../ir/types';
 import { pinColor } from '../../shell/theme/tokens';
 import { Menu } from '../../panels/file-system/Menu';
 import type { MenuItem } from '../../panels/file-system/Menu';
 import { useBlueprintStore } from '../store/blueprint-store';
+import { TypeSelect } from '../type-picker';
 import {
-  VARIABLE_TYPES,
   cleanParamRows,
   findEventNode,
   nameExists,
+  nameKey,
   nextEventName,
   nextFunctionName,
+  nextSequentialName,
   nextVariableName,
   orderedGraphNames,
-  variableTypeLabel,
 } from './model';
 
 /* ============================================================
@@ -151,8 +153,12 @@ function Section(props: {
  * ＋新建 的行内表单
  * ============================================================ */
 
-/** ＋新建变量：行内命名 + 类型下拉 */
-function AddVariableRow(props: { existingNames: readonly string[]; onClose: () => void }) {
+/** ＋新建变量：行内命名 + 类型下拉（基础 / 数组 / 自定义结构体） */
+function AddVariableRow(props: {
+  existingNames: readonly string[];
+  types?: readonly IRStructDef[];
+  onClose: () => void;
+}) {
   const [draft, setDraft] = useState(() => nextVariableName(props.existingNames));
   const [type, setType] = useState<IRValueType>('int');
   const duplicate = nameExists(props.existingNames, draft);
@@ -176,18 +182,13 @@ function AddVariableRow(props: { existingNames: readonly string[]; onClose: () =
           e.stopPropagation();
         }}
       />
-      <select
+      <TypeSelect
         className="bp-mb-type-select"
         value={type}
-        aria-label="变量类型"
-        onChange={(e) => setType(e.target.value as IRValueType)}
-      >
-        {VARIABLE_TYPES.map((t) => (
-          <option key={t} value={t}>
-            {variableTypeLabel(t)}（{t}）
-          </option>
-        ))}
-      </select>
+        ariaLabel="变量类型"
+        types={props.types}
+        onChange={setType}
+      />
       <button type="button" className="bp-mb-btn bp-mb-btn--ok" title="确认新建" disabled={duplicate || draft.trim() === ''} onClick={confirm}>
         <Icon icon={Check} size={13} />
       </button>
@@ -195,6 +196,263 @@ function AddVariableRow(props: { existingNames: readonly string[]; onClose: () =
         <Icon icon={X} size={13} />
       </button>
       {duplicate ? <div className="bp-mb-addrow-warn">变量名已存在</div> : null}
+    </div>
+  );
+}
+
+/** ＋新建结构体：行内命名 */
+function AddStructTypeRow(props: { types?: readonly IRStructDef[]; onClose: () => void }) {
+  const existing = (props.types ?? []).map((t) => t.name);
+  const [draft, setDraft] = useState(() => nextSequentialName(existing, '新结构体'));
+  const duplicate = existing.some((n) => nameKey(n) === nameKey(draft));
+  const confirm = (): void => {
+    if (useBlueprintStore.getState().addStructType(draft)) props.onClose();
+  };
+  return (
+    <div className="bp-mb-addrow">
+      <input
+        className="bp-mb-inline-input"
+        value={draft}
+        placeholder="结构体名"
+        aria-label="结构体名"
+        autoFocus
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') confirm();
+          else if (e.key === 'Escape') props.onClose();
+          e.stopPropagation();
+        }}
+      />
+      <button type="button" className="bp-mb-btn bp-mb-btn--ok" title="确认新建" disabled={duplicate || draft.trim() === ''} onClick={confirm}>
+        <Icon icon={Check} size={13} />
+      </button>
+      <button type="button" className="bp-mb-btn" title="取消" onClick={props.onClose}>
+        <Icon icon={X} size={13} />
+      </button>
+      {duplicate ? <div className="bp-mb-addrow-warn">结构体名已存在</div> : null}
+    </div>
+  );
+}
+
+/** 结构体字段编辑（展开在类型行下方）：字段名 / 类型 / 删除 + 添加 */
+function StructFieldsEditor(props: { def: IRStructDef; types?: readonly IRStructDef[] }) {
+  const st = useBlueprintStore.getState();
+  return (
+    <div className="bp-mb-struct-fields">
+      {props.def.fields.length === 0 ? <div className="bp-mb-empty">暂无字段</div> : null}
+      {props.def.fields.map((field, i) => (
+        <div key={`${field.name}-${i}`} className="bp-mb-field-row">
+          <input
+            className="bp-mb-inline-input"
+            defaultValue={field.name}
+            placeholder={`字段${i + 1}`}
+            aria-label={`字段${i + 1}名`}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              e.stopPropagation();
+            }}
+            onBlur={(e) => {
+              const next = e.target.value.trim();
+              if (next !== '' && next !== field.name) st.updateStructField(props.def.name, i, { name: next });
+            }}
+          />
+          <TypeSelect
+            className="bp-mb-type-select"
+            value={field.type}
+            types={props.types}
+            ariaLabel={`字段${i + 1}类型`}
+            onChange={(type) => st.updateStructField(props.def.name, i, { type })}
+          />
+          <button
+            type="button"
+            className="bp-mb-btn"
+            title="删除字段"
+            onClick={() => st.removeStructField(props.def.name, i)}
+          >
+            <Icon icon={X} size={11} />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="bp-mb-btn bp-mb-btn--wide"
+        title="添加字段"
+        onClick={() => st.addStructField(props.def.name)}
+      >
+        <Icon icon={Plus} size={11} /> 字段
+      </button>
+      <div className="bp-mb-hint">默认值在「创建结构体」节点的字段引脚上设置。</div>
+    </div>
+  );
+}
+
+/** 默认值 → 编辑框文本（string 原样；其余 JSON；undefined 为空） */
+function formatVariableDefault(value: unknown, type: IRValueType): string {
+  if (value === undefined) return '';
+  if (type === 'string') return String(value);
+  try {
+    return JSON.stringify(value, null, 2) ?? '';
+  } catch {
+    return String(value);
+  }
+}
+
+/** 编辑框文本 → 类型化默认值（undefined = 清除） */
+function parseVariableDefault(
+  text: string,
+  type: IRValueType,
+): { ok: true; value: unknown } | { ok: false; message: string } {
+  const trimmed = text.trim();
+  if (type === 'string') return { ok: true, value: text };
+  if (trimmed === '') return { ok: true, value: undefined };
+  if (type === 'int') {
+    const n = Number(trimmed);
+    return Number.isInteger(n) ? { ok: true, value: n } : { ok: false, message: '需要整数' };
+  }
+  if (type === 'float') {
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? { ok: true, value: n } : { ok: false, message: '需要数字' };
+  }
+  if (type === 'bool') return { ok: true, value: trimmed === 'true' };
+  if (type === 'any') {
+    try {
+      return { ok: true, value: JSON.parse(trimmed) as unknown };
+    } catch {
+      return { ok: true, value: text };
+    }
+  }
+  try {
+    return { ok: true, value: JSON.parse(trimmed) as unknown };
+  } catch {
+    return { ok: false, message: 'JSON 格式不正确' };
+  }
+}
+
+/**
+ * 变量默认值编辑（右键「编辑默认值…」展开）：
+ * bool → 勾选；int/float → 数字；string → 文本；对象/数组/结构体 → JSON。
+ * 默认值参与运行时初始化（未设置 = 类型零值），数组/结构体可在这里直接写样例数据。
+ */
+function VariableDefaultEditor(props: { variable: IRVariable; onClose: () => void }) {
+  const { variable } = props;
+  const [draft, setDraft] = useState(() => formatVariableDefault(variable.default, variable.type));
+  const [error, setError] = useState('');
+  const commit = (): void => {
+    // bool 由勾选框即改即提交；「应用」不再用陈旧 draft 覆盖
+    if (variable.type === 'bool') return;
+    const parsed = parseVariableDefault(draft, variable.type);
+    if (!parsed.ok) {
+      setError(parsed.message);
+      return;
+    }
+    setError('');
+    useBlueprintStore.getState().updateVariable(variable.name, {
+      default: parsed.value === undefined ? undefined : parsed.value,
+    });
+  };
+  const clear = (): void => {
+    setDraft('');
+    setError('');
+    useBlueprintStore.getState().updateVariable(variable.name, { default: undefined });
+    props.onClose();
+  };
+  const isJson =
+    variable.type !== 'bool' &&
+    variable.type !== 'int' &&
+    variable.type !== 'float' &&
+    variable.type !== 'string';
+  return (
+    <div className="bp-mb-default-editor">
+      <div className="bp-mb-default-head">
+        <span>默认值</span>
+        <span className="bp-mb-default-type">{variable.type}</span>
+      </div>
+      {variable.type === 'bool' ? (
+        <label className="bp-mb-default-bool">
+          <input
+            type="checkbox"
+            checked={variable.default === true}
+            onChange={(e) =>
+              useBlueprintStore.getState().updateVariable(variable.name, {
+                default: e.target.checked,
+              })
+            }
+          />
+          真
+        </label>
+      ) : isJson ? (
+        <textarea
+          className="bp-mb-default-json"
+          rows={4}
+          value={draft}
+          spellCheck={false}
+          placeholder="JSON（对象 / 数组 / 结构体）"
+          aria-label={`${variable.name} 默认值`}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (error) setError('');
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              commit();
+              (e.target as HTMLTextAreaElement).blur();
+            }
+            e.stopPropagation();
+          }}
+        />
+      ) : (
+        <input
+          className="bp-mb-default-input"
+          type={variable.type === 'int' || variable.type === 'float' ? 'number' : 'text'}
+          value={draft}
+          placeholder={variable.type === 'string' ? '文本' : '数字'}
+          aria-label={`${variable.name} 默认值`}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (error) setError('');
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              commit();
+              (e.target as HTMLInputElement).blur();
+            }
+            e.stopPropagation();
+          }}
+        />
+      )}
+      {error ? <div className="bp-mb-default-error">{error}</div> : null}
+      <div className="bp-mb-default-actions">
+        {variable.type !== 'bool' ? (
+          <button
+            type="button"
+            className="bp-mb-btn bp-mb-btn--wide"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={commit}
+          >
+            应用
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="bp-mb-btn"
+          title="清除默认值（回落类型零值）"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={clear}
+        >
+          清除
+        </button>
+        <button
+          type="button"
+          className="bp-mb-btn"
+          title="收起"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={props.onClose}
+        >
+          <Icon icon={X} size={11} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -263,6 +521,7 @@ function AddFunctionRow(props: {
 /** ＋新建事件：名 + 参数行编辑（增删参数行 / 类型） */
 function AddEventForm(props: {
   existingNames: readonly string[];
+  types?: readonly IRStructDef[];
   onClose: () => void;
 }) {
   const [name, setName] = useState(() => nextEventName(props.existingNames));
@@ -303,20 +562,15 @@ function AddEventForm(props: {
               setRows(rows.map((r, j) => (j === i ? { ...r, name: e.target.value } : r)))
             }
           />
-          <select
+          <TypeSelect
             className="bp-mb-type-select"
             value={row.type}
-            aria-label={`参数${i + 1}类型`}
-            onChange={(e) =>
-              setRows(rows.map((r, j) => (j === i ? { ...r, type: e.target.value as IRValueType } : r)))
+            ariaLabel={`参数${i + 1}类型`}
+            types={props.types}
+            onChange={(type) =>
+              setRows(rows.map((r, j) => (j === i ? { ...r, type } : r)))
             }
-          >
-            {VARIABLE_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+          />
           <button
             type="button"
             className="bp-mb-btn"
@@ -344,7 +598,7 @@ function AddEventForm(props: {
  * ============================================================ */
 
 /** 分节键（折叠 / 新建态用） */
-type SectionKey = 'vars' | 'fns' | 'events' | 'comments';
+type SectionKey = 'vars' | 'types' | 'fns' | 'events' | 'comments';
 
 export function MyBlueprint({
   className,
@@ -360,13 +614,18 @@ export function MyBlueprint({
   const graphName = useBlueprintStore((s) => s.graphName);
   const [collapsed, setCollapsed] = useState<Record<SectionKey, boolean>>({
     vars: false,
+    types: false,
     fns: false,
     events: false,
     comments: false,
   });
   const [adding, setAdding] = useState<SectionKey | null>(null);
+  /** 展开字段编辑的结构体名（null = 全部收起） */
+  const [expandedType, setExpandedType] = useState<string | null>(null);
   /** 行内重命名中的变量名 */
   const [renaming, setRenaming] = useState<string | null>(null);
+  /** 展开默认值编辑的变量名（null = 全部收起） */
+  const [editingDefault, setEditingDefault] = useState<string | null>(null);
   /** 行右键菜单（受控渲染） */
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
 
@@ -418,6 +677,7 @@ export function MyBlueprint({
     { label: '插入 Get 节点', onSelect: () => void useBlueprintStore.getState().insertVariableNode(name, 'get') },
     { label: '插入 Set 节点', onSelect: () => void useBlueprintStore.getState().insertVariableNode(name, 'set') },
     { separator: true },
+    { label: '编辑默认值…', onSelect: () => setEditingDefault(name) },
     { label: '重命名', onSelect: () => setRenaming(name) },
     { label: '复制变量', onSelect: () => void useBlueprintStore.getState().duplicateVariable(name) },
     { label: '删除变量', danger: true, onSelect: () => useBlueprintStore.getState().removeVariable(name) },
@@ -462,6 +722,30 @@ export function MyBlueprint({
     },
   ];
 
+  const structMenu = (name: string): MenuItem[] => [
+    {
+      label: '插入「创建结构体」节点',
+      onSelect: () => void useBlueprintStore.getState().insertStructMakeNode(name),
+    },
+    {
+      label: '插入「拆分结构体」节点',
+      onSelect: () => void useBlueprintStore.getState().insertStructBreakNode(name),
+    },
+    { separator: true },
+    {
+      label: '重命名结构体…',
+      onSelect: () => {
+        const to = window.prompt(`重命名结构体「${name}」为：`, name)?.trim();
+        if (to && to !== name) useBlueprintStore.getState().renameStructType(name, to);
+      },
+    },
+    {
+      label: '删除结构体',
+      danger: true,
+      onSelect: () => void useBlueprintStore.getState().removeStructType(name),
+    },
+  ];
+
   /* ---------- 分节开关（点 ＋ 时顺带展开） ---------- */
 
   const toggleSection = (key: SectionKey): void =>
@@ -491,60 +775,106 @@ export function MyBlueprint({
           onAdd={() => startAdd('vars')}
         >
           {asset.variables.map((v) => (
-            <div
-              key={v.name}
-              className={`bp-mb-row${v.exposed ? ' bp-mb-row--exposed' : ''}`}
-              title="双击重命名；右键插入 Get / Set、复制、删除"
-              onContextMenu={(e) => openRowMenu(e, variableMenu(v.name))}
-            >
-              <input
-                type="checkbox"
-                className="bp-mb-exposed"
-                title="暴露：勾选后可在蓝图中生成 Get / Set 节点"
-                aria-label={`暴露 ${v.name}`}
-                checked={v.exposed === true}
-                onChange={(e) =>
-                  useBlueprintStore.getState().updateVariable(v.name, { exposed: e.target.checked })
-                }
-              />
-              {renaming === v.name ? (
-                <InlineNameEditor
-                  initial={v.name}
-                  placeholder="变量名"
-                  onCommit={(value) => {
-                    useBlueprintStore.getState().renameVariable(v.name, value);
-                    setRenaming(null);
-                  }}
-                  onCancel={() => setRenaming(null)}
+            <div key={v.name}>
+              <div
+                className={`bp-mb-row${v.exposed ? ' bp-mb-row--exposed' : ''}`}
+                title="双击重命名；右键插入 Get / Set、编辑默认值、复制、删除"
+                onContextMenu={(e) => openRowMenu(e, variableMenu(v.name))}
+              >
+                <input
+                  type="checkbox"
+                  className="bp-mb-exposed"
+                  title="暴露：勾选后可在蓝图中生成 Get / Set 节点"
+                  aria-label={`暴露 ${v.name}`}
+                  checked={v.exposed === true}
+                  onChange={(e) =>
+                    useBlueprintStore.getState().updateVariable(v.name, { exposed: e.target.checked })
+                  }
                 />
-              ) : (
-                <span className="bp-mb-row-name" onDoubleClick={() => setRenaming(v.name)}>
-                  {v.name}
+                {renaming === v.name ? (
+                  <InlineNameEditor
+                    initial={v.name}
+                    placeholder="变量名"
+                    onCommit={(value) => {
+                      useBlueprintStore.getState().renameVariable(v.name, value);
+                      setRenaming(null);
+                    }}
+                    onCancel={() => setRenaming(null)}
+                  />
+                ) : (
+                  <span className="bp-mb-row-name" onDoubleClick={() => setRenaming(v.name)}>
+                    {v.name}
+                  </span>
+                )}
+                <TypeSelect
+                  className="bp-mb-type bp-mb-type--select"
+                  value={v.type}
+                  types={asset.types}
+                  ariaLabel={`${v.name} 类型`}
+                  style={{ '--pin-color': pinColor(v.type) } as CSSProperties}
+                  onChange={(type) =>
+                    useBlueprintStore.getState().updateVariable(v.name, { type })
+                  }
+                />
+                {v.category ? <span className="bp-mb-cat">{v.category}</span> : null}
+                <span
+                  className="bp-mb-row-drag"
+                  title="拖入图画布生成 Get / Set（本期：右键行 → 插入 Get / Set）"
+                  aria-hidden
+                  data-drag-todo="T2.3+"
+                >
+                  <Icon icon={GripVertical} size={12} />
                 </span>
-              )}
-              <span
-                className="bp-mb-type"
-                style={{ '--pin-color': pinColor(v.type) } as CSSProperties}
-                title={variableTypeLabel(v.type)}
-              >
-                {v.type}
-              </span>
-              {v.category ? <span className="bp-mb-cat">{v.category}</span> : null}
-              <span
-                className="bp-mb-row-drag"
-                title="拖入图画布生成 Get / Set（本期：右键行 → 插入 Get / Set）"
-                aria-hidden
-                data-drag-todo="T2.3+"
-              >
-                <Icon icon={GripVertical} size={12} />
-              </span>
+              </div>
+              {editingDefault === v.name ? (
+                <VariableDefaultEditor variable={v} onClose={() => setEditingDefault(null)} />
+              ) : null}
             </div>
           ))}
           {adding === 'vars' ? (
-            <AddVariableRow existingNames={variableNames} onClose={closeAdd} />
+            <AddVariableRow existingNames={variableNames} types={asset.types} onClose={closeAdd} />
           ) : null}
           {asset.variables.length === 0 && adding !== 'vars' ? (
             <div className="bp-mb-empty">暂无变量</div>
+          ) : null}
+        </Section>
+
+        {/* ---------------- 类型（用户自定义结构体） ---------------- */}
+        <Section
+          title="类型"
+          icon={Box}
+          count={(asset.types ?? []).length}
+          addTitle="新建结构体"
+          collapsed={collapsed.types}
+          onToggle={() => toggleSection('types')}
+          onAdd={() => startAdd('types')}
+        >
+          {(asset.types ?? []).map((def) => (
+            <div key={def.name} className="bp-mb-struct">
+              <div
+                className="bp-mb-row"
+                title="双击展开字段编辑；右键插入创建/拆分节点、重命名、删除"
+                onDoubleClick={() =>
+                  setExpandedType((prev) => (prev === def.name ? null : def.name))
+                }
+                onContextMenu={(e) => openRowMenu(e, structMenu(def.name))}
+              >
+                <span className="bp-mb-row-name">{def.name}</span>
+                <span className="bp-mb-struct-count">{def.fields.length} 字段</span>
+                <span className="bp-mb-row-drag" aria-hidden>
+                  <Icon icon={expandedType === def.name ? ChevronDown : ChevronRight} size={12} />
+                </span>
+              </div>
+              {expandedType === def.name ? (
+                <StructFieldsEditor def={def} types={asset.types} />
+              ) : null}
+            </div>
+          ))}
+          {adding === 'types' ? (
+            <AddStructTypeRow types={asset.types} onClose={closeAdd} />
+          ) : null}
+          {(asset.types ?? []).length === 0 && adding !== 'types' ? (
+            <div className="bp-mb-empty">暂无自定义结构体（新建后可在变量/函数参数中使用）</div>
           ) : null}
         </Section>
 
@@ -611,7 +941,7 @@ export function MyBlueprint({
             </div>
           ))}
           {adding === 'events' ? (
-            <AddEventForm existingNames={eventNames} onClose={closeAdd} />
+            <AddEventForm existingNames={eventNames} types={asset.types} onClose={closeAdd} />
           ) : null}
           {asset.events.length === 0 && adding !== 'events' ? (
             <div className="bp-mb-empty">暂无事件</div>

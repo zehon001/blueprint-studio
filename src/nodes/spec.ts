@@ -42,6 +42,7 @@ export type NodeCategory =
   | '字符串'
   | '容器'
   | '转换'
+  | '结构体'
   | '界面'
   | '系统';
 
@@ -54,6 +55,7 @@ export const NODE_CATEGORIES: readonly NodeCategory[] = [
   '字符串',
   '容器',
   '转换',
+  '结构体',
   '界面',
   '系统',
 ];

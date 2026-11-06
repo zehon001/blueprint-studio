@@ -15,6 +15,7 @@ import { convertNodes } from './convert';
 import { uiNodes } from './ui';
 import { reflectNodes } from './reflect';
 import { systemNodes } from './system';
+import { structNodes } from './struct';
 
 /** 内置节点定义基础设施（defineNode / 帮助函数 / 状态槽 / UiHandle） */
 export * from './spec';
@@ -43,6 +44,7 @@ const BUILTIN_GROUPS: NodeSpec[][] = [
   uiNodes,
   reflectNodes,
   systemNodes,
+  structNodes,
 ];
 
 /** 全部内置节点（按分类聚合；id 冲突时后者覆盖前者的告警在注册表层处理） */

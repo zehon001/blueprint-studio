@@ -25,6 +25,7 @@ import {
   headColorFor,
   headIconFor,
   nodeSubtitle,
+  structNodeTitle,
   varDisplayName,
   varOpOf,
   type BPNodeData,
@@ -70,15 +71,20 @@ function headIconOf(variant: Parameters<typeof headIconFor>[0]): LucideIcon {
  * ============================================================ */
 
 /** 默认值编辑器种类（T2.4 检视器可复用） */
-export function editorKindOf(pin: PinSpec): 'bool' | 'number' | 'select' | 'text' | null {
+export function editorKindOf(pin: PinSpec): 'bool' | 'number' | 'select' | 'text' | 'json' | null {
   if (pin.type === 'exec') return null;
   if (pin.type === 'bool') return 'bool';
   if (pin.type === 'int' || pin.type === 'float') return 'number';
   if (pin.type === 'string') {
     return pin.options && pin.options.length > 0 ? 'select' : 'text';
   }
-  // object / any / 数组 / 自定义类型：不提供内联编辑框
-  return null;
+  // object / any / 数组 / 自定义结构体：JSON 编辑框（可写对象与列表字面量）
+  return 'json';
+}
+
+/** JSON 引脚是否必须为合法 JSON（any 同时允许纯文本） */
+function isJsonStrict(pin: PinSpec): boolean {
+  return pin.type !== 'any';
 }
 
 interface EditorProps {
@@ -235,6 +241,85 @@ function TextDefaultEditor({ pin, value, onCommit }: EditorProps) {
   );
 }
 
+/** 值 → 紧凑 JSON 文本（undefined 为空）；用于节点上的单行 JSON 编辑框 */
+function jsonDraftOf(value: unknown): string {
+  if (value === undefined) return '';
+  try {
+    return JSON.stringify(value) ?? '';
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * JSON 默认值编辑框（object / any / 数组 / 自定义结构体）：
+ * 失焦或 Enter 提交；strict 类型要求合法 JSON，any 非法时按纯文本提交。
+ * 连线的引脚不会渲染本控件（与 UE 一致：连线后输入框消失）。
+ */
+function JsonDefaultEditor({ pin, value, onCommit }: EditorProps) {
+  const initial = jsonDraftOf(initialValueOf(pin, value));
+  const [draft, setDraft] = useState(initial);
+  const [invalid, setInvalid] = useState(false);
+  useEffect(() => {
+    setDraft(jsonDraftOf(initialValueOf(pin, value)));
+    setInvalid(false);
+  }, [initial, pin, value]);
+  const strict = isJsonStrict(pin);
+  const current = initialValueOf(pin, value);
+  const commit = (): void => {
+    const text = draft.trim();
+    if (text === '') {
+      if (strict) {
+        setInvalid(true);
+        return;
+      }
+      setInvalid(false);
+      if (current !== '') onCommit('');
+      return;
+    }
+    try {
+      const parsed: unknown = JSON.parse(text);
+      setInvalid(false);
+      if (JSON.stringify(parsed) !== JSON.stringify(current)) onCommit(parsed);
+    } catch {
+      if (strict) {
+        setInvalid(true);
+      } else {
+        setInvalid(false);
+        if (draft !== current) onCommit(draft);
+      }
+    }
+  };
+  return (
+    <input
+      type="text"
+      className={`bp-pin-default bp-pin-default--json${invalid ? ' bp-pin-default--invalid' : ''}`}
+      value={draft}
+      placeholder={strict ? '{…} / […]' : 'JSON 或文本'}
+      title={
+        invalid
+          ? 'JSON 格式不正确（object / 数组 / 结构体必须是合法 JSON）'
+          : 'JSON 或文本默认值；Enter 提交'
+      }
+      aria-invalid={invalid || undefined}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        if (invalid) setInvalid(false);
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          commit();
+          (e.target as HTMLInputElement).blur();
+        }
+        e.stopPropagation();
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    />
+  );
+}
+
 /** 引脚内联默认值编辑框（按类型分发；空值编辑不落 IR，TODO 见 onCommit） */
 function PinDefaultEditor({ nodeId, pin, data }: { nodeId: string; pin: PinSpec; data: BPNodeData }) {
   const rawValue = data.node.pinDefaults?.[pin.id];
@@ -258,6 +343,7 @@ function PinDefaultEditor({ nodeId, pin, data }: { nodeId: string; pin: PinSpec;
     case 'number': return <NumberDefaultEditor pin={pin} value={value} onCommit={onCommit} />;
     case 'select': return <SelectDefaultEditor pin={pin} value={value} onCommit={onCommit} />;
     case 'text': return <TextDefaultEditor pin={pin} value={value} onCommit={onCommit} />;
+    case 'json': return <JsonDefaultEditor pin={pin} value={value} onCommit={onCommit} />;
     default: return null;
   }
 }
@@ -379,7 +465,7 @@ function mergePins(base: readonly PinSpec[], extra: readonly PinSpec[] | undefin
 function RegularNodeView({ nodeId, data, selected }: { nodeId: string; data: BPNodeData; selected: boolean }) {
   const { node, spec, variant } = data;
   if (!spec) return null;
-  const title = node.title ?? spec.title;
+  const title = node.title ?? structNodeTitle(node) ?? spec.title;
   const subtitle = nodeSubtitle(spec, data.graphName);
   const inputPins = mergePins(spec.inputs, data.dynamicPins?.inputs);
   const outputPins = mergePins(spec.outputs, data.dynamicPins?.outputs);
@@ -426,7 +512,10 @@ function VarNodeView({ data, selected }: { data: BPNodeData; selected: boolean }
   const execOutPin = outPins.find((p) => p.type === 'exec');
   const dataInPin = inPins.find((p) => p.type !== 'exec');
   const dataOutPin = outPins.find((p) => p.type !== 'exec');
-  const typeColor = pinColor((op === 'get' ? dataOutPin?.type : dataInPin?.type) ?? 'any');
+  // var.get/set 的 spec 引脚恒为 any；按变量声明类型显示颜色与值编辑器
+  const varType = data.varType ?? 'any';
+  const valuePin = dataInPin ? { ...dataInPin, type: varType } : null;
+  const typeColor = pinColor(varType);
   const rootClass = `bp-node bp-node-var${selected ? ' bp-node--selected' : ''}${debugClassOf(data)}`;
   const titleEl = (
     <span className="bp-var-title">
@@ -438,15 +527,18 @@ function VarNodeView({ data, selected }: { data: BPNodeData; selected: boolean }
     return (
       <div className={rootClass} style={cssVars({ '--var-color': typeColor })}>
         <div className="bp-pin-row bp-pin-row--var">
-          {execInPin ? pinHandle(execInPin, 'in') : null}
+          {execInPin ? pinHandle(execInPin, 'in', 'exec-in') : null}
           {titleEl}
-          {execOutPin ? pinHandle(execOutPin, 'out') : null}
+          {execOutPin ? pinHandle(execOutPin, 'out', 'exec-out') : null}
         </div>
         {dataInPin ? (
           <div className="bp-pin-row bp-pin-row--var">
-            {pinHandle(dataInPin, 'in')}
+            {pinHandle(dataInPin, 'in', 'data-in')}
             <span className="bp-pin-label">{dataInPin.label ?? dataInPin.id}</span>
-            {dataOutPin ? pinHandle(dataOutPin, 'out') : null}
+            {valuePin && !data.connectedInputs.has(valuePin.id) ? (
+              <PinDefaultEditor nodeId={node.id} pin={valuePin} data={data} />
+            ) : null}
+            {dataOutPin ? pinHandle(dataOutPin, 'out', 'data-out') : null}
           </div>
         ) : null}
       </div>
@@ -456,7 +548,7 @@ function VarNodeView({ data, selected }: { data: BPNodeData; selected: boolean }
     <div className={rootClass} style={cssVars({ '--var-color': typeColor })}>
       <div className="bp-pin-row bp-pin-row--var bp-pin-row--get">
         {titleEl}
-        {dataOutPin ? pinHandle(dataOutPin, 'out') : null}
+        {dataOutPin ? pinHandle(dataOutPin, 'out', 'data-out') : null}
       </div>
     </div>
   );

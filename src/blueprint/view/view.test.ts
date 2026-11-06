@@ -26,6 +26,7 @@ import {
   nodeSizeFor,
   varDisplayName,
   varOpOf,
+  varTypeOf,
   type FlowNode,
   type HeadVariant,
 } from './model';
@@ -213,6 +214,26 @@ test('var 节点辅助：varOpOf / varDisplayName', () => {
   assert.equal(varOpOf('flow.branch'), null);
   assert.equal(varDisplayName(irNode('v', 'var.get', undefined, { varName: 'packageName' })), 'packageName');
   assert.equal(varDisplayName(irNode('v', 'var.get')), '变量');
+});
+
+test('varTypeOf：变量 Get/Set 按声明类型着色（未知变量回落 undefined）', () => {
+  const asset = sampleAsset();
+  asset.variables = [
+    { name: 'packageName', type: 'string' },
+    { name: 'rows', type: 'LogRow[]' },
+  ];
+  asset.graphs.bind.edges.push({
+    id: 'e6',
+    from: { node: 'vget', pin: 'value' },
+    to: { node: 'concat', pin: 'a' },
+    kind: 'data',
+  });
+  const { nodes, edges } = irToFlow(asset, builtinSpecMap);
+  assert.equal(nodes.find((n) => n.id === 'vget')?.data.varType, 'string');
+  assert.equal(edges.find((e) => e.id === 'e6')?.data?.pinType, 'string', '变量边按声明类型着色');
+  assert.equal(varTypeOf(irNode('x', 'var.get', undefined, { varName: 'ghost' }), asset), undefined);
+  assert.equal(varTypeOf(irNode('x', 'flow.branch'), asset), undefined);
+  assert.equal(varTypeOf(irNode('x', 'var.get', undefined, { varName: 'rows' }), asset), 'LogRow[]');
 });
 
 /* ============================================================

@@ -786,7 +786,9 @@ export function pureNodeSample(specId: string): IRAsset {
 }
 
 test('roundtrip ⑦：表达式映射表逐条锁定（全部内置纯节点）', async () => {
-  const pureSpecs = builtinSpecs.filter((s) => s.pure === true);
+  // 结构体节点引脚由资产 types 表动态展开，脚本侧暂不往返（ADR-019；与 TA.1 跳过清单一致）
+  const DYNAMIC_PURE_SKIP = new Set(['struct.make', 'struct.break']);
+  const pureSpecs = builtinSpecs.filter((s) => s.pure === true && !DYNAMIC_PURE_SKIP.has(s.id));
   assert.ok(pureSpecs.length >= 38, `纯节点应不少于 38 个，实际 ${pureSpecs.length}`);
   for (const spec of pureSpecs) {
     const r = roundtripIR(pureNodeSample(spec.id));
@@ -1143,4 +1145,22 @@ test('roundtrip ⑫：片段入脚内联默认值 + 出脚跨节点引用（标�
   // 出脚别名行 + 分支条件引用
   assert.match(code, /const __bps_v\d+ = signal; \/\/ __bps-snippet-out\(signal\)/);
   assert.match(code, /if \(__bps_v\d+\) \{/);
+});
+
+test('codegen：结构体节点（被引用 / 无人引用）都抛明确错误，不静默丢失', () => {
+  const dangling = asset({
+    main: graph(
+      [node('st', 'event.start'), node('pr', 'system.print'), node('mk', 'struct.make', { params: { typeName: 'Row' } })],
+      [execEdge('e1', 'st', 'pr')],
+    ),
+  });
+  assert.throws(() => codegenTS(dangling), /结构体节点.*暂不支持脚本视图/);
+
+  const referenced = asset({
+    main: graph(
+      [node('st', 'event.start'), node('mk', 'struct.make', { params: { typeName: 'Row' } }), node('pr', 'system.print')],
+      [execEdge('e1', 'st', 'pr'), dataEdge('d1', 'mk', 'value', 'pr', 'value')],
+    ),
+  });
+  assert.throws(() => codegenTS(referenced), /结构体节点.*暂不支持脚本视图/);
 });

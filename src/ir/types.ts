@@ -17,6 +17,10 @@
  * 相对路径指向另一个 .ui.json；合并/循环检测/断开物化语义见 docs/v2/adr/009-ui-prefab.md）。
  * version 不升：可选字段向后兼容，旧资产读取即无预制体。
  *
+ * 追加记录：ADR-019（v3.3）为 IRAsset / UIAsset / ElementAsset 增补可选 types
+ * （用户自定义结构体表）与 NodeRunContext.types；新增 struct.make / struct.break
+ * 动态引脚节点。version 不升：可选字段向后兼容，旧资产读取即无自定义类型。
+ *
  * 契约级变更（字段增删、语义修改）必须先在 docs/v2/adr/ 落 ADR 并由 PM-Agent 知会，
  * 再修改本文件；禁止绕过 ADR 直接改类型。
  */
@@ -113,6 +117,15 @@ export function elementType(t: IRValueType): IRValueType {
   return isArrayType(t) ? ((t.slice(0, -2) as IRValueType)) : t;
 }
 
+/** 按名取结构体定义（数组类型自动取元素类型；未定义返回 undefined） */
+export function structDefOf(
+  types: readonly IRStructDef[] | undefined,
+  type: IRValueType,
+): IRStructDef | undefined {
+  const base = elementType(type);
+  return types?.find((def) => def.name === base);
+}
+
 /** 是否为标量数值类型（int / float；数组返回 false，判断数组元素请先 elementType） */
 export function isNumericType(t: IRValueType): boolean {
   return t === 'int' || t === 'float';
@@ -129,6 +142,8 @@ export function isNumericType(t: IRValueType): boolean {
 export function isTypeAssignable(from: IRValueType, to: IRValueType): boolean {
   if (from === to) return true;
   if (from === 'any' || to === 'any') return true;
+  // 具体值（结构体 / 数组 / 标量）都可交给通用 object 引脚；反向仍需显式转换
+  if (to === 'object' && !isExecType(from)) return true;
   // v3 T12.4：UiHandle 族 —— to 要求的 trait 必须全部由 from 提供；
   // 裸 'uiHandle' 视为「未声明 trait」（宽松兼容 ui.get 的静态输出）。
   if (isUiHandleType(from) && isUiHandleType(to)) {
@@ -169,6 +184,34 @@ export interface IRParamSpec {
   name: string;
   /** 参数类型（数据类型，禁止 exec） */
   type: IRValueType;
+}
+
+/**
+ * 用户自定义结构体字段（v3.3 / ADR-019）：
+ * 字段名在结构体内唯一；类型可为基础类型、数组、其他结构体（支持嵌套与自引用）；
+ * default 为未连线时 `struct.make` 的初值与 `struct.break` 缺字段的兜底。
+ */
+export interface IRStructField {
+  /** 字段名（结构体内唯一；`struct.make` 输入脚 / `struct.break` 输出脚 id） */
+  name: string;
+  /** 字段类型（禁止 exec） */
+  type: IRValueType;
+  /** 默认值（省略 = 按类型的零值） */
+  default?: unknown;
+}
+
+/**
+ * 用户自定义结构体（v3.3 / ADR-019）：
+ * 资产内按名引用（变量 / 函数参数 / 结构体字段类型），不做全局注册。
+ * 与 UE 的 USTRUCT 对应；结构体资产本身不参与运行时，只提供字段表。
+ */
+export interface IRStructDef {
+  /** 结构体名（资产内唯一；作为 IRValueType 别名引用） */
+  name: string;
+  /** 字段表（有序，决定 Make/Break 节点引脚顺序） */
+  fields: IRStructField[];
+  /** 说明（My Blueprint 类型列表提示用） */
+  doc?: string;
 }
 
 /** 连线端点（节点实例 id + 引脚 id） */
@@ -325,6 +368,8 @@ export interface IRAsset {
   graphs: Record<string, IRGraph>;
   /** 变量表 */
   variables: IRVariable[];
+  /** 用户自定义结构体表（v3.3 / ADR-019；省略 = 无自定义类型） */
+  types?: IRStructDef[];
   /** 自定义事件表 */
   events: IREventDef[];
   /** 脚本片段列表（不可映射段兜底，通常由脚本解析器生成） */
@@ -503,6 +548,8 @@ export interface ElementAsset {
   root: UINode;
   graphs?: Record<string, IRGraph & { kind?: 'event' | 'function' }>;
   variables?: IRVariable[];
+  /** v3.3 用户自定义结构体表（ADR-019） */
+  types?: IRStructDef[];
   layout?: Record<string, IRGraphLayout>;
 }
 
@@ -520,8 +567,10 @@ export interface UIAsset {
   graphs?: Record<string, IRGraph & { kind?: 'event' | 'function' }>;
   /** v3：图视图状态（键 = 图名） */
   layout?: Record<string, IRGraphLayout>;
-  /** v3：变量表（内嵌蓝图，M10） */
+  /** v3 变量表（内嵌蓝图，M10） */
   variables?: IRVariable[];
+  /** v3.3 用户自定义结构体表（ADR-019） */
+  types?: IRStructDef[];
   /** v3：自定义事件声明 */
   events?: IREventDef[];
   /** UI 树根节点 */
@@ -631,6 +680,11 @@ export interface NodeRunContext {
    * src/nodes/dynamic.ts 的 configurePluginInvoke 装配兜底。
    */
   projectName?: string;
+  /**
+   * 当前资产的结构体定义表（v3.3 / ADR-019）：`struct.break` 按字段名拆出输出；
+   * 解释器恒注入，缺失时节点按空字段表降级（不抛错）。
+   */
+  types?: readonly IRStructDef[];
   /**
    * 插件调用桥（T6.4 · ADR-005 附加说明级扩展）：脚本 plugins.<id>.<method>()（T3.2）
    * 与插件节点 run 共用的 CLI 桥通道。约定：resolve 为插件调用响应

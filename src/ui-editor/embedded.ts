@@ -77,6 +77,7 @@ export function embeddedBlueprintOf(asset: UIAsset): IRAsset {
     entry: eventKey,
     graphs: cleaned,
     variables: asset.variables ?? [],
+    ...(asset.types && asset.types.length > 0 ? { types: asset.types } : {}),
     events: asset.events ?? [],
     snippets: [],
     layout: asset.layout ?? {},
@@ -98,6 +99,8 @@ export function applyEmbeddedBlueprint(asset: UIAsset, ir: IRAsset): void {
   }
   asset.graphs = graphs
   asset.variables = ir.variables.map((v) => ({ ...v }))
+  if (ir.types && ir.types.length > 0) asset.types = ir.types.map((t) => ({ ...t, fields: t.fields.map((f) => ({ ...f })) }))
+  else delete asset.types
   asset.events = ir.events.map((e) => ({ ...e }))
   asset.layout = { ...ir.layout }
   asset.version = 3
@@ -114,6 +117,7 @@ export interface GraphOwnerLike {
   name: string
   graphs?: Record<string, IRGraph & { kind?: 'event' | 'function' }>
   variables?: IRAsset['variables']
+  types?: IRAsset['types']
   events?: IRAsset['events']
   layout?: IRAsset['layout']
 }
@@ -129,6 +133,7 @@ export function graphOwnerBlueprint(owner: GraphOwnerLike): IRAsset | null {
     name: owner.name,
     graphs: owner.graphs,
     variables: owner.variables ?? [],
+    ...(owner.types && owner.types.length > 0 ? { types: owner.types } : {}),
     events: owner.events ?? [],
     layout: owner.layout ?? {},
   } as UIAsset)

@@ -383,6 +383,7 @@ test('集成：分支 + 循环 + 变量读写的合法蓝图（builtinSpecMap）
       node('br', 'flow.branch'),
       node('loop', 'flow.forLoop'),
       node('readCnt', 'var.get', { params: { varName: 'count' } }),
+      node('toBool', 'convert.toBool'),
       node('show', 'system.print', { title: '打印计数' }),
       node('writeCnt', 'var.set', { params: { varName: 'count' } }),
     ],
@@ -391,9 +392,10 @@ test('集成：分支 + 循环 + 变量读写的合法蓝图（builtinSpecMap）
       execEdge('e2', 'br', 'loop', 'true', 'exec'),
       execEdge('e3', 'loop', 'show', 'body', 'exec'),
       dataEdge('d1', 'loop', 'index', 'show', 'value'),      // int → any
-      dataEdge('d2', 'readCnt', 'value', 'br', 'cond'),      // any → bool
+      dataEdge('d2', 'readCnt', 'value', 'toBool', 'value'), // int → any（显式转 bool）
+      dataEdge('d2b', 'toBool', 'value', 'br', 'cond'),      // bool → bool
       execEdge('e4', 'loop', 'writeCnt', 'done', 'exec'),
-      dataEdge('d3', 'readCnt', 'value', 'writeCnt', 'value'), // any → any
+      dataEdge('d3', 'readCnt', 'value', 'writeCnt', 'value'), // int → any
     ],
   );
   // 函数子图风格的事件监听图：监听事件 → 打印参数

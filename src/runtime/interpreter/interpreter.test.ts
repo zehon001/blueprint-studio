@@ -1065,3 +1065,42 @@ test('ADR-008 集成：有限 generator 超 maxSteps 视为死循环（unlimited
   assert.equal(rec.errors.length, 1, '有限 generator 超限应上报死循环错误');
   assert.ok(rec.errors[0]!.err.message.includes('死循环'), `错误应含死循环提示：${rec.errors[0]!.err.message}`);
 });
+
+/* ============================================================
+ * v3.3 结构体节点集成（ADR-019）
+ * ============================================================ */
+
+test('struct.make / struct.break 集成：动态字段输入输出 + 字段默认值', async () => {
+  const base = asset(
+    {
+      main: g(
+        [
+          n('st', 'event.start'),
+          n('mk', 'struct.make', { typeName: 'Row' }, { count: 3 }),
+          n('br', 'struct.break', { typeName: 'Row' }),
+          n('pr', 'system.print'),
+        ],
+        [
+          e('x1', 'st', 'exec', 'pr', 'exec'),
+          e('d1', 'mk', 'value', 'br', 'value', 'data'),
+          e('d2', 'br', 'level', 'pr', 'value', 'data'),
+        ],
+      ),
+    },
+  );
+  base.types = [
+    {
+      name: 'Row',
+      fields: [
+        { name: 'level', type: 'string', default: 'INFO' },
+        { name: 'count', type: 'int', default: 0 },
+      ],
+    },
+  ];
+  const { rt, rec } = harness(base, builtinSpecMap);
+  rt.start();
+  await tick(20);
+  rt.stop();
+  assert.deepEqual(tags(rec), ['INFO'], '未连线的 level 使用字段默认值；count 覆盖为 3');
+  assert.equal(rec.errors.length, 0);
+});

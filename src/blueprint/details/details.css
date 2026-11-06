@@ -266,6 +266,34 @@
   user-select: none;
 }
 
+/* ---- JSON / 结构体值编辑（object / any / 数组 / 自定义类型） ---- */
+
+.bp-det-json {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.bp-det-json-input {
+  min-height: 48px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  line-height: 1.4;
+  white-space: pre;
+  overflow: auto;
+}
+
+.bp-det-json-input[aria-invalid='true'] {
+  border-color: var(--danger, #e06c75);
+}
+
+.bp-det-json-error {
+  font-size: var(--font-xs);
+  color: var(--danger, #e06c75);
+  line-height: 1.3;
+}
+
 /* —— 键值行（主图统计等） —— */
 
 .bp-det-kv {

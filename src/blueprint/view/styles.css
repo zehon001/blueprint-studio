@@ -281,6 +281,22 @@
   padding: 0 2px;
 }
 
+/* JSON / 对象 / 数组 / 自定义结构体：加宽以显示字面量 */
+.bp-pin-default--json {
+  width: 108px;
+  font-size: 10px;
+}
+
+.bp-pin-default--invalid,
+.bp-pin-default--invalid:focus {
+  border-color: var(--danger, #e06c75);
+  box-shadow: 0 0 0 2px rgba(224, 108, 117, 0.18);
+}
+
+.bp-node-var .bp-pin-default--json {
+  width: 92px;
+}
+
 /* ============ 变量 Get/Set：无头紧凑样式（§8.1） ============ */
 
 .bp-node-var {

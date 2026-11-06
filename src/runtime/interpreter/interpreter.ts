@@ -36,6 +36,7 @@ import type {
   NodeSpec,
 } from '@/ir/types';
 import { clearAllStateSlots } from '@/nodes/spec';
+import { structPinsOf } from '@/ir/structs';
 import { BUS_SOURCE_NODE_KEY } from '../events/markers';
 import type { DebugEvent, RuntimeHandle, RuntimeOptions } from './types';
 
@@ -601,7 +602,7 @@ class BlueprintRuntime implements RuntimeHandle {
           nextPin = undefined;
         } else {
           // 常规节点：组装 inputs → run → 缓存输出 → next 选口
-          const inputs = await this.resolveInputs(frame, node, spec!.inputs, assembly);
+          const inputs = await this.resolveInputs(frame, node, this.inputPinsOf(node, spec!), assembly);
           const ctx = this.ctxFor(frame, node, spec!);
           const result = await this.invokeRun(spec!, ctx, inputs);
           if (isAsyncGenerator(result)) {
@@ -768,7 +769,7 @@ class BlueprintRuntime implements RuntimeHandle {
       const spec = this.specs.get(node.type);
       if (!spec) throw new Error(`未知节点类型: ${node.type}（节点 ${node.id}）`);
       this.debug({ kind: 'nodeEnter', graph: frame.graphName, nodeId: node.id });
-      const inputs = await this.resolveInputs(frame, node, spec.inputs, assembly);
+      const inputs = await this.resolveInputs(frame, node, this.inputPinsOf(node, spec), assembly);
       const ctx = this.ctxFor(frame, node, spec);
       const result = await this.invokeRun(spec, ctx, inputs);
       if (isAsyncGenerator(result)) {
@@ -788,6 +789,17 @@ class BlueprintRuntime implements RuntimeHandle {
   }
 
   /* ---------------- ctx / 运行原语 ---------------- */
+
+  /**
+   * 节点输入引脚：结构体节点的字段脚由资产 types 表动态展开
+   * （struct.make 输入 = 字段；struct.break 输入 = value），其余节点用静态 spec。
+   */
+  private inputPinsOf(node: IRNode, spec: NodeSpec): readonly InputPinDesc[] {
+    if (node.type === 'struct.make' || node.type === 'struct.break') {
+      return structPinsOf(node, this.asset.types)?.inputs ?? [];
+    }
+    return spec.inputs;
+  }
 
   /** 构造 NodeRunContext（契约见 src/ir/types.ts；ADR-005 句柄按运行能力透传，缺失即 undefined） */
   private ctxFor(frame: Frame, node: IRNode, spec: NodeSpec): NodeRunContext {
@@ -822,7 +834,7 @@ class BlueprintRuntime implements RuntimeHandle {
       // ADR-008：重新求值当前节点输入（独立 Assembly → 纯链重执行、变量读最新值）
       reinputs: async () => {
         const fresh: Assembly = { memo: new Map(), inProgress: new Set() };
-        return await self.resolveInputs(frame, node, spec.inputs, fresh);
+        return await self.resolveInputs(frame, node, self.inputPinsOf(node, spec), fresh);
       },
       signal: self.signal,
       ui: self.opts.ui,
@@ -830,6 +842,7 @@ class BlueprintRuntime implements RuntimeHandle {
       notify: self.opts.notify,
       clipboardWrite: self.opts.clipboardWrite,
       openUrl: self.opts.openUrl,
+      types: self.asset.types,
     };
   }
 

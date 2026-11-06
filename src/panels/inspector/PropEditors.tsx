@@ -32,8 +32,9 @@ import {
   SwitchField,
   TextField,
 } from '@/shell/ui/Field'
-import type { PropDef } from '@/ui-editor/schema'
-import type { UIAsset } from '@/ir/types'
+import type { ListColumn, PropDef } from '@/ui-editor/schema'
+import type { IRStructDef, UIAsset } from '@/ir/types'
+import { useBlueprintStore } from '@/blueprint/store/blueprint-store'
 import { MIXED_TITLE, parseListColumnsJson, parseOptionsLines } from './inspector-model'
 
 /** 编辑控件统一入参（PropEditor 按 def.type 分发） */
@@ -319,10 +320,28 @@ export function OptionsEditor(props: PropEditorProps) {
   )
 }
 
-/** 列定义（listColumns）：JSON 文本域 + 格式校验（错误就地提示）；可视化编辑 T7.x */
+/** 结构体字段 → 列表列定义（字段名 = 列字段；颜色/分组/合并可继续手动补） */
+export function columnsFromStruct(def: IRStructDef): ListColumn[] {
+  return def.fields.map((field) => ({ field: field.name, title: field.name }))
+}
+
+/** 列定义（listColumns）：JSON 文本域 + 格式校验（错误就地提示）+ 从结构体一键生成列 */
 export function ListColumnsEditor(props: PropEditorProps) {
   const initial = props.mixed ? '' : JSON.stringify(Array.isArray(props.value) ? props.value : [], null, 2)
   const [error, setError] = useState<string | null>(null)
+  const [structName, setStructName] = useState('')
+  const { asset: uiAsset } = useSceneTreeDomain()
+  const blueprintAsset = useBlueprintStore((s) => s.asset)
+  // 蓝图视图中新建的类型在保存前只存在于蓝图 store：同资产时合并进来，
+  // 让「设计」页签的列定义生成器无需先 Ctrl+S 也能看到最新类型。
+  const types = useMemo(() => {
+    const merged = new Map<string, IRStructDef>()
+    for (const t of uiAsset?.types ?? []) merged.set(t.name, t)
+    if (blueprintAsset && uiAsset && blueprintAsset.name === uiAsset.name) {
+      for (const t of blueprintAsset.types ?? []) merged.set(t.name, t)
+    }
+    return [...merged.values()]
+  }, [uiAsset?.types, uiAsset?.name, blueprintAsset])
   const { draft, setDraft, commit } = useDraft(
     initial,
     (d) => d === initial,
@@ -340,8 +359,47 @@ export function ListColumnsEditor(props: PropEditorProps) {
   useEffect(() => {
     setError(null)
   }, [initial])
+  const generateFromStruct = (): void => {
+    const def = types.find((t) => t.name === structName)
+    if (!def) return
+    if (def.fields.length === 0) {
+      setError(`结构体「${def.name}」还没有字段`)
+      return
+    }
+    const columns = columnsFromStruct(def)
+    setDraft(JSON.stringify(columns, null, 2))
+    setError(null)
+    props.onCommit(columns)
+  }
   return (
     <span className="insp-stack">
+      {types.length > 0 ? (
+        <span className="insp-struct-gen">
+          <select
+            className="insp-select"
+            value={structName}
+            disabled={props.disabled}
+            aria-label="从结构体生成列"
+            onChange={(e) => setStructName(e.target.value)}
+          >
+            <option value="">从结构体生成列…</option>
+            {types.map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name}（{t.fields.length} 字段）
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="insp-btn"
+            disabled={props.disabled || structName === ''}
+            title="用结构体字段填充列定义（字段名 = 列字段；之后可继续手改颜色/分组/合并）"
+            onClick={generateFromStruct}
+          >
+            生成
+          </button>
+        </span>
+      ) : null}
       <textarea
         className="insp-textarea"
         rows={6}
@@ -354,7 +412,7 @@ export function ListColumnsEditor(props: PropEditorProps) {
         onBlur={commit}
       />
       {error ? <span className="insp-error">{error}</span> : null}
-      <span className="insp-note">JSON 源编辑（失焦提交并校验）· 可视化列编辑将在 T7.x 提供</span>
+      <span className="insp-note">JSON 源编辑（失焦提交并校验）· 结构体类型可在 My Blueprint「类型」中定义</span>
     </span>
   )
 }

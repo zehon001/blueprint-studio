@@ -1136,3 +1136,65 @@ test('runUICommand 空配方不入栈（同值提交不产生命令）', async (
     await unmount()
   }
 })
+
+test('columnsFromStruct：结构体字段 → 列表列定义', async () => {
+  const { columnsFromStruct } = await import('./PropEditors')
+  assert.deepEqual(
+    columnsFromStruct({
+      name: 'Row',
+      fields: [
+        { name: 'level', type: 'string' },
+        { name: 'count', type: 'int' },
+      ],
+    }),
+    [
+      { field: 'level', title: 'level' },
+      { field: 'count', title: 'count' },
+    ],
+  )
+})
+
+test('ListColumnsEditor：从结构体字段生成列定义', async () => {
+  resetOnly()
+  openAsset(uiNode('lst', 'list', '列表'))
+  runCommand<SceneTreeDomainState>('scene-tree', '注入类型', (d) => {
+    if (d.asset) {
+      d.asset.types = [
+        { name: 'Row', fields: [{ name: 'level', type: 'string' }, { name: 'count', type: 'int' }] },
+      ]
+    }
+  })
+  const { ListColumnsEditor } = await import('./PropEditors')
+  const committed: unknown[] = []
+  const { container, unmount } = await mountEl(
+    createElement(ListColumnsEditor, {
+      def: { id: 'columns', label: '列定义', type: 'listColumns', group: '数据' },
+      value: [],
+      mixed: false,
+      disabled: false,
+      onCommit: (value: unknown) => committed.push(value),
+    }),
+  )
+  try {
+    const select = container.querySelector(
+      'select[aria-label="从结构体生成列"]',
+    ) as HTMLSelectElement
+    assert.ok(select, '生成器下拉渲染')
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(dom.HTMLSelectElement.prototype, 'value')?.set
+      setter?.call(select, 'Row')
+      select.dispatchEvent(new dom.Event('change', { bubbles: true }) as unknown as Event)
+    })
+    const generate = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('生成'),
+    ) as HTMLButtonElement
+    assert.ok(generate, '生成按钮存在')
+    act(() => clickEl(generate))
+    assert.deepEqual(committed.at(-1), [
+      { field: 'level', title: 'level' },
+      { field: 'count', title: 'count' },
+    ])
+  } finally {
+    await unmount()
+  }
+})

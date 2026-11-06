@@ -6,7 +6,7 @@
  *     覆盖 ① builtinSpecs 逐节点样本（52 纯节点 + 17 可往返执行节点）、② 场景样本
  *     （全特性 / 条件循环 / 日志管线 / 字符串链）、③ 片段节点专项样本（T3.7）、
  *     ④ 真实资产样本（templates/log-analyzer，含片段演化）。
- *  2. `KNOWN_UNMAPPED_NODE_IDS`：「已知无法往返清单」（8 项，见该常量注释）——
+ *  2. `KNOWN_UNMAPPED_NODE_IDS`：「已知无法往返清单」（13 项，见该常量注释）——
  *     门禁对清单内节点显式跳过（而非静默漏测）。
  *  3. `auditCoverage`：覆盖审计（计数守卫）——builtinSpecs 总数 = 已测数 + 已知跳过数，
  *     「既无样本又未登记跳过」的节点记入 missing（门禁红灯依据）。
@@ -75,6 +75,9 @@ export const KNOWN_UNMAPPED_NODE_IDS: ReadonlySet<string> = new Set([
   'ui.getProp',
   'ui.setProp',
   'ui.setText',
+  // v3.3 新增（ADR-019）：结构体节点引脚由资产 types 表动态展开，脚本侧暂无往返映射
+  'struct.make',
+  'struct.break',
 ]);
 
 /* ============================================================
@@ -505,7 +508,8 @@ const nodeSamples: RoundtripSample[] = [
     note: `执行节点样本：${d.note}`,
   })),
   ...builtinSpecs
-    .filter((s) => s.pure === true)
+    // 已知无映射的纯节点（如结构体动态引脚）不进入样本注册表（门禁 ① 显式跳过）
+    .filter((s) => s.pure === true && !KNOWN_UNMAPPED_NODE_IDS.has(s.id))
     .map<RoundtripSample>((s) => ({
       name: s.id,
       kind: 'node',

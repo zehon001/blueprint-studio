@@ -56,11 +56,14 @@ import type {
   IRParamSpec,
   IRSnippet,
   IRSnippetPin,
+  IRStructDef,
+  IRStructField,
   IRValueType,
   IRVariable,
   NodeSpec,
   PinSpec,
 } from './types';
+import { isReservedStructTypeName, isSafeStructFieldName, mergePinLists, structPinsOf } from './structs';
 
 /* ============================================================
  * 1. 校验结果类型
@@ -190,6 +193,23 @@ function normalizeVariable(raw: unknown): IRVariable {
   return out;
 }
 
+function normalizeStructField(raw: unknown): IRStructField {
+  const f = isPlainObject(raw) ? raw : {};
+  const out: IRStructField = { name: strField(f, 'name'), type: typeField(f) };
+  if (f['default'] !== undefined) out.default = pruneValue(f['default']);
+  return out;
+}
+
+function normalizeStructDef(raw: unknown): IRStructDef {
+  const s = isPlainObject(raw) ? raw : {};
+  const out: IRStructDef = {
+    name: strField(s, 'name'),
+    fields: (Array.isArray(s['fields']) ? (s['fields'] as unknown[]) : []).map(normalizeStructField),
+  };
+  if (typeof s['doc'] === 'string' && s['doc'] !== '') out.doc = s['doc'];
+  return out;
+}
+
 function normalizeEvent(raw: unknown): { name: string; params: IRParamSpec[] } {
   const e = isPlainObject(raw) ? raw : {};
   return {
@@ -286,12 +306,15 @@ export function normalizeIR(asset: IRAsset): IRAsset {
     const g = normalizeGraph(graphsRaw[name]);
     if (g) graphs[name] = g;
   }
+  const types = (Array.isArray(raw['types']) ? (raw['types'] as unknown[]) : []).map(normalizeStructDef);
   return {
     version: IR_VERSION,
     name: strField(raw, 'name'),
     entry: strField(raw, 'entry'),
     graphs,
     variables: (Array.isArray(raw['variables']) ? (raw['variables'] as unknown[]) : []).map(normalizeVariable),
+    // 可选：无结构体时不写 types 字段（保持旧资产规范形不变）
+    ...(types.length > 0 ? { types } : {}),
     events: (Array.isArray(raw['events']) ? (raw['events'] as unknown[]) : []).map(normalizeEvent),
     snippets: (Array.isArray(raw['snippets']) ? (raw['snippets'] as unknown[]) : []).map(normalizeSnippet),
     layout: normalizeLayout(raw['layout']),
@@ -408,6 +431,26 @@ function assertIRStructure(raw: unknown): void {
     if (typeof v['name'] !== 'string' || v['name'] === '') throw new Error(`IR 结构错误：variables[${i}] 缺少 name`);
     if (typeof v['type'] !== 'string' || v['type'] === '') throw new Error(`IR 结构错误：变量「${v['name']}」缺少 type`);
   });
+  // 可选：用户自定义结构体表（旧资产无该字段）
+  if (raw['types'] !== undefined) {
+    if (!Array.isArray(raw['types'])) throw new Error('IR 结构错误：types 必须是数组');
+    (raw['types'] as unknown[]).forEach((t, i) => {
+      if (!isPlainObject(t)) throw new Error(`IR 结构错误：types[${i}] 必须是对象`);
+      if (typeof t['name'] !== 'string' || t['name'] === '') {
+        throw new Error(`IR 结构错误：types[${i}] 缺少 name`);
+      }
+      if (!Array.isArray(t['fields'])) throw new Error(`IR 结构错误：结构体「${t['name']}」缺少 fields 数组`);
+      (t['fields'] as unknown[]).forEach((f, j) => {
+        if (!isPlainObject(f)) throw new Error(`IR 结构错误：结构体「${t['name']}」第 ${j + 1} 个字段必须是对象`);
+        if (typeof f['name'] !== 'string' || f['name'] === '') {
+          throw new Error(`IR 结构错误：结构体「${t['name']}」的字段 ${j + 1} 缺少 name`);
+        }
+        if (typeof f['type'] !== 'string' || f['type'] === '') {
+          throw new Error(`IR 结构错误：结构体「${t['name']}」的字段「${f['name']}」缺少 type`);
+        }
+      });
+    });
+  }
   (raw['events'] as unknown[]).forEach((e, i) => {
     if (!isPlainObject(e)) throw new Error(`IR 结构错误：events[${i}] 必须是对象`);
     if (typeof e['name'] !== 'string' || e['name'] === '') throw new Error(`IR 结构错误：events[${i}] 缺少 name`);
@@ -506,6 +549,75 @@ function endpointOf(v: unknown): { node: string; pin: string } {
   return { node: strField(p, 'node'), pin: strField(p, 'pin') };
 }
 
+/** 参数声明 → 动态数据引脚 */
+function paramPins(params: readonly IRParamSpec[]): PinSpec[] {
+  return params.map((p) => ({ id: p.name, label: p.name, type: p.type }));
+}
+
+/**
+ * 节点实例的有效引脚（静态 spec ∪ 动态签名）：
+ *  - struct.make / struct.break：字段表来自资产 types + params.typeName；
+ *  - func.entry / func.return：当前图的 params / returns；
+ *  - flow.call：资产内目标函数的签名（项目/全局函数签名不在资产内，返回 null 跳过引脚检查）。
+ * spec 缺失或动态签名无法解析时返回 null（调用方跳过引脚级检查，避免误报）。
+ */
+function effectivePinsForNode(
+  nodeRaw: Record<string, unknown>,
+  spec: NodeSpec,
+  graphRaw: Record<string, unknown>,
+  asset: IRAsset,
+): { inputs: PinSpec[]; outputs: PinSpec[] } | null {
+  const type = strField(nodeRaw, 'type');
+  const params = readRecord(nodeRaw, 'params');
+  const structPins = structPinsOf(nodeRaw as unknown as IRNode, asset.types);
+  if (structPins) {
+    return {
+      inputs: mergePinLists(spec.inputs, structPins.inputs),
+      outputs: mergePinLists(spec.outputs, structPins.outputs),
+    };
+  }
+  // var.get/set 的 spec 引脚恒为 any：按变量声明类型参与边级类型校验
+  if (type === 'var.get' || type === 'var.set') {
+    const varName = typeof params['varName'] === 'string' ? params['varName'] : '';
+    const variable = asset.variables.find((v) => v.name === varName);
+    if (variable) {
+      const typed = (pin: PinSpec): PinSpec => (pin.id === 'value' ? { ...pin, type: variable.type } : pin);
+      return {
+        inputs: spec.inputs.map(typed),
+        outputs: spec.outputs.map(typed),
+      };
+    }
+  }
+  if (type === 'func.entry' || type === 'flow.entry') {
+    const declared = (Array.isArray(graphRaw['params']) ? (graphRaw['params'] as unknown[]) : []).filter(
+      (p): p is IRParamSpec => isPlainObject(p) && typeof p['name'] === 'string' && typeof p['type'] === 'string',
+    );
+    return { inputs: spec.inputs, outputs: mergePinLists(spec.outputs, paramPins(declared)) };
+  }
+  if (type === 'func.return' || type === 'flow.return') {
+    const declared = (Array.isArray(graphRaw['returns']) ? (graphRaw['returns'] as unknown[]) : []).filter(
+      (p): p is IRParamSpec => isPlainObject(p) && typeof p['name'] === 'string' && typeof p['type'] === 'string',
+    );
+    return { inputs: mergePinLists(spec.inputs, paramPins(declared)), outputs: spec.outputs };
+  }
+  if (type !== 'flow.call') return { inputs: spec.inputs, outputs: spec.outputs };
+  const target =
+    typeof params['graph'] === 'string' && params['graph'] !== ''
+      ? params['graph']
+      : typeof params['function'] === 'string'
+        ? params['function']
+        : '';
+  const scope = typeof params['scope'] === 'string' ? params['scope'] : 'auto';
+  const targetGraph = target !== '' ? asset.graphs[target] : undefined;
+  if (!targetGraph || (scope !== 'auto' && scope !== 'blueprint')) return null;
+  const declaredParams = (targetGraph.params ?? []) as IRParamSpec[];
+  const declaredReturns = (targetGraph.returns ?? []) as IRParamSpec[];
+  return {
+    inputs: mergePinLists(spec.inputs, paramPins(declaredParams)),
+    outputs: mergePinLists(spec.outputs, paramPins(declaredReturns)),
+  };
+}
+
 /**
  * IR 语义校验器（保存即校验，PLAN §8.5）。
  *
@@ -533,6 +645,76 @@ export function validateIR(asset: IRAsset, specs: Map<string, NodeSpec>): Valida
   const eventDefNames = new Set<string>();
   for (const e of Array.isArray(raw['events']) ? (raw['events'] as unknown[]) : []) {
     if (isPlainObject(e) && typeof e['name'] === 'string' && e['name'] !== '') eventDefNames.add(e['name']);
+  }
+
+  // 结构体定义名集合 + 字段级检查（v3.3 / ADR-019）
+  const structNames = new Set<string>();
+  const structDefsRaw = Array.isArray(raw['types']) ? (raw['types'] as unknown[]) : [];
+  for (const tRaw of structDefsRaw) {
+    if (!isPlainObject(tRaw)) continue;
+    const typeName = strField(tRaw, 'name');
+    if (typeName === '') {
+      issues.push({
+        severity: 'error',
+        code: 'duplicate-struct',
+        graphName: entryName,
+        message: `资产级结构体定义缺少 name（第 ${structDefsRaw.indexOf(tRaw) + 1} 项）`,
+      });
+      continue;
+    }
+    if (structNames.has(typeName)) {
+      issues.push({
+        severity: 'error',
+        code: 'duplicate-struct',
+        graphName: entryName,
+        message: `资产级存在重复的结构体名「${typeName}」（结构体名必须唯一）`,
+      });
+      continue;
+    }
+    if (isReservedStructTypeName(typeName)) {
+      issues.push({
+        severity: 'error',
+        code: 'invalid-struct-name',
+        graphName: entryName,
+        message: `结构体名「${typeName}」与内置类型冲突（不能使用原语 / 数组 / uiHandle 名）`,
+      });
+      continue;
+    }
+    structNames.add(typeName);
+    const fields = Array.isArray(tRaw['fields']) ? (tRaw['fields'] as unknown[]) : [];
+    const fieldNames = new Set<string>();
+    for (const fRaw of fields) {
+      if (!isPlainObject(fRaw)) continue;
+      const fieldName = strField(fRaw, 'name');
+      const fieldType = strField(fRaw, 'type');
+      if (!isSafeStructFieldName(fieldName)) {
+        issues.push({
+          severity: 'error',
+          code: 'invalid-field-name',
+          graphName: entryName,
+          message: `结构体「${typeName}」存在不可用字段名「${fieldName}」（不能为空或原型链保留名）`,
+        });
+        continue;
+      }
+      if (fieldNames.has(fieldName)) {
+        issues.push({
+          severity: 'error',
+          code: 'duplicate-field',
+          graphName: entryName,
+          message: `结构体「${typeName}」存在重复字段「${fieldName}」`,
+        });
+        continue;
+      }
+      fieldNames.add(fieldName);
+      if (fieldType === 'exec') {
+        issues.push({
+          severity: 'error',
+          code: 'type-mismatch',
+          graphName: entryName,
+          message: `结构体「${typeName}」的字段「${fieldName}」不能使用 exec 类型`,
+        });
+      }
+    }
   }
 
   // 全图扫描累积：被读写的变量名、被引用的事件名
@@ -582,6 +764,42 @@ export function validateIR(asset: IRAsset, specs: Map<string, NodeSpec>): Valida
         continue; // 无 spec，引脚级检查无从进行
       }
       const label = nodeLabelOf(nRaw, spec);
+
+      // 规则：结构体节点必须引用资产内已定义的结构体（v3.3 / ADR-019）
+      if (nodeType === 'struct.make' || nodeType === 'struct.break') {
+        const typeName = readRecord(nRaw, 'params')['typeName'];
+        if (typeof typeName !== 'string' || typeName === '') {
+          issues.push({
+            severity: 'error',
+            code: 'struct-type-missing',
+            graphName,
+            nodeId,
+            message: `图「${graphName}」中节点「${label}」尚未选择结构体类型（在检视器「结构体类型」中选择）`,
+          });
+        } else if (!structNames.has(typeName)) {
+          issues.push({
+            severity: 'error',
+            code: 'struct-type-missing',
+            graphName,
+            nodeId,
+            message: `图「${graphName}」中节点「${label}」引用的结构体「${typeName}」未定义`,
+          });
+        } else {
+          const def = structDefsRaw.find(
+            (t) => isPlainObject(t) && strField(t, 'name') === typeName,
+          );
+          const fields = isPlainObject(def) && Array.isArray(def['fields']) ? (def['fields'] as unknown[]) : [];
+          if (fields.length === 0) {
+            issues.push({
+              severity: 'warning',
+              code: 'struct-empty',
+              graphName,
+              nodeId,
+              message: `图「${graphName}」中节点「${label}」引用的结构体「${typeName}」还没有字段（节点不会产生引脚）`,
+            });
+          }
+        }
+      }
 
       // 规则：必需数据输入既无连线也无默认值（exec 输入由悬空 exec 规则负责）
       for (const pin of spec.inputs) {
@@ -657,6 +875,10 @@ export function validateIR(asset: IRAsset, specs: Map<string, NodeSpec>): Valida
       const fromSpec = specs.get(strField(fromNode, 'type'));
       const toSpec = specs.get(strField(toNode, 'type'));
       if (!fromSpec || !toSpec) continue; // unknown-node 已单独报过，引脚无从查证
+      // 有效引脚 = 静态 spec ∪ 动态签名（结构体字段 / 函数接口）；无法解析时跳过引脚检查
+      const fromPins = effectivePinsForNode(fromNode, fromSpec, gRaw, asset);
+      const toPins = effectivePinsForNode(toNode, toSpec, gRaw, asset);
+      if (!fromPins || !toPins) continue;
 
       // 规则：exec 链穿纯节点（按目标节点判定，与引脚有效性解耦）
       if (kind === 'exec' && toSpec.pure === true) {
@@ -670,8 +892,8 @@ export function validateIR(asset: IRAsset, specs: Map<string, NodeSpec>): Valida
         });
       }
 
-      const fromPin = fromSpec.outputs.find((p) => !!p && p.id === from.pin);
-      const toPin = toSpec.inputs.find((p) => !!p && p.id === to.pin);
+      const fromPin = fromPins.outputs.find((p) => !!p && p.id === from.pin);
+      const toPin = toPins.inputs.find((p) => !!p && p.id === to.pin);
       // 规则：边引用不存在的引脚
       if (!fromPin || !toPin) {
         const side = !fromPin ? '起点' : '终点';

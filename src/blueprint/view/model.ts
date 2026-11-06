@@ -22,6 +22,7 @@ import type {
   Vec2,
 } from '../../ir/types';
 import { getFunctionSignature } from './externalSignatures';
+import { structPinsOf } from '../../ir/structs';
 import {
   EDGE_COLORS,
   COLORS,
@@ -65,6 +66,11 @@ export type BPNodeData = {
   /** v3 T12.2：函数入口/出口/调用的签名动态引脚（在 spec 静态引脚之外追加） */
   dynamicPins?: { inputs: PinSpec[]; outputs: PinSpec[] };
   /**
+   * 变量 Get/Set 节点的变量声明类型（params.varName 查资产变量表）。
+   * spec 的 var.get/set 引脚恒为 any；视图据此显示正确的类型色与内联值编辑器。
+   */
+  varType?: IRValueType;
+  /**
    * 内联默认值变更回调（T2.2/T2.4 接 IR 命令栈；本卡先内部 state 可编辑，仅透传可选回调）。
    * TODO(T2.2/T2.4)：接命令栈后由交互层提供，实现撤销重做。
    */
@@ -102,7 +108,7 @@ export interface IrToFlowOptions {
  * 非此前缀表的带点 id（如 'phoneLog.read'）视为插件节点 → 紫头。
  */
 const BUILTIN_ID_PREFIXES: ReadonlySet<string> = new Set([
-  'flow', 'event', 'var', 'math', 'string', 'array', 'map', 'convert', 'ui', 'system',
+  'flow', 'event', 'var', 'math', 'string', 'array', 'map', 'convert', 'ui', 'system', 'struct',
 ]);
 
 /**
@@ -173,6 +179,22 @@ export function varDisplayName(node: IRNode): string {
   const name = node.params?.['varName'];
   if (typeof name === 'string' && name.trim() !== '') return name;
   return '变量';
+}
+
+/** 变量 Get/Set 节点的声明类型（按 params.varName 查资产变量表；未知返回 undefined） */
+export function varTypeOf(node: IRNode, asset: IRAsset): IRValueType | undefined {
+  if (!varOpOf(node.type)) return undefined;
+  const name = node.params?.['varName'];
+  if (typeof name !== 'string' || name === '') return undefined;
+  return asset.variables.find((v) => v.name === name)?.type;
+}
+
+/** 结构体节点显示标题（v3.3）：`创建 LogRow` / `拆分 LogRow`；非结构体节点返回 null */
+export function structNodeTitle(node: IRNode): string | null {
+  if (node.type !== 'struct.make' && node.type !== 'struct.break') return null;
+  const typeName = typeof node.params?.['typeName'] === 'string' ? node.params['typeName'] : '';
+  const op = node.type === 'struct.make' ? '创建' : '拆分';
+  return typeName ? `${op} ${typeName}` : `${op}结构体`;
 }
 
 /* ============================================================
@@ -350,6 +372,9 @@ export function dynamicPinsFor(
   graph: IRGraph,
   asset: IRAsset,
 ): { inputs: PinSpec[]; outputs: PinSpec[] } | undefined {
+  // v3.3：结构体节点引脚由资产 types 表 + params.typeName 展开
+  const structPins = structPinsOf(node, asset.types);
+  if (structPins) return structPins;
   if (node.type === 'func.entry') {
     const params = graph.params ?? [];
     return params.length > 0 ? { inputs: [], outputs: params.map(paramPin) } : undefined;
@@ -453,6 +478,7 @@ export function irToFlow(
         degradedInputs: degraded.get(n.id)?.in ?? EMPTY_ARR,
         degradedOutputs: degraded.get(n.id)?.out ?? EMPTY_ARR,
         dynamicPins: dynamicPinsFor(n, graph, asset),
+        varType: varTypeOf(n, asset),
         onPinDefaultChange: opts.onPinDefaultChange,
       },
     });
@@ -491,10 +517,19 @@ export function irToFlow(
   for (const e of graph.edges) {
     let pinType: IRValueType = e.kind === 'exec' ? 'exec' : 'any';
     if (e.kind === 'data') {
-      const fromSpec = effectiveSpecOf(nodeById.get(e.from.node));
-      const toSpec = effectiveSpecOf(nodeById.get(e.to.node));
+      const fromNode = nodeById.get(e.from.node);
+      const toNode = nodeById.get(e.to.node);
+      const fromSpec = effectiveSpecOf(fromNode);
+      const toSpec = effectiveSpecOf(toNode);
+      const fromDyn = fromNode ? dynamicPinsFor(fromNode, graph, asset) : undefined;
+      const toDyn = toNode ? dynamicPinsFor(toNode, graph, asset) : undefined;
+      // 变量 Get/Set 的 spec 引脚恒为 any：按变量声明类型着色（与节点内联编辑器一致）
       pinType =
+        (fromNode ? varTypeOf(fromNode, asset) : undefined) ??
+        (toNode ? varTypeOf(toNode, asset) : undefined) ??
+        fromDyn?.outputs.find((p) => p.id === e.from.pin)?.type ??
         fromSpec?.outputs.find((p) => p.id === e.from.pin)?.type ??
+        toDyn?.inputs.find((p) => p.id === e.to.pin)?.type ??
         toSpec?.inputs.find((p) => p.id === e.to.pin)?.type ??
         'any';
     }

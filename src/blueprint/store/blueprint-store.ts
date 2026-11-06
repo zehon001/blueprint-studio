@@ -35,13 +35,15 @@ import type {
   IREndpoint,
   IRNode,
   IRParamSpec,
+  IRStructField,
   IRValueType,
   IRVariable,
   NodeSpec,
   Vec2,
 } from '../../ir/types';
 import { editorSpecMap } from '../my-blueprint/graph-op-specs';
-import { nameKey, nextCopyName } from '../my-blueprint/model';
+import { isReservedStructTypeName, isSafeStructFieldName, structPinsOf } from '../../ir/structs';
+import { nameKey, nextCopyName, nextSequentialName } from '../my-blueprint/model';
 import { loadPluginSpecs } from '../../nodes/dynamic';
 import { useWorkspaceStore } from '../../shell/workspace-store';
 import {
@@ -253,6 +255,24 @@ export interface BlueprintStore {
   /** 插入自定义事件入口节点（event.custom，params.eventName = 事件名）到当前图；返回新节点 id */
   insertEventNode(eventName: string, flowPos?: Vec2): string | null;
 
+  /* ---------------- v3.3 用户自定义结构体（ADR-019；全部入命令栈） ---------------- */
+  /** 新建结构体（重名 / 空名拒绝）；成功返回 true */
+  addStructType(name: string): boolean;
+  /** 重命名结构体（级联变量 / 函数接口 / 事件参数 / 其他结构体字段 / struct 节点 typeName） */
+  renameStructType(oldName: string, newName: string): boolean;
+  /** 删除结构体（仍被引用时拒绝并提示）；成功返回 true */
+  removeStructType(name: string): boolean;
+  /** 追加字段（默认名「字段N」，类型 any）；返回新字段名，失败返回 null */
+  addStructField(typeName: string, field?: Partial<IRStructField>): string | null;
+  /** 编辑字段（改名级联 struct.make/break 引脚与连线；整条命令可撤销） */
+  updateStructField(typeName: string, index: number, patch: Partial<IRStructField>): void;
+  /** 删除字段（级联删除对应引脚连线与 pinDefaults） */
+  removeStructField(typeName: string, index: number): void;
+  /** 插入「创建结构体」节点（params.typeName）到当前图；返回新节点 id */
+  insertStructMakeNode(typeName: string, flowPos?: Vec2): string | null;
+  /** 插入「拆分结构体」节点（params.typeName）到当前图；返回新节点 id */
+  insertStructBreakNode(typeName: string, flowPos?: Vec2): string | null;
+
   /* ---------------- T2.3/T2.4 图接口与批量编辑（全部入命令栈） ---------------- */
   /** 设置函数图入参声明（整组替换；Details 无选中时的「图接口」区） */
   setGraphParams(graphName: string, params: IRParamSpec[]): void;
@@ -280,6 +300,44 @@ function clone<T>(value: T): T {
 function staggeredPosition(nodeCount: number): Vec2 {
   const slot = nodeCount % 10;
   return { x: 60 + slot * 30, y: 60 + slot * 40 };
+}
+
+/** 类型是否引用某结构体（含结构体数组） */
+function typeRefsStruct(type: IRValueType, name: string): boolean {
+  return type === name || type === `${name}[]`;
+}
+
+/** 收集结构体在资产内的引用（删除前的占用检查；返回人类可读引用位置） */
+function structReferences(asset: IRAsset, name: string): string[] {
+  const refs: string[] = [];
+  for (const v of asset.variables) {
+    if (typeRefsStruct(v.type, name)) refs.push(`变量「${v.name}」`);
+  }
+  for (const e of asset.events) {
+    for (const p of e.params) {
+      if (typeRefsStruct(p.type, name)) refs.push(`事件「${e.name}」参数「${p.name}」`);
+    }
+  }
+  for (const [gName, g] of Object.entries(asset.graphs)) {
+    for (const p of g.params ?? []) {
+      if (typeRefsStruct(p.type, name)) refs.push(`函数「${gName}」入参「${p.name}」`);
+    }
+    for (const p of g.returns ?? []) {
+      if (typeRefsStruct(p.type, name)) refs.push(`函数「${gName}」返回值「${p.name}」`);
+    }
+    for (const n of g.nodes) {
+      if ((n.type === 'struct.make' || n.type === 'struct.break') && n.params?.['typeName'] === name) {
+        refs.push(`图「${gName}」的${n.type === 'struct.make' ? '创建' : '拆分'}结构体节点`);
+      }
+    }
+  }
+  for (const t of asset.types ?? []) {
+    if (t.name === name) continue;
+    for (const f of t.fields) {
+      if (typeRefsStruct(f.type, name)) refs.push(`结构体「${t.name}」字段「${f.name}」`);
+    }
+  }
+  return refs;
 }
 
 /** 读取最近使用（localStorage；不可用环境返回空） */
@@ -594,7 +652,10 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
       const { asset, graphName, specs } = get();
       const graph = currentGraph(asset, graphName);
       if (!asset || !graph) return false;
-      const check = checkConnection(specs, graph.nodes, source, target);
+      const check = checkConnection(specs, graph.nodes, source, target, {
+        types: asset.types,
+        variables: asset.variables,
+      });
       if (check.verdict === 'reject') {
         get().notify(check.message, 'error');
         get().shake();
@@ -604,8 +665,11 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
       const replacesIncoming = (to: IREndpoint): IREdge[] => {
         if (check.kind === 'exec') return [];
         const toNode = graph.nodes.find((n) => n.id === to.node);
-        const pin = toNode ? specs.get(toNode.type)?.inputs.find((p) => p.id === to.pin) : undefined;
-        if (!pin || pin.multi === true) return [];
+        if (!toNode) return [];
+        const pin =
+          specs.get(toNode.type)?.inputs.find((p) => p.id === to.pin) ??
+          structPinsOf(toNode, asset.types)?.inputs.find((p) => p.id === to.pin);
+        if (pin?.multi === true) return [];
         return graph.edges.filter((e) => e.to.node === to.node && e.to.pin === to.pin);
       };
 
@@ -1020,7 +1084,11 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
           else v.category = patch.category;
         }
         if (patch.exposed !== undefined) v.exposed = patch.exposed;
-        if (patch.default !== undefined) v.default = clone(patch.default);
+        // default 显式传 undefined = 清除默认值（回落类型零值）
+        if ('default' in patch) {
+          if (patch.default === undefined) delete v.default;
+          else v.default = clone(patch.default);
+        }
       });
     },
 
@@ -1218,6 +1286,224 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
         return null;
       }
       return insertOwnedNode('event.custom', { eventName }, '插入事件节点', flowPos);
+    },
+
+    /* ---------------- v3.3 用户自定义结构体（ADR-019） ---------------- */
+
+    addStructType(name) {
+      const trimmed = name.trim();
+      if (trimmed === '') {
+        get().notify('结构体名不能为空', 'error');
+        return false;
+      }
+      if (isReservedStructTypeName(trimmed)) {
+        get().notify(`结构体名「${trimmed}」与内置类型冲突`, 'error');
+        return false;
+      }
+      const { asset } = get();
+      if (!asset) return false;
+      if ((asset.types ?? []).some((t) => nameKey(t.name) === nameKey(trimmed))) {
+        get().notify(`结构体「${trimmed}」已存在`, 'error');
+        return false;
+      }
+      return commit('结构体：新建', (draft) => {
+        draft.types = [...(draft.types ?? []), { name: trimmed, fields: [] }];
+      });
+    },
+
+    renameStructType(oldName, newName) {
+      const trimmed = newName.trim();
+      if (trimmed === '') {
+        get().notify('结构体名不能为空', 'error');
+        return false;
+      }
+      if (isReservedStructTypeName(trimmed)) {
+        get().notify(`结构体名「${trimmed}」与内置类型冲突`, 'error');
+        return false;
+      }
+      const { asset } = get();
+      if (!asset) return false;
+      if (!(asset.types ?? []).some((t) => t.name === oldName)) {
+        get().notify(`结构体「${oldName}」不存在`, 'error');
+        return false;
+      }
+      if ((asset.types ?? []).some((t) => t.name !== oldName && nameKey(t.name) === nameKey(trimmed))) {
+        get().notify(`结构体「${trimmed}」已存在`, 'error');
+        return false;
+      }
+      if (trimmed === oldName) return true;
+      const renameType = (type: IRValueType): IRValueType => {
+        if (type === oldName) return trimmed;
+        if (type === `${oldName}[]`) return `${trimmed}[]`;
+        return type;
+      };
+      return commit('结构体：重命名', (draft) => {
+        const def = draft.types?.find((t) => t.name === oldName);
+        if (!def) return;
+        def.name = trimmed;
+        for (const v of draft.variables) v.type = renameType(v.type);
+        for (const e of draft.events) for (const p of e.params) p.type = renameType(p.type);
+        for (const g of Object.values(draft.graphs)) {
+          for (const p of g.params ?? []) p.type = renameType(p.type);
+          for (const p of g.returns ?? []) p.type = renameType(p.type);
+          for (const n of g.nodes) {
+            if (n.type !== 'struct.make' && n.type !== 'struct.break') continue;
+            if (n.params?.['typeName'] === oldName) n.params.typeName = trimmed;
+          }
+        }
+        for (const t of draft.types ?? []) {
+          for (const f of t.fields) f.type = renameType(f.type);
+        }
+      });
+    },
+
+    removeStructType(name) {
+      const { asset } = get();
+      if (!asset) return false;
+      if (!(asset.types ?? []).some((t) => t.name === name)) {
+        get().notify(`结构体「${name}」不存在`, 'error');
+        return false;
+      }
+      const refs = structReferences(asset, name);
+      if (refs.length > 0) {
+        const preview = refs.slice(0, 3).join('、');
+        const more = refs.length > 3 ? ` 等 ${refs.length} 处` : '';
+        get().notify(`结构体「${name}」仍被引用：${preview}${more}，请先移除引用`, 'error');
+        return false;
+      }
+      return commit('结构体：删除', (draft) => {
+        draft.types = (draft.types ?? []).filter((t) => t.name !== name);
+        if (draft.types.length === 0) delete draft.types;
+      });
+    },
+
+    addStructField(typeName, field) {
+      const { asset } = get();
+      const def = asset?.types?.find((t) => t.name === typeName);
+      if (!asset || !def) {
+        get().notify(`结构体「${typeName}」不存在`, 'error');
+        return null;
+      }
+      if (field?.name !== undefined && !isSafeStructFieldName(field.name)) {
+        get().notify(`字段名「${field.name}」不可用（不能为空或原型链保留名）`, 'error');
+        return null;
+      }
+      const base = (field?.name ?? '').trim() || '字段';
+      const name = nextSequentialName(def.fields.map((f) => f.name), base);
+      const type = field?.type ?? 'any';
+      const defaultValue = field?.default;
+      const ok = commit('结构体：添加字段', (draft) => {
+        const target = draft.types?.find((t) => t.name === typeName);
+        if (!target) return;
+        target.fields.push({
+          name,
+          type,
+          ...(defaultValue !== undefined ? { default: clone(defaultValue) } : {}),
+        });
+      });
+      return ok ? name : null;
+    },
+
+    updateStructField(typeName, index, patch) {
+      const { asset } = get();
+      const def = asset?.types?.find((t) => t.name === typeName);
+      const current = def?.fields[index];
+      if (!asset || !def || !current) {
+        get().notify(`结构体「${typeName}」字段不存在`, 'error');
+        return;
+      }
+      let nextName = current.name;
+      if (patch.name !== undefined) {
+        nextName = patch.name.trim();
+        if (!isSafeStructFieldName(nextName)) {
+          get().notify(`字段名「${patch.name}」不可用（不能为空或原型链保留名）`, 'error');
+          return;
+        }
+        if (def.fields.some((f, i) => i !== index && nameKey(f.name) === nameKey(nextName))) {
+          get().notify(`字段「${nextName}」已存在`, 'error');
+          return;
+        }
+      }
+      const oldName = current.name;
+      const renamed = nextName !== oldName;
+      commit('结构体：编辑字段', (draft) => {
+        const target = draft.types?.find((t) => t.name === typeName);
+        const field = target?.fields[index];
+        if (!target || !field) return;
+        if (renamed) {
+          // 级联：该结构体节点的引脚 id（make 输入 / break 输出）与 pinDefaults
+          for (const g of Object.values(draft.graphs)) {
+            for (const n of g.nodes) {
+              if (n.type !== 'struct.make' && n.type !== 'struct.break') continue;
+              if (n.params?.['typeName'] !== typeName) continue;
+              if (n.type === 'struct.make') {
+                if (n.pinDefaults && oldName in n.pinDefaults) {
+                  n.pinDefaults[nextName] = n.pinDefaults[oldName];
+                  delete n.pinDefaults[oldName];
+                }
+                for (const e of g.edges) {
+                  if (e.to.node === n.id && e.to.pin === oldName) e.to = { ...e.to, pin: nextName };
+                }
+              } else {
+                for (const e of g.edges) {
+                  if (e.from.node === n.id && e.from.pin === oldName) e.from = { ...e.from, pin: nextName };
+                }
+              }
+            }
+          }
+        }
+        field.name = nextName;
+        if (patch.type !== undefined) field.type = patch.type;
+        if ('default' in patch) {
+          if (patch.default === undefined) delete field.default;
+          else field.default = clone(patch.default);
+        }
+      });
+    },
+
+    removeStructField(typeName, index) {
+      const { asset } = get();
+      const def = asset?.types?.find((t) => t.name === typeName);
+      const field = def?.fields[index];
+      if (!asset || !def || !field) {
+        get().notify(`结构体「${typeName}」字段不存在`, 'error');
+        return;
+      }
+      const fieldName = field.name;
+      commit('结构体：删除字段', (draft) => {
+        const target = draft.types?.find((t) => t.name === typeName);
+        if (!target) return;
+        target.fields = target.fields.filter((_, i) => i !== index);
+        for (const g of Object.values(draft.graphs)) {
+          for (const n of g.nodes) {
+            if (n.type !== 'struct.make' && n.type !== 'struct.break') continue;
+            if (n.params?.['typeName'] !== typeName) continue;
+            if (n.pinDefaults) delete n.pinDefaults[fieldName];
+            g.edges = g.edges.filter((e) => {
+              if (n.type === 'struct.make') return !(e.to.node === n.id && e.to.pin === fieldName);
+              return !(e.from.node === n.id && e.from.pin === fieldName);
+            });
+          }
+        }
+      });
+    },
+
+    insertStructMakeNode(typeName, flowPos) {
+      const { asset } = get();
+      if (!asset?.types?.some((t) => t.name === typeName)) {
+        get().notify(`结构体「${typeName}」未定义`, 'error');
+        return null;
+      }
+      return insertOwnedNode('struct.make', { typeName }, '插入创建结构体节点', flowPos);
+    },
+
+    insertStructBreakNode(typeName, flowPos) {
+      const { asset } = get();
+      if (!asset?.types?.some((t) => t.name === typeName)) {
+        get().notify(`结构体「${typeName}」未定义`, 'error');
+        return null;
+      }
+      return insertOwnedNode('struct.break', { typeName }, '插入拆分结构体节点', flowPos);
     },
 
     /* ---------------- T2.3/T2.4：图接口与批量编辑 ---------------- */

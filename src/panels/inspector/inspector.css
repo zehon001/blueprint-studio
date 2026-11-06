@@ -378,6 +378,19 @@
   min-width: 0;
 }
 
+/* 列定义：从结构体生成（下拉 + 生成按钮） */
+.insp-struct-gen {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.insp-struct-gen .insp-select {
+  flex: 1;
+  min-width: 0;
+}
+
 .insp-error {
   font-size: var(--font-xs);
   color: var(--error);

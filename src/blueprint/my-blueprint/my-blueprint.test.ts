@@ -636,7 +636,7 @@ test('DOM 冒烟：MyBlueprint 分节列表 + 变量行（暴露勾选 / 类型�
   open(completeAsset());
   const unmount = mount(createElement(MyBlueprint, {}));
   try {
-    assert.equal(dom.document.querySelectorAll('.bp-mb-section').length, 4, '变量/函数/事件/注释四分节');
+    assert.equal(dom.document.querySelectorAll('.bp-mb-section').length, 5, '变量/类型/函数/事件/注释五分节');
     assert.equal(dom.document.querySelector('.bp-mb-header-title')?.textContent, 'My Blueprint');
     assert.equal(dom.document.querySelector('.bp-mb-header-sub')?.textContent, '完整样本');
 
@@ -655,8 +655,38 @@ test('DOM 冒烟：MyBlueprint 分节列表 + 变量行（暴露勾选 / 类型�
   }
 });
 
-test('DOM 冒烟：MyBlueprint 暴露勾选切换 → 资产更新（入命令栈）', async () => {
+test('DOM 冒烟：MyBlueprint 类型分节（展开字段 / 添加字段）', async () => {
   dom.document.body.innerHTML = '';
+  const asset = completeAsset();
+  asset.types = [{ name: 'Row', fields: [{ name: 'level', type: 'string' }] }];
+  open(asset);
+  const unmount = mount(createElement(MyBlueprint, {}));
+  try {
+    assert.ok(dom.document.body.textContent?.includes('类型'), '类型分节出现');
+    const structRow = [...dom.document.querySelectorAll('.bp-mb-row')].find((el) =>
+      el.querySelector('.bp-mb-struct-count'),
+    ) as HTMLElement | undefined;
+    assert.ok(structRow, '结构体行渲染');
+    assert.ok(structRow!.textContent?.includes('Row'));
+    assert.ok(structRow!.querySelector('.bp-mb-struct-count')?.textContent?.includes('1 字段'));
+    act(() => {
+      structRow!.dispatchEvent(new dom.MouseEvent('dblclick', { bubbles: true }) as unknown as Event);
+    });
+    assert.equal(dom.document.querySelectorAll('.bp-mb-field-row').length, 1, '双击展开字段编辑');
+    const addField = [...dom.document.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('字段'),
+    ) as HTMLButtonElement | undefined;
+    assert.ok(addField, '添加字段按钮存在');
+    act(() => {
+      addField!.click();
+    });
+    assert.equal(domainAsset().types?.[0]?.fields.length, 2, '添加字段写入资产');
+  } finally {
+    await unmount();
+  }
+});
+
+test('DOM 冒烟：MyBlueprint 暴露勾选切换 → 资产更新（入命令栈）', async () => {  dom.document.body.innerHTML = '';
   open(completeAsset());
   const unmount = mount(createElement(MyBlueprint, {}));
   try {
@@ -790,6 +820,54 @@ test('DOM 冒烟：MyBlueprint 变量行右键菜单（插入 Get / 删除）', 
   }
 });
 
+test('DOM 冒烟：变量默认值编辑（应用 / 清除）', async () => {
+  dom.document.body.innerHTML = '';
+  open(completeAsset());
+  const unmount = mount(createElement(MyBlueprint, {}));
+  try {
+    const row = [...dom.document.querySelectorAll('.bp-mb-row')].find(
+      (el) => el.querySelector('.bp-mb-row-name')?.textContent === 'hp',
+    )!;
+    act(() => {
+      row.dispatchEvent(
+        new dom.MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: 20,
+          clientY: 20,
+        }),
+      );
+    });
+    act(() => {
+      (findMenuItem('编辑默认值…')! as unknown as HTMLButtonElement).click();
+    });
+    const input = dom.document.querySelector('.bp-mb-default-input') as unknown as HTMLInputElement;
+    assert.ok(input, '默认值编辑框出现');
+    assert.equal(input.value, '10', '初值 = 当前默认值');
+    act(() => setControlledValue(input, '20'));
+    const apply = [...dom.document.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === '应用',
+    ) as unknown as HTMLButtonElement;
+    act(() => apply.click());
+    assert.equal(
+      domainAsset().variables.find((v) => v.name === 'hp')?.default,
+      20,
+      '应用 → 写入变量默认值',
+    );
+    const clear = [...dom.document.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === '清除',
+    ) as unknown as HTMLButtonElement;
+    act(() => clear.click());
+    assert.equal(
+      domainAsset().variables.find((v) => v.name === 'hp')?.default,
+      undefined,
+      '清除 → 回落类型零值',
+    );
+  } finally {
+    await unmount();
+  }
+});
+
 test('DOM 冒烟：MyBlueprint 新建事件（名 + 参数行）', async () => {
   dom.document.body.innerHTML = '';
   open(completeAsset());
@@ -797,7 +875,7 @@ test('DOM 冒烟：MyBlueprint 新建事件（名 + 参数行）', async () => {
   try {
     const addBtns = [...dom.document.querySelectorAll('.bp-mb-add')] as unknown as HTMLButtonElement[];
     act(() => {
-      addBtns[2]!.click(); // 事件分节的 ＋
+      addBtns[3]!.click(); // 事件分节的 ＋（分节序：变量/类型/函数/事件/注释）
     });
     const form = dom.document.querySelector('.bp-mb-addrow--event');
     assert.ok(form, '事件新建表单出现');

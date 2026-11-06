@@ -325,6 +325,7 @@ export function useCanvasInteractions(): CanvasInteractionApis {
         graph.edges,
         { node: edge.source, pin: edge.sourceHandle ?? 'exec' },
         { node: edge.target, pin: edge.targetHandle ?? 'exec' },
+        { types: st.asset?.types, variables: st.asset?.variables },
       );
     },
     [],
@@ -349,7 +350,10 @@ export function useCanvasInteractions(): CanvasInteractionApis {
         const graph = st.asset?.graphs[st.graphName];
         const dir = fromHandle.type === 'source' ? ('out' as const) : ('in' as const);
         const from = graph
-          ? resolvePinRef(st.specs, graph.nodes, fromHandle.nodeId, fromHandle.id ?? '', dir)
+          ? resolvePinRef(st.specs, graph.nodes, fromHandle.nodeId, fromHandle.id ?? '', dir, {
+              types: st.asset?.types,
+              variables: st.asset?.variables,
+            })
           : null;
         if (!from) return;
         // v3 T12.4：ui.get 输出的 UiHandle 按 target 节点的实际 trait 过滤兼容菜单

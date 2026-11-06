@@ -102,10 +102,10 @@ test('pinEditorKindOf：引脚默认值编辑器种类（与画布 editorKindOf 
   assert.equal(pinEditorKindOf(pin('float')), 'number');
   assert.equal(pinEditorKindOf(pin('string')), 'text');
   assert.equal(pinEditorKindOf(pin('string', { options: [{ value: 'a', label: '甲' }] })), 'select');
-  assert.equal(pinEditorKindOf(pin('object')), null, '对象不提供内联编辑');
-  assert.equal(pinEditorKindOf(pin('any')), null);
-  assert.equal(pinEditorKindOf(pin('string[]')), null, '数组不提供内联编辑');
-  assert.equal(pinEditorKindOf(pin('LogRow')), null, '自定义别名不提供内联编辑');
+  assert.equal(pinEditorKindOf(pin('object')), 'json', '对象 → JSON 编辑');
+  assert.equal(pinEditorKindOf(pin('any')), 'json', 'any → JSON / 文本编辑');
+  assert.equal(pinEditorKindOf(pin('string[]')), 'json', '数组 → JSON 编辑');
+  assert.equal(pinEditorKindOf(pin('LogRow')), 'json', '自定义结构体 → JSON 编辑');
 });
 
 /* ============================================================
@@ -547,5 +547,104 @@ test('DOM 冒烟：Details 无选中 → 主图设置 / 函数图接口编辑', 
     assert.equal(domainAsset().graphs['calc']!.params![1]!.type, 'int');
   } finally {
     await unmount2();
+  }
+});
+
+test('DOM 冒烟：结构体类型参数在选中切换 / 插入其他节点后保持', async () => {
+  dom.document.body.innerHTML = '';
+  const asset = detailsAsset();
+  asset.types = [{ name: 'Row', fields: [{ name: 'level', type: 'string' }] }];
+  asset.graphs.main!.nodes.push({
+    id: 'mk',
+    type: 'struct.make',
+    params: { typeName: 'Row' },
+    pinDefaults: {},
+    position: { x: 0, y: 0 },
+  });
+  open(asset);
+  useBlueprintStore.getState().setSelection({ nodeIds: ['mk'], edgeIds: [] });
+  const unmount = mount(createElement(Details, {}));
+  try {
+    const select = dom.document.querySelector(
+      'select[aria-label="结构体类型"]',
+    ) as unknown as HTMLSelectElement;
+    assert.ok(select, '结构体类型下拉渲染');
+    assert.equal(select.value, 'Row');
+    act(() => {
+      useBlueprintStore.getState().insertStructBreakNode('Row');
+    });
+    useBlueprintStore.getState().setSelection({ nodeIds: ['mk'], edgeIds: [] });
+    await act(async () => {});
+    const again = dom.document.querySelector(
+      'select[aria-label="结构体类型"]',
+    ) as unknown as HTMLSelectElement;
+    assert.equal(again.value, 'Row', '切换选中 / 插入其他结构体节点后类型不丢');
+  } finally {
+    await unmount();
+  }
+});
+
+test('DOM 冒烟：结构体 Make 节点在 Details 展开字段默认值', async () => {
+  dom.document.body.innerHTML = '';
+  const asset = detailsAsset();
+  asset.types = [
+    {
+      name: 'Row',
+      fields: [
+        { name: 'level', type: 'string', default: 'INFO' },
+        { name: 'count', type: 'int' },
+      ],
+    },
+  ];
+  asset.graphs.main!.nodes.push({
+    id: 'mk',
+    type: 'struct.make',
+    params: { typeName: 'Row' },
+    pinDefaults: {},
+    position: { x: 0, y: 0 },
+  });
+  open(asset);
+  useBlueprintStore.getState().setSelection({ nodeIds: ['mk'], edgeIds: [] });
+  const unmount = mount(createElement(Details, {}));
+  try {
+    const labels = [...dom.document.querySelectorAll('.bp-det-label')].map((el) => el.textContent);
+    assert.ok(labels.includes('level'), '字段 level 的默认值行');
+    assert.ok(labels.includes('count'), '字段 count 的默认值行');
+    const desc = [...dom.document.querySelectorAll('.bp-det-row')].find(
+      (row) => row.querySelector('.bp-det-label')?.textContent === 'level',
+    );
+    assert.equal(
+      (desc?.querySelector('input') as HTMLInputElement | null)?.value,
+      'INFO',
+      '字段默认值显示为引脚默认值',
+    );
+  } finally {
+    await unmount();
+  }
+});
+
+test('DOM 冒烟：var.set 引脚默认值按变量声明类型渲染（string → 文本框）', async () => {
+  dom.document.body.innerHTML = '';
+  const asset = detailsAsset();
+  asset.variables = [{ name: 'name', type: 'string' }];
+  asset.graphs.main!.nodes.push({
+    id: 'set1',
+    type: 'var.set',
+    params: { varName: 'name' },
+    pinDefaults: {},
+    position: { x: 0, y: 0 },
+  });
+  open(asset);
+  useBlueprintStore.getState().setSelection({ nodeIds: ['set1'], edgeIds: [] });
+  const unmount = mount(createElement(Details, {}));
+  try {
+    const row = [...dom.document.querySelectorAll('.bp-det-row')].find(
+      (el) => el.querySelector('.bp-det-label')?.textContent === '值',
+    );
+    assert.ok(row, 'value 引脚默认值行');
+    assert.ok(row!.querySelector('input[type="text"]'), 'string 变量 → 文本输入');
+    assert.equal(row!.querySelector('textarea'), null, '不再是 JSON 文本域');
+  } finally {
+    await unmount();
   }
 });
