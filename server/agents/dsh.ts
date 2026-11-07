@@ -259,6 +259,31 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       })) as { workspace?: { workspaceId?: unknown } }
       const workspaceId = typeof ws?.workspace?.workspaceId === 'string' ? ws.workspace.workspaceId : ''
       if (!workspaceId) throw new Error('编排器未返回 workspaceId')
+      // 复用：标题非空时按「标题 + 工作区」搜索既有会话（首个标题命中即复用）。
+      // 工作区会话列表不携带 title → 逐个读状态比对（工作区会话数通常为个位数）。
+      if (opts.reuse === true && opts.title) {
+        const listed = (await this.request(
+          'GET',
+          `/workspaces/${encodeURIComponent(workspaceId)}/sessions`,
+        )) as { sessions?: Array<{ sessionId?: unknown }> }
+        for (const item of listed?.sessions ?? []) {
+          const sid = typeof item?.sessionId === 'string' ? item.sessionId : ''
+          if (!sid) continue
+          try {
+            // 状态体：{ ok, status: { title, ... } }（title 嵌套在 status 内）
+            const body = (await this.request('GET', `/sessions/${encodeURIComponent(sid)}`)) as {
+              status?: { title?: unknown }
+              title?: unknown
+            }
+            const title = typeof body?.status?.title === 'string' ? body.status.title : body?.title
+            if (title === opts.title) {
+              return { platform: 'dsh', sessionId: sid, title: opts.title }
+            }
+          } catch {
+            /* 单个会话状态读取失败：跳过继续搜索 */
+          }
+        }
+      }
       const created = (await this.request('POST', '/sessions', {
         workspaceId,
         ...(opts.title ? { title: opts.title } : {}),
@@ -270,10 +295,12 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       let title = opts.title ?? ''
       if (!title) {
         try {
-          const status = (await this.request('GET', `/sessions/${encodeURIComponent(sessionId)}`)) as {
+          const body = (await this.request('GET', `/sessions/${encodeURIComponent(sessionId)}`)) as {
+            status?: { title?: unknown }
             title?: unknown
           }
-          if (typeof status?.title === 'string' && status.title) title = status.title
+          const statusTitle = typeof body?.status?.title === 'string' ? body.status.title : body?.title
+          if (typeof statusTitle === 'string' && statusTitle) title = statusTitle
         } catch {
           /* 标题回读失败不阻塞创建 */
         }

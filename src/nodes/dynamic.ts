@@ -240,7 +240,9 @@ function argsFromInputs(inputs: Record<string, unknown> | undefined): Record<str
 function makePluginNodeRun(info: PluginRunInfo): NodeRunFn {
   const execOutId = info.outputPins.find((p) => p.type === 'exec')?.id;
   return async (ctx, inputs) => {
-    const outcome = await invokePluginNode(info.pluginId, info.nodeId, inputs, ctx, {
+    // 内部设置（ParamSpec）随 ctx.params 合入调用参数：引脚值优先，参数兜底
+    const merged = { ...((ctx?.params ?? {}) as Record<string, unknown>), ...inputs };
+    const outcome = await invokePluginNode(info.pluginId, info.nodeId, merged, ctx, {
       outputPins: info.outputPins,
       project: info.project,
       isEvent: info.isEvent,
@@ -395,7 +397,9 @@ export async function loadPluginSpecs(
     // 自愈：agent 插件在列但能力注入未生效（编排器瞬时不可达）→ 不写缓存，
     // 下次 openAsset / loadAndStart 重新拉取注入（成功后恢复记忆化）
     const modelOptionsInjected = enriched.some(
-      (s) => s.id === 'agent.sendMessage' && s.inputs.some((p) => p.id === 'model' && (p.options?.length ?? 0) > 0),
+      (s) =>
+        s.id === 'agent.sendMessage' &&
+        s.params?.some((p) => p.id === 'model' && (p.options?.length ?? 0) > 0),
     );
     if (hasAgent && !modelOptionsInjected) return result;
     specsCache.set(key, result);
@@ -477,14 +481,19 @@ async function enrichAgentSpecOptions(
       ...strList(dsh.permissions).map((p) => ({ value: p, label: p })),
     ];
     return specs.map((spec) => {
-      if (spec.id !== 'agent.sendMessage' && spec.id !== 'agent.createSession') return spec;
+      if (
+        (spec.id !== 'agent.sendMessage' && spec.id !== 'agent.createSession') ||
+        !spec.params
+      ) {
+        return spec;
+      }
       return {
         ...spec,
-        inputs: spec.inputs.map((pin) => {
-          if (pin.id === 'model' && modelOpts.length > 0) return { ...pin, options: modelOpts };
-          if (pin.id === 'reasoning') return { ...pin, options: reasoningOpts };
-          if (pin.id === 'permissions') return { ...pin, options: permissionOpts };
-          return pin;
+        params: spec.params.map((param) => {
+          if (param.id === 'model' && modelOpts.length > 0) return { ...param, options: modelOpts };
+          if (param.id === 'reasoning') return { ...param, options: reasoningOpts };
+          if (param.id === 'permissions') return { ...param, options: permissionOpts };
+          return param;
         }),
       };
     });

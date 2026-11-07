@@ -22,6 +22,7 @@ export type EditorKind =
   | 'number'
   | 'text'
   | 'select'
+  | 'directory'
   | 'color'
   | 'variable'
   | 'nodeSelector'
@@ -41,6 +42,8 @@ export function paramEditorKindOf(param: ParamSpec): EditorKind {
       return 'bool';
     case 'select':
       return param.options && param.options.length > 0 ? 'select' : 'text';
+    case 'directory':
+      return 'directory';
     case 'color':
       return 'color';
     case 'string':

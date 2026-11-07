@@ -82,6 +82,8 @@ export interface AgentCreateSessionOptions {
   cwd?: string
   /** Agent 预设（DSH 会话的 agentPreset；创建时生效） */
   model?: string
+  /** 复用已有会话：按标题 + 工作区搜索；标题为空或搜索不到才新建 */
+  reuse?: boolean
 }
 
 /** 发送消息选项（waitForCompletion / timeoutSec 由适配器内部处理） */

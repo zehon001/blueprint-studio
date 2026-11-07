@@ -245,7 +245,7 @@ function SingleNodeSection(props: {
       {node.comment ? <p className="bp-det-comment">{node.comment}</p> : null}
 
       {params.length > 0 ? (
-        <CollapsibleGroup title="参数" badge={`${params.length}`}>
+        <CollapsibleGroup title="内部设置" badge={`${params.length}`}>
           {hasGroups
             ? paramGroups.map((group) => (
                 <div key={group.group} className="bp-det-subgroup">

@@ -68,9 +68,13 @@ const agentManifest = {
         { id: 'session', type: 'session' },
         { id: 'message', type: 'string', label: '消息内容', options: [] },
         { id: 'waitForCompletion', type: 'bool', label: '等待完成通知', defaultValue: true },
-        { id: 'model', type: 'string', label: '大模型', options: [] },
-        { id: 'reasoning', type: 'string', label: '思考强度', options: [] },
-        { id: 'permissions', type: 'string', label: '权限', options: [] },
+      ],
+      params: [
+        { id: 'model', label: '大模型', type: 'select', default: '', options: [] },
+        { id: 'reasoning', label: '思考强度', type: 'select', default: '', options: [] },
+        { id: 'permissions', label: '权限', type: 'select', default: '', options: [] },
+        { id: 'workspace', label: '工作区', type: 'directory', default: '' },
+        { id: 'reuse', label: '复用已有会话', type: 'bool', default: false },
       ],
       outputs: [{ id: 'exec', type: 'exec' }],
     },
@@ -145,7 +149,7 @@ describe('检视面板 × Agent 能力注入（真挂载）', () => {
             {
               id: 'n_send',
               type: 'agent.sendMessage',
-              params: {},
+              params: { model: '', reasoning: '', permissions: '', workspace: '', reuse: false },
               pinDefaults: { message: '你好', waitForCompletion: true },
               position: { x: 0, y: 0 },
             },
@@ -168,7 +172,7 @@ describe('检视面板 × Agent 能力注入（真挂载）', () => {
       const pin = useBlueprintStore
         .getState()
         .specs.get('agent.sendMessage')
-        ?.inputs.find((p) => p.id === 'model')
+        ?.params?.find((p) => p.id === 'model')
       return (pin?.options?.length ?? 0) > 0
     }, 'agent.sendMessage 模型下拉注入')
 
@@ -187,6 +191,13 @@ describe('检视面板 × Agent 能力注入（真挂载）', () => {
     assert.ok(allOptions.includes('low') && allOptions.includes('max'), '思考强度下拉应含 low / max')
     assert.ok(allOptions.includes('danger-full-access'), '权限下拉应含 danger-full-access')
     assert.match(dom.document.body.textContent ?? '', /GLM-5\.3 · routing group/)
+    // 内部设置 / 引脚默认值分组：大模型等在「内部设置」，不再出现在「引脚默认值」
+    const text = dom.document.body.textContent ?? ''
+    assert.match(text, /内部设置/)
+    assert.match(text, /引脚默认值/)
+    assert.match(text, /选择目录/, '工作区内部设置带「选择目录」按钮')
+    const pinGroup = (text.split('引脚默认值')[1] ?? '').split('内部设置')[0] ?? ''
+    assert.doesNotMatch(pinGroup, /大模型/, '大模型不应出现在引脚默认值分组')
 
     act(() => {
       root.unmount()

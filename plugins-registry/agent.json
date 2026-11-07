@@ -18,7 +18,7 @@
         "claude",
         "编排"
       ],
-      "doc": "在指定平台创建 Agent 会话，返回会话值（赋给「会话」类型变量）。标题留空时使用 DSH 自动生成的标题；工作区 = 当前蓝图项目目录（按路径幂等复用）。大模型引脚下拉读取 DSH 模型目录（settings.yaml），经编排器 agentPreset 传递（创建时生效，留空 = DSH 默认）。平台 = DSH / Codex（预留）/ Claude（预留）。",
+      "doc": "在指定平台创建 Agent 会话，返回会话值（赋给「会话」类型变量）。标题留空时使用 DSH 自动生成的标题。内部设置：大模型（下拉读 DSH 模型目录，经 agentPreset 传递）；工作区（留空 = 当前蓝图项目目录，可点「选择目录」）；复用已有会话（按会话标题 + 工作区搜索复用，标题为空或搜索不到才新建）。平台 = DSH / Codex（预留）/ Claude（预留）。",
       "inputs": [
         {
           "id": "exec",
@@ -48,12 +48,6 @@
           "type": "string",
           "label": "会话标题",
           "optional": true
-        },
-        {
-          "id": "model",
-          "type": "string",
-          "label": "大模型（Agent 预设）",
-          "optional": true
         }
       ],
       "outputs": [
@@ -70,6 +64,30 @@
           "id": "sessionId",
           "type": "string",
           "label": "会话ID"
+        }
+      ],
+      "params": [
+        {
+          "id": "model",
+          "label": "大模型",
+          "type": "select",
+          "default": "",
+          "options": [],
+          "group": "内部设置"
+        },
+        {
+          "id": "workspace",
+          "label": "工作区",
+          "type": "directory",
+          "default": "",
+          "group": "内部设置"
+        },
+        {
+          "id": "reuse",
+          "label": "复用已有会话",
+          "type": "bool",
+          "default": false,
+          "group": "内部设置"
         }
       ]
     },
@@ -146,7 +164,7 @@
         "思考",
         "权限"
       ],
-      "doc": "给会话发送消息（提示词，经编排器 /prompt 送达）。勾选「等待完成通知」（默认勾选）时阻塞等待会话空闲并回读最终回复（reply 出脚）；否则立即结束。大模型 / 思考强度 / 权限引脚的下拉读取 DSH 本机配置（settings.yaml 模型目录 / 权限预设）；运行中切换需编排器后续支持，当前以会话创建时的设置为准。",
+      "doc": "给会话发送消息（提示词，经编排器 /prompt 送达）。勾选「等待完成通知」（默认勾选）时阻塞等待会话空闲并回读最终回复（reply 出脚）；否则立即结束。内部设置：大模型 / 思考强度 / 权限下拉读取 DSH 本机配置；运行中切换需编排器后续支持，当前以会话创建时的设置为准。",
       "inputs": [
         {
           "id": "exec",
@@ -154,8 +172,7 @@
         },
         {
           "id": "session",
-          "type": "session",
-          "label": "会话"
+          "type": "session"
         },
         {
           "id": "message",
@@ -168,27 +185,6 @@
           "type": "bool",
           "label": "等待完成通知",
           "defaultValue": true
-        },
-        {
-          "id": "model",
-          "type": "string",
-          "label": "大模型",
-          "optional": true,
-          "options": []
-        },
-        {
-          "id": "reasoning",
-          "type": "string",
-          "label": "思考强度",
-          "optional": true,
-          "options": []
-        },
-        {
-          "id": "permissions",
-          "type": "string",
-          "label": "权限",
-          "optional": true,
-          "options": []
         }
       ],
       "outputs": [
@@ -205,6 +201,32 @@
           "id": "sent",
           "type": "bool",
           "label": "已发送"
+        }
+      ],
+      "params": [
+        {
+          "id": "model",
+          "label": "大模型",
+          "type": "select",
+          "default": "",
+          "options": [],
+          "group": "内部设置"
+        },
+        {
+          "id": "reasoning",
+          "label": "思考强度",
+          "type": "select",
+          "default": "",
+          "options": [],
+          "group": "内部设置"
+        },
+        {
+          "id": "permissions",
+          "label": "权限",
+          "type": "select",
+          "default": "",
+          "options": [],
+          "group": "内部设置"
         }
       ]
     },

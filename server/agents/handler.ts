@@ -41,17 +41,31 @@ export async function invokeAgentNode(
 ): Promise<InvokePayload> {
   const project = deps.project
   try {
+    /**
+     * 工作区目录解析（创建会话的内部设置「工作区」）：
+     *  - 空 → 当前蓝图项目目录；
+     *  - 绝对路径 → 原样（DSH 侧校验）；
+     *  - 相对路径 → 相对项目目录（安全根内）。
+     */
+    const resolveWorkspaceDir = (workspace: unknown): string => {
+      const projectDir = path.join(ensureProjectsRoot(), project)
+      const ws = strArg(workspace)
+      if (!ws) return projectDir
+      if (path.isAbsolute(ws)) return ws
+      return path.join(projectDir, ws)
+    }
     if (node === 'agent.createSession' || node.endsWith('.createSession')) {
       const platform = (strArg(args.platform) || 'dsh') as AgentPlatform
       if (!(AGENT_PLATFORMS as readonly string[]).includes(platform)) {
         return { ok: false, message: `platform 必须为：${AGENT_PLATFORMS.join(' | ')}` }
       }
-      // 会话工作目录 = 蓝图项目目录（DSH 工作区按路径幂等复用；Agent 直接在项目目录内工作）
-      const cwd = path.join(ensureProjectsRoot(), project)
+      // 会话工作目录：内部设置「工作区」（空 = 蓝图项目目录；DSH 工作区按路径幂等复用）
+      const cwd = resolveWorkspaceDir(args.workspace)
       const session = await agentGateway.createSession(platform, project, {
         ...(strArg(args.title) ? { title: strArg(args.title) } : {}),
         cwd,
         ...(strArg(args.model) ? { model: strArg(args.model) } : {}),
+        reuse: args.reuse === true,
       })
       return { ok: true, outputs: { session, sessionId: session.sessionId } }
     }

@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ParamOption, ParamSpec, PinSpec } from '../../ir/types';
 import { useBlueprintStore } from '../store/blueprint-store';
+import { DirectoryValueEditor } from './directory-picker';
 import {
   displayValue,
   jsonEquals,
@@ -388,6 +389,8 @@ export function ValueEditor(props: {
           onCommit={props.onCommit}
         />
       );
+    case 'directory':
+      return <DirectoryValueEditor value={props.value} onCommit={props.onCommit} />;
     case 'color':
       return <ColorValueEditor value={props.value} mixed={props.mixed} onCommit={props.onCommit} />;
     case 'variable':

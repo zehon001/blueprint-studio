@@ -100,12 +100,13 @@ export class AgentGateway {
   async createSession(
     platform: AgentPlatform,
     project: string,
-    opts: { title?: string; cwd?: string; model?: string } = {},
+    opts: { title?: string; cwd?: string; model?: string; reuse?: boolean } = {},
   ): Promise<AgentSessionValue> {
     const session = await this.adapter(platform).createSession({
       ...(opts.title !== undefined ? { title: opts.title } : {}),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
       ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.reuse !== undefined ? { reuse: opts.reuse } : {}),
     })
     this.sessionProjects.set(session.sessionId, project)
     return session

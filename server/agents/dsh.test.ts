@@ -82,8 +82,17 @@ describe('DshOrchestratorAdapter（fetch 注入）', () => {
         new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })
       if (url.endsWith('/health')) return reply({ ok: true, plugin: 'dsh-plugin-orchestrator' })
       if (url.endsWith('/workspaces')) return reply({ ok: true, workspace: { workspaceId: 'ws-1' } })
+      if (url.endsWith('/workspaces/ws-1/sessions')) {
+        return reply({
+          ok: true,
+          // 工作区列表不携带 title（与编排器实际行为一致）→ 复用需逐个读状态
+          sessions: [{ sessionId: 'session-old', running: false }, { sessionId: 'session-2', running: false }],
+        })
+      }
       if (url.endsWith('/sessions')) return reply({ ok: true, sessionId: 'session-1', promptAccepted: true })
       if (/\/sessions\/session-1$/.test(url)) return reply({ ok: true, title: '自动标题', status: 'idle' })
+      if (/\/sessions\/session-old$/.test(url)) return reply({ ok: true, title: '蓝图连通测试', status: 'idle' })
+      if (/\/sessions\/session-2$/.test(url)) return reply({ ok: true, title: '别的会话', status: 'idle' })
       if (url.endsWith('/prompt')) return reply({ ok: true, promptAccepted: true })
       if (url.endsWith('/wait')) return reply({ ok: true, idle: true, status: 'idle' })
       if (url.endsWith('/result')) return reply({ ok: true, result: '完成。' })
@@ -122,6 +131,26 @@ describe('DshOrchestratorAdapter（fetch 注入）', () => {
       await adapter.deleteSession('session-1')
       assert.ok(calls.some((c) => c.url.endsWith('/cancel')))
       assert.ok(calls.some((c) => c.url.endsWith('/archive')))
+    })
+  })
+
+  test('createSession 复用：标题命中工作区会话 → 复用不新建；未命中/无标题 → 新建', async () => {
+    await withEnv({ BP_DSH_URL: 'http://dsh.test' }, async () => {
+      const adapter = makeAdapter()
+      const reused = await adapter.createSession({ cwd: '/proj/dir', title: '蓝图连通测试', reuse: true })
+      assert.equal(reused.sessionId, 'session-old', '命中标题 → 复用既有会话')
+      assert.equal(reused.title, '蓝图连通测试')
+      assert.ok(!calls.some((c) => c.url.endsWith('/sessions') && c.method === 'POST'), '复用不应新建会话')
+
+      calls.length = 0
+      const created = await adapter.createSession({ cwd: '/proj/dir', title: '不存在的标题', reuse: true })
+      assert.equal(created.sessionId, 'session-1', '未命中 → 新建')
+      assert.ok(calls.some((c) => c.url.endsWith('/sessions') && c.method === 'POST'))
+
+      calls.length = 0
+      const blank = await adapter.createSession({ cwd: '/proj/dir', title: '', reuse: true })
+      assert.equal(blank.sessionId, 'session-1', '标题为空 → 直接新建')
+      assert.ok(calls.some((c) => c.url.endsWith('/sessions') && c.method === 'POST'))
     })
   })
 })
