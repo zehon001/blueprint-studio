@@ -299,7 +299,8 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       }
       const ws = (await this.request('POST', '/workspaces', {
         path: opts.cwd,
-        ...(opts.title ? { title: opts.title } : {}),
+        // 工作区标题交给 DSH 默认（= 目录名）：会话标题只属于会话，不得污染工作区
+        // （首次创建即定格标题；编排器对同路径重复调用不改标题）
       })) as { workspace?: { workspaceId?: unknown } }
       const workspaceId = typeof ws?.workspace?.workspaceId === 'string' ? ws.workspace.workspaceId : ''
       if (!workspaceId) throw new Error('编排器未返回 workspaceId')
