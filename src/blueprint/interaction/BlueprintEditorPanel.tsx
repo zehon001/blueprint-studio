@@ -29,6 +29,7 @@ import type { ValidationIssue } from '../../ir/validate';
 import type { IRAsset, IRComment, NodeSpec } from '../../ir/types';
 import { NODE_CATEGORIES } from '../../nodes';
 import { useStatusStore } from '../../shell/status-store';
+import { useDockStore } from '../../shell/dock/store';
 import { BPGraphCanvas, headVariantFor, nodeSizeFor } from '../view';
 import type { FlowEdge, FlowNode } from '../view';
 import { useBlueprintStore, EMPTY_SELECTION } from '../store/blueprint-store';
@@ -166,9 +167,19 @@ function BlueprintEditorInner({
   /* ---------------- 资产装载 / 最近使用恢复 ---------------- */
 
   useEffect(() => {
+    // 面板激活（或无 dock 上下文）时才把本面板资产写入全局蓝图 store：
+    // BlueprintEditorPanel 同时服务 main 蓝图 / 函数资产等多面板——store 是全局单例，
+    // 不跟随激活面板同步会让后打开的资产覆盖先打开的（切回标签显示成别的资产）。
+    if (panelId && useDockStore.getState().activePanelId !== panelId) return;
     useBlueprintStore.getState().openAsset(asset, assetPath);
-    // 资产 prop（受控）变化时重开：注册命令域 + 重置编辑态
-  }, [asset, assetPath]);
+    // 资产 prop（受控）变化 / 面板激活切换时重开：注册命令域 + 重置编辑态
+  }, [asset, assetPath, panelId]);
+
+  const activePanelId = useDockStore((s) => s.activePanelId);
+  useEffect(() => {
+    if (!panelId || activePanelId !== panelId) return;
+    useBlueprintStore.getState().openAsset(asset, assetPath);
+  }, [activePanelId, panelId, asset, assetPath]);
 
   useEffect(() => {
     useBlueprintStore.getState().loadRecentSpecs();
