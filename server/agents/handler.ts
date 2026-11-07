@@ -8,6 +8,8 @@ import type { InvokePayload } from '../plugins/executor'
 import { AGENT_PLATFORMS, type AgentPlatform, type AgentSessionValue } from './types'
 import { AgentGateway } from './gateway'
 import { pluginPushHub } from '../plugins/executor'
+import { ensureProjectsRoot } from '../fs'
+import path from 'node:path'
 
 function strArg(v: unknown): string {
   return typeof v === 'string' ? v.trim() : ''
@@ -44,7 +46,13 @@ export async function invokeAgentNode(
       if (!(AGENT_PLATFORMS as readonly string[]).includes(platform)) {
         return { ok: false, message: `platform 必须为：${AGENT_PLATFORMS.join(' | ')}` }
       }
-      const session = await agentGateway.createSession(platform, project, strArg(args.title))
+      // 会话工作目录 = 蓝图项目目录（DSH 工作区按路径幂等复用；Agent 直接在项目目录内工作）
+      const cwd = path.join(ensureProjectsRoot(), project)
+      const session = await agentGateway.createSession(platform, project, {
+        ...(strArg(args.title) ? { title: strArg(args.title) } : {}),
+        cwd,
+        ...(strArg(args.model) ? { model: strArg(args.model) } : {}),
+      })
       return { ok: true, outputs: { session, sessionId: session.sessionId } }
     }
     if (node === 'agent.sendMessage' || node.endsWith('.sendMessage')) {
@@ -63,9 +71,6 @@ export async function invokeAgentNode(
         project,
         sessionId: session.sessionId,
         message,
-        ...(strArg(args.model) ? { model: strArg(args.model) } : {}),
-        ...(strArg(args.reasoning) ? { reasoning: strArg(args.reasoning) } : {}),
-        ...(strArg(args.permissions) ? { permissions: strArg(args.permissions) } : {}),
         waitForCompletion,
         timeoutSec,
       })

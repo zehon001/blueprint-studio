@@ -25,16 +25,24 @@ npm run build     # 生产构建（后端可直接托管 dist/）
 「会话 (session)」变量类型**完全不显示**。
 
 - **创建 Agent 会话**：创建会话并返回会话值（赋给会话类型变量）；标题留空 = 使用
-  DSH 自动生成的标题；平台可选 DSH / Codex（预留）/ Claude（预留）。
+  DSH 自动生成的标题；工作区 = 当前蓝图项目目录（幂等复用）；大模型引脚经编排器
+  `agentPreset` 传递；平台可选 DSH / Codex（预留）/ Claude（预留）。
 - **会话事件**：监听会话通知（检视器选会话变量，仅该会话触发）；出脚：通知类型
-  （message / tool_call / status / error / completed）、内容、原始 JSON、会话ID。
+  （created / status / turn-start / turn-end / completed / interrupted / failed）、
+  内容、原始 JSON、会话ID。
 - **发送 Agent 消息**：检视器填消息内容（提示词）发送给会话；勾选「等待完成通知」
-  （默认勾选）时等最终回复才结束节点（`reply` 出脚），否则立即结束；
-  大模型 / 思考强度 / 权限经插件接口取真实能力表（`GET /api/agents/capabilities`）。
+  （默认勾选）时阻塞等待会话空闲并回读最终回复（`reply` 出脚），否则立即结束。
 
-DSH 连接：服务端经 WebSocket JSON-RPC 连接 `dsh-plugin-orchestrator`
-（`BP_DSH_ORCHESTRATOR_URL` 覆盖，缺省 `ws://127.0.0.1:8791`，契约见
-`server/agents/types.ts`）。最小化示例见 `_projects/agent-smoke/`
+DSH 连接：编排插件**不自行监听端口**，REST 网关挂在 DSH web 宿主上（契约见
+`server/agents/types.ts`）。服务端自动探测 `127.0.0.1:49300` / `8787`，或用环境变量
+`BP_DSH_URL` 指定。认证二选一：`BP_DSH_TOKEN`（插件配置的 apiToken，常驻推荐）或
+`BP_DSH_CONNECT_TOKEN`（DSH 启动令牌，GUI 地址 `?token=` 里取）。启动方式：
+
+```bash
+BP_DSH_URL=http://127.0.0.1:8787 BP_DSH_TOKEN=<apiToken> npm run server
+```
+
+最小化示例见 `_projects/agent-smoke/`
 （开始 → 创建 Agent 会话 → 发送 Agent 消息 → 打印「完毕」）。
 
 ## UE5 概念映射

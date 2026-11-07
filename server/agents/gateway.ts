@@ -1,12 +1,11 @@
 /**
- * Agent 网关（平台注册表 + 通知路由 + 完成等待）
+ * Agent 网关（平台注册表 + 通知路由）
  *
  * - 平台注册表：dsh = DshOrchestratorAdapter（真实连接）；codex / claude = 预留
  *   （返回固定中文提示的失败，能力表 connected:false）。
  * - 通知路由：sessionId → project（创建会话时登记），经 broadcast 回调投递给
- *   订阅该项目的运行窗口（agent.notification WS 帧）。
- * - 完成等待：sendMessage(waitForCompletion) 时登记 sessionId → resolver，
- *   收到 kind='completed'（或首个 message 全量回复）后以最终回复 resolve。
+ *   订阅该项目的运行窗口（agent.notification WS 帧）；未登记会话广播全部订阅项目。
+ * - 完成等待：由适配器内部实现（DSH：wait 长轮询 + result 回读）。
  */
 import type {
   AgentCapabilities,
@@ -45,7 +44,7 @@ class ReservedAdapter implements OrchestratorAdapter {
     throw this.unavailable()
   }
 
-  async sendMessage(): Promise<void> {
+  async sendMessage(): Promise<{ reply: string }> {
     throw this.unavailable()
   }
 
@@ -58,15 +57,13 @@ class ReservedAdapter implements OrchestratorAdapter {
   }
 }
 
-/** 能力缓存 TTL（毫秒；避免每次打开检视器都打 orchestrator） */
+/** 能力缓存 TTL（毫秒；避免每次打开检视器都打编排器） */
 const CAPABILITIES_TTL_MS = 15000
 
 export class AgentGateway {
   private readonly adapters = new Map<AgentPlatform, OrchestratorAdapter>()
   /** sessionId → project（通知路由；创建会话时登记，永续保存在进程内） */
   private readonly sessionProjects = new Map<string, string>()
-  /** sessionId → resolver（waitForCompletion 登记；completed 通知触发） */
-  private readonly pendingCompletions = new Map<string, { resolve: (n: AgentNotification) => void; timer: NodeJS.Timeout }>()
   private readonly capabilitiesCache = new Map<AgentPlatform, { at: number; value: AgentCapabilities }>()
 
   constructor(broadcast: AgentBroadcastFn) {
@@ -95,91 +92,54 @@ export class AgentGateway {
     return value
   }
 
-  /** 创建会话（title 空 = DSH 自动生成标题；登记 sessionId → project 路由） */
-  async createSession(platform: AgentPlatform, project: string, title?: string): Promise<AgentSessionValue> {
-    const session = await this.adapter(platform).createSession({ title: title ?? '' })
+  /** 创建会话（title 空 = DSH 自动生成标题；cwd 用于创建/复用工作区；登记路由） */
+  async createSession(
+    platform: AgentPlatform,
+    project: string,
+    opts: { title?: string; cwd?: string; model?: string } = {},
+  ): Promise<AgentSessionValue> {
+    const session = await this.adapter(platform).createSession({
+      ...(opts.title !== undefined ? { title: opts.title } : {}),
+      ...(opts.cwd ? { cwd: opts.cwd } : {}),
+      ...(opts.model ? { model: opts.model } : {}),
+    })
     this.sessionProjects.set(session.sessionId, project)
     return session
   }
 
   /**
    * 发送消息。waitForCompletion=false：受理即返回（reply 空）；
-   * true：等待该会话的 completed 通知（timeoutSec 超时返回已收到的最后回复，可能为空）。
+   * true：适配器内阻塞等待完成（wait 长轮询 + result 回读）。
    */
   async sendMessage(opts: {
     platform: AgentPlatform
     project: string
     sessionId: string
     message: string
-    model?: string
-    reasoning?: string
-    permissions?: string
     waitForCompletion?: boolean
     timeoutSec?: number
   }): Promise<{ reply: string }> {
-    const adapter = this.adapter(opts.platform)
-    await adapter.sendMessage({
+    this.sessionProjects.set(opts.sessionId, opts.project)
+    return await this.adapter(opts.platform).sendMessage({
       sessionId: opts.sessionId,
       message: opts.message,
-      ...(opts.model ? { model: opts.model } : {}),
-      ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
-      ...(opts.permissions ? { permissions: opts.permissions } : {}),
+      ...(opts.waitForCompletion !== undefined ? { waitForCompletion: opts.waitForCompletion } : {}),
+      ...(opts.timeoutSec !== undefined ? { timeoutSec: opts.timeoutSec } : {}),
     })
-    this.sessionProjects.set(opts.sessionId, opts.project)
-    if (opts.waitForCompletion !== true) return { reply: '' }
-
-    // 登记最后回复（message 通知持续覆盖；completed 时取走）
-    let lastReply = ''
-    const sessionId = opts.sessionId
-    const handler = (n: AgentNotification): void => {
-      if (n.sessionId === sessionId && n.kind === 'message') lastReply = n.content || lastReply
-    }
-    // 临时挂接 message 跟踪（经 routeNotification 广播前的回调）
-    this.trackers.add(handler)
-    try {
-      const notification = await new Promise<AgentNotification>((resolve) => {
-        const timer = setTimeout(
-          () => resolve({ sessionId, platform: opts.platform, kind: 'timeout', content: lastReply, ts: Date.now() }),
-          Math.max(1, opts.timeoutSec ?? 600) * 1000,
-        )
-        this.pendingCompletions.set(sessionId, { resolve, timer })
-      })
-      if (notification.content) lastReply = notification.content
-    } finally {
-      this.trackers.delete(handler)
-      const pending = this.pendingCompletions.get(sessionId)
-      if (pending) clearTimeout(pending.timer)
-      this.pendingCompletions.delete(sessionId)
-    }
-    return { reply: lastReply }
   }
 
-  /** 测试 / 健康检查用：登记 projectId 路由（外部创建的会话也能收到通知） */
+  /** 外部创建的会话也能收到通知（登记路由） */
   trackSession(sessionId: string, project: string): void {
     this.sessionProjects.set(sessionId, project)
   }
 
   dispose(): void {
     for (const a of this.adapters.values()) a.dispose()
-    for (const p of this.pendingCompletions.values()) clearTimeout(p.timer)
-    this.pendingCompletions.clear()
   }
 
   /* ---------------- 内部 ---------------- */
 
-  /** message 通知跟踪器（waitForCompletion 的 lastReply 收集） */
-  private readonly trackers = new Set<(n: AgentNotification) => void>()
-
   private routeNotification(n: AgentNotification): void {
-    for (const t of this.trackers) t(n)
-    if (n.kind === 'completed') {
-      const pending = this.pendingCompletions.get(n.sessionId)
-      if (pending) {
-        clearTimeout(pending.timer)
-        this.pendingCompletions.delete(n.sessionId)
-        pending.resolve(n)
-      }
-    }
     const project = this.sessionProjects.get(n.sessionId)
     const message = {
       type: 'agent.notification',

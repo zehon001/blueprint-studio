@@ -2,13 +2,14 @@
   "id": "agent",
   "name": "Agent 会话",
   "kind": "custom",
-  "description": "Agent 会话桥：经 dsh-plugin-orchestrator 创建会话 / 发送消息 / 监听会话通知（DSH 真实连接，Codex / Claude 预留）。默认随引擎安装；未安装时相关节点与会话变量类型不显示。",
+  "description": "Agent 会话桥：经 dsh-plugin-orchestrator（DSH web 宿主 REST API + SSE 通知）创建会话 / 发送消息 / 监听会话通知（DSH 真实连接，Codex / Claude 预留）。默认随引擎安装；未安装时相关节点与会话变量类型不显示。",
   "nodes": [
     {
       "id": "agent.createSession",
       "title": "创建 Agent 会话",
       "kind": "action",
       "keywords": ["agent", "session", "会话", "创建", "dsh", "codex", "claude", "编排"],
+      "doc": "在指定平台创建 Agent 会话，返回会话值（赋给「会话」类型变量）。标题留空时使用 DSH 自动生成的标题；工作区 = 当前蓝图项目目录（按路径幂等复用）。大模型引脚经编排器 agentPreset 传递（创建时生效，留空 = DSH 默认）。平台 = DSH / Codex（预留）/ Claude（预留）。",
       "inputs": [
         { "id": "exec", "type": "exec" },
         { "id": "platform", "type": "string", "label": "平台", "options": [
@@ -16,7 +17,8 @@
           { "value": "codex", "label": "Codex（预留）" },
           { "value": "claude", "label": "Claude（预留）" }
         ] },
-        { "id": "title", "type": "string", "label": "会话标题", "optional": true }
+        { "id": "title", "type": "string", "label": "会话标题", "optional": true },
+        { "id": "model", "type": "string", "label": "大模型（Agent 预设）", "optional": true }
       ],
       "outputs": [
         { "id": "exec", "type": "exec" },
@@ -29,7 +31,7 @@
       "title": "会话事件",
       "kind": "event",
       "keywords": ["agent", "notification", "会话", "通知", "监听", "事件", "dsh"],
-      "doc": "监听会话通知（DSH 推送）：检视器「会话变量」选择会话类型变量后，仅该会话的通知触发本节点。出脚：通知类型（message=回复 / tool_call / status / error / completed）、内容文本、原始 JSON、会话ID。",
+      "doc": "监听会话通知（编排器 SSE 实时推送）：检视器「会话变量」选择会话类型变量后，仅该会话的通知触发本节点。出脚：通知类型（created / status / turn-start / turn-end / completed=完成+结果摘要 / interrupted / failed）、内容文本、原始 JSON、会话ID。",
       "params": [
         { "id": "sessionVar", "label": "会话变量", "type": "variable", "default": "", "group": "监听" },
         { "id": "eventName", "label": "事件名", "type": "string", "default": "agent.notification", "group": "高级" }
@@ -48,6 +50,7 @@
       "title": "发送 Agent 消息",
       "kind": "action",
       "keywords": ["agent", "message", "发送", "消息", "提示词", "prompt", "模型", "思考", "权限"],
+      "doc": "给会话发送消息（提示词，经编排器 /prompt 送达）。勾选「等待完成通知」（默认勾选）时阻塞等待会话空闲并回读最终回复（reply 出脚）；否则立即结束。大模型 / 思考强度 / 权限引脚为预留：当前编排器发送接口未暴露对应字段，设置暂不生效。",
       "inputs": [
         { "id": "exec", "type": "exec" },
         { "id": "session", "type": "session", "label": "会话" },

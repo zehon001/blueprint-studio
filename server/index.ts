@@ -33,6 +33,10 @@ import * as transpileApi from './transpile'
 import { WsDebugHub } from './ws'
 import { agentGateway } from './agents/handler'
 import { AGENT_PLATFORMS, type AgentPlatform } from './agents/types'
+import { loadDotEnv } from './env'
+
+// .env 先于端口 / 项目根等配置读取（真实环境变量优先，见 ./env.ts）
+loadDotEnv()
 
 const PORT = Number(process.env.PORT || 8790)
 const PROJECTS_ROOT = fsApi.ensureProjectsRoot()
