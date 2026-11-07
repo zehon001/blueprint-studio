@@ -16,6 +16,7 @@ import type {
 } from './types'
 import { AGENT_PLATFORMS } from './types'
 import { DshOrchestratorAdapter } from './dsh'
+import { getArchivedSessionIds, markSessionArchived } from './ledger'
 
 /** 广播回调（server/plugins/executor.ts 的 PluginPushHub.broadcast 注入） */
 export type AgentBroadcastFn = (project: string, message: Record<string, unknown>) => void
@@ -116,6 +117,7 @@ export class AgentGateway {
       ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
       ...(opts.permissions ? { permissions: opts.permissions } : {}),
       ...(opts.reuse !== undefined ? { reuse: opts.reuse } : {}),
+      ...(opts.reuse === true ? { excludeSessionIds: this.archivedSessionIds() } : {}),
     })
     this.sessionProjects.set(session.sessionId, project)
     return session
@@ -151,6 +153,12 @@ export class AgentGateway {
   /** 归档会话（删除会话节点；平台取会话值自带字段，无需额外缓存） */
   async deleteSession(platform: AgentPlatform, sessionId: string): Promise<void> {
     await this.adapter(platform).deleteSession(sessionId)
+    markSessionArchived(sessionId)
+  }
+
+  /** 服务端归档台账（删除会话登记；复用搜索据此跳过已归档会话） */
+  private archivedSessionIds(): string[] {
+    return getArchivedSessionIds()
   }
 
   /** 外部创建的会话也能收到通知（登记路由） */

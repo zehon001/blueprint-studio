@@ -306,13 +306,14 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       // 复用：标题非空时按「标题 + 工作区」搜索既有会话（首个标题命中即复用）。
       // 工作区会话列表不携带 title → 逐个读状态比对（工作区会话数通常为个位数）。
       if (opts.reuse === true && opts.title) {
+        const excluded = new Set(opts.excludeSessionIds ?? [])
         const listed = (await this.request(
           'GET',
           `/workspaces/${encodeURIComponent(workspaceId)}/sessions`,
         )) as { sessions?: Array<{ sessionId?: unknown }> }
         for (const item of listed?.sessions ?? []) {
           const sid = typeof item?.sessionId === 'string' ? item.sessionId : ''
-          if (!sid) continue
+          if (!sid || excluded.has(sid)) continue
           try {
             // 状态体：{ ok, status: { title, ... } }（title 嵌套在 status 内）
             const body = (await this.request('GET', `/sessions/${encodeURIComponent(sid)}`)) as {

@@ -153,6 +153,20 @@ describe('DshOrchestratorAdapter（fetch 注入）', () => {
       assert.ok(calls.some((c) => c.url.endsWith('/sessions') && c.method === 'POST'))
     })
   })
+
+  test('createSession 复用：归档台账排除（excludeSessionIds 命中 → 不复用，新建）', async () => {
+    await withEnv({ BP_DSH_URL: 'http://dsh.test' }, async () => {
+      const adapter = makeAdapter()
+      const created = await adapter.createSession({
+        cwd: '/proj/dir',
+        title: '蓝图连通测试',
+        reuse: true,
+        excludeSessionIds: ['session-old'],
+      })
+      assert.equal(created.sessionId, 'session-1', '命中标题但已归档 → 不复用，新建')
+      assert.ok(calls.some((c) => c.url.endsWith('/sessions') && c.method === 'POST'))
+    })
+  })
 })
 
 function withEnv(vars: Record<string, string>, fn: () => Promise<void>): Promise<void> {

@@ -96,6 +96,8 @@ export interface AgentCreateSessionOptions {
   permissions?: string
   /** 复用已有会话：按标题 + 工作区搜索；标题为空或搜索不到才新建 */
   reuse?: boolean
+  /** 跳过这些会话（服务端归档台账；已归档会话不得复用） */
+  excludeSessionIds?: readonly string[]
 }
 
 /** 发送消息选项（waitForCompletion / timeoutSec 由适配器内部处理） */
