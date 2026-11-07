@@ -505,7 +505,7 @@ export function PinDefaultRow(props: {
   const value = props.written !== undefined ? props.written : props.pin.defaultValue;
   const label = props.pin.label ?? props.pin.id;
   return (
-    <div className="bp-det-row">
+    <div className={`bp-det-row${props.pin.multiLine ? ' bp-det-row--top' : ''}`}>
       <span className="bp-det-label" title={label}>
         {label}
       </span>

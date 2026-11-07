@@ -165,6 +165,11 @@
   padding: 1px 0;
 }
 
+/* 多行文本行（pin.multiLine）：标签 / 类型与 textarea 顶对齐 */
+.bp-det-row--top {
+  align-items: flex-start;
+}
+
 .bp-det-row--iface {
   gap: var(--space-1);
 }
