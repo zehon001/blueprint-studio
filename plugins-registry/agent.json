@@ -177,7 +177,7 @@
         {
           "id": "message",
           "type": "string",
-          "label": "消息内容（提示词）",
+          "label": "消息内容",
           "optional": true
         },
         {
