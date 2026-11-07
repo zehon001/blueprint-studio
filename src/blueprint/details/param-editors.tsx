@@ -362,6 +362,37 @@ export function VariableValueEditor(props: {
   );
 }
 
+/** 会话变量选择器（agent.createSession「赋值到会话变量」）：仅列出 session 类型变量 */
+export function SessionVariableValueEditor(props: {
+  value: unknown;
+  mixed?: boolean;
+  className?: string;
+  onCommit: (value: string) => void;
+}) {
+  const variables = useBlueprintStore((s) =>
+    (s.asset?.variables ?? []).filter((v) => v.type === 'session'),
+  );
+  const current = props.mixed || props.value === undefined ? '' : String(props.value);
+  const missing = current !== '' && !variables.some((v) => v.name === current);
+  return (
+    <select
+      className={`${props.className ?? 'bp-det-select'}${props.mixed ? ' bp-det-input--mixed' : ''}`}
+      value={current}
+      aria-label="会话变量选择器"
+      onChange={(e) => props.onCommit(e.target.value)}
+    >
+      <option value="">{props.mixed ? '—' : '（不赋值）'}</option>
+      {missing ? <option value={current}>{current}（未定义）</option> : null}
+      {variables.map((v) => (
+        <option key={v.name} value={v.name}>
+          {v.name}
+          {v.exposed ? ' ★' : ''}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** 按控件种类分发（ParamSpec / PinSpec 共用的值编辑入口） */
 export function ValueEditor(props: {
   kind: EditorKind;
@@ -402,6 +433,10 @@ export function ValueEditor(props: {
       return <ColorValueEditor value={props.value} mixed={props.mixed} onCommit={props.onCommit} />;
     case 'variable':
       return <VariableValueEditor value={props.value} mixed={props.mixed} onCommit={props.onCommit} />;
+    case 'sessionVariable':
+      return (
+        <SessionVariableValueEditor value={props.value} mixed={props.mixed} onCommit={props.onCommit} />
+      );
     case 'structType':
       return <StructTypeEditor value={props.value} mixed={props.mixed} onCommit={props.onCommit} />;
     case 'json':

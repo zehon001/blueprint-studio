@@ -25,6 +25,7 @@ export type EditorKind =
   | 'directory'
   | 'color'
   | 'variable'
+  | 'sessionVariable'
   | 'nodeSelector'
   | 'json'
   | 'structType';
@@ -50,6 +51,8 @@ export function paramEditorKindOf(param: ParamSpec): EditorKind {
       return 'text';
     case 'variable':
       return 'variable';
+    case 'sessionVariable':
+      return 'sessionVariable';
     case 'nodeSelector':
       return 'nodeSelector';
     case 'structType':

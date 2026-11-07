@@ -247,6 +247,15 @@ function makePluginNodeRun(info: PluginRunInfo): NodeRunFn {
       project: info.project,
       isEvent: info.isEvent,
     });
+    // 内部设置「赋值到会话变量」（assignVar）：调用成功后把首个数据出脚写入该变量
+    // （如 agent.createSession 的 session 出脚 → 会话类型变量），无需手动连线 var.set
+    const assignVar = typeof merged.assignVar === 'string' ? merged.assignVar.trim() : '';
+    if (assignVar !== '' && outcome.ok !== false && ctx) {
+      const dataOut = info.outputPins.find((p) => p.type !== 'exec');
+      if (dataOut && outcome.outputs[dataOut.id] !== undefined) {
+        ctx.setVar(assignVar, outcome.outputs[dataOut.id]);
+      }
+    }
     // ok:false / abort 的 print 已在 invokePluginNode 内完成；此处只选 exec 出口
     return execOutId ? { next: execOutId, outputs: outcome.outputs } : { outputs: outcome.outputs };
   };
