@@ -361,7 +361,8 @@ function paramValueText(value: unknown, fallback: unknown): string {
 
 /** 参数行（本期只读展示；编辑属 T2.4 检视器） */
 function NodeParamsBlock({ node, spec }: { node: IRNode; spec: NodeSpec }) {
-  const params = spec.params ?? [];
+  // 「内部设置」参数不占画布空间（仅检视面板编辑；如 agent 大模型 / 工作区等）
+  const params = (spec.params ?? []).filter((p) => p.group !== '内部设置');
   if (params.length === 0) return null;
   return (
     <div className="bp-node-params">
