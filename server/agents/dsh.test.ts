@@ -94,6 +94,7 @@ describe('DshOrchestratorAdapter（fetch 注入）', () => {
       if (/\/sessions\/session-old$/.test(url)) return reply({ ok: true, title: '蓝图连通测试', status: 'idle' })
       if (/\/sessions\/session-2$/.test(url)) return reply({ ok: true, title: '别的会话', status: 'idle' })
       if (url.endsWith('/prompt')) return reply({ ok: true, promptAccepted: true })
+      if (url.endsWith('/model')) return reply({ ok: true, sessionId: 'session-1', selected: { provider: 'magpie', model: 'group/glm-5.3' } })
       if (url.endsWith('/wait')) return reply({ ok: true, idle: true, status: 'idle' })
       if (url.endsWith('/result')) return reply({ ok: true, result: '完成。' })
       if (url.endsWith('/cancel')) return reply({ ok: true })
@@ -111,6 +112,9 @@ describe('DshOrchestratorAdapter（fetch 注入）', () => {
       assert.equal(session.title, '自动标题')
       const wsCall = calls.find((c) => c.url.endsWith('/workspaces'))
       assert.equal((wsCall?.body as { path?: string } | undefined)?.path, '/proj/dir')
+      // 模型设置：创建后自动 selectModel（provider 由目录解析）
+      const modelCall = calls.find((c) => c.url.endsWith('/model'))
+      assert.ok(modelCall, 'createSession 应调用 selectModel')
     })
   })
 

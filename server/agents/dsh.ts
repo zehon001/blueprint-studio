@@ -78,6 +78,8 @@ interface DshModelEntry {
   id: string
   name: string
   efforts: string[]
+  /** 所属 provider 键（settings.yaml llm-pi-ai.providers.<key>；selectModel 必填） */
+  provider: string
 }
 
 /**
@@ -87,6 +89,7 @@ interface DshModelEntry {
  */
 export function parseDshModelCatalog(text: string): DshModelEntry[] {
   const out: DshModelEntry[] = []
+  let provider = ''
   let modelsIndent: number | null = null
   let current: DshModelEntry | null = null
   let inEfforts = false
@@ -94,13 +97,20 @@ export function parseDshModelCatalog(text: string): DshModelEntry[] {
     if (!raw.trim() || raw.trim().startsWith('#')) continue
     const indent = raw.length - raw.trimStart().length
     const line = raw.trim()
+    // provider 键（llm-pi-ai.providers.<key>:）：记录当前 provider 供模型归属
+    const isBareKey = /^([A-Za-z][\w-]*):\s*$/.exec(line)
+    const bareKey = isBareKey ? isBareKey[1]! : ''
+    const isProviderKey = bareKey !== '' && modelsIndent === null && !['llm-pi-ai', 'providers', 'models'].includes(bareKey)
+    if (isProviderKey) {
+      provider = bareKey
+    }
     if (modelsIndent === null) {
       if (/^models:\s*$/.test(line)) modelsIndent = indent
       continue
     }
     if (/^-\s+id:\s*(.+)$/.test(line) && indent === modelsIndent + 2) {
       const id = /-\s+id:\s*(.+)$/.exec(line)![1]!.trim()
-      current = { id, name: '', efforts: [] }
+      current = { id, name: '', efforts: [], provider }
       inEfforts = false
       out.push(current)
       continue
@@ -190,6 +200,8 @@ interface CatalogCache {
   reasoningLevels: string[]
   permissions: string[]
   defaults: { model: string; reasoning: string; permission: string }
+  /** 模型 id → provider（selectModel 必填 provider） */
+  providerByModel: Record<string, string>
 }
 let catalogCache: CatalogCache | null = null
 const CATALOG_TTL_MS = 60_000
@@ -199,11 +211,13 @@ function readDshCatalog(): CatalogCache {
   if (catalogCache && Date.now() - catalogCache.at < CATALOG_TTL_MS) return catalogCache
   const models: AgentModelOption[] = []
   const efforts = new Set<string>()
-  let entries: { id: string; name: string; efforts: string[] }[] = []
+  let entries: { id: string; name: string; efforts: string[]; provider: string }[] = []
+  const providerByModel: Record<string, string> = {}
   try {
     entries = parseDshModelCatalog(fs.readFileSync(path.join(dshHome(), 'settings.yaml'), 'utf8'))
     for (const entry of entries) {
       models.push({ id: entry.id, name: entry.name || entry.id })
+      providerByModel[entry.id] = entry.provider
       for (const e of entry.efforts) efforts.add(e)
     }
   } catch {
@@ -223,12 +237,14 @@ function readDshCatalog(): CatalogCache {
   // 默认设置：模型目录首个条目 / 该模型的第一个思考强度 / profile defaultPreset
   const defaultModel = entries[0]?.id ?? ''
   const defaultReasoning = entries[0]?.efforts[0] ?? ''
+  const defaults = { model: defaultModel, reasoning: defaultReasoning, permission: defaultPermission }
   const value: CatalogCache = {
     at: Date.now(),
     models,
     reasoningLevels: [...efforts],
     permissions,
-    defaults: { model: defaultModel, reasoning: defaultReasoning, permission: defaultPermission },
+    defaults,
+    providerByModel,
   }
   catalogCache = value
   return value
@@ -304,6 +320,16 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       })) as { workspace?: { workspaceId?: unknown } }
       const workspaceId = typeof ws?.workspace?.workspaceId === 'string' ? ws.workspace.workspaceId : ''
       if (!workspaceId) throw new Error('编排器未返回 workspaceId')
+      /** 给会话选择模型（宿主 selectModel：对下一次请求生效；失败抛中文错误） */
+      const applyModel = async (sessionId: string): Promise<void> => {
+        const provider = catalog.providerByModel[effective.model]
+        if (!provider) return
+        await this.request('POST', `/sessions/${encodeURIComponent(sessionId)}/model`, {
+          provider,
+          model: effective.model,
+          ...(effective.reasoning ? { reasoningEffort: effective.reasoning } : {}),
+        })
+      }
       // 复用：标题非空时按「标题 + 工作区」搜索既有会话（首个标题命中即复用）。
       // 工作区会话列表不携带 title → 逐个读状态比对（工作区会话数通常为个位数）。
       if (opts.reuse === true && opts.title) {
@@ -323,6 +349,8 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
             }
             const title = typeof body?.status?.title === 'string' ? body.status.title : body?.title
             if (title === opts.title) {
+              // 复用同样应用模型设置（用户可能改了内部设置再运行）
+              await applyModel(sid)
               return { platform: 'dsh', sessionId: sid, title: opts.title, ...effective }
             }
           } catch {
@@ -333,11 +361,12 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       const created = (await this.request('POST', '/sessions', {
         workspaceId,
         ...(opts.title ? { title: opts.title } : {}),
-        // 注意：agentPreset 是 Agent 预设 id（如 "standard"），不是 LLM 模型 id——
-        // 大模型 / 思考强度为记录性设置（编排接口暂不支持下发，勿作为 preset 传递）
+        // 注意：agentPreset 是 Agent 预设 id（如 "standard"），不是 LLM 模型 id；
+        // 模型 / 思考强度经上方 applyModel（宿主 selectModel）对会话下一次请求生效
       })) as { sessionId?: unknown }
       const sessionId = typeof created?.sessionId === 'string' ? created.sessionId : ''
       if (!sessionId) throw new Error('编排器未返回 sessionId')
+      await applyModel(sessionId)
       // 标题留空时回读 DSH 自动生成的标题（状态对象携带 title）
       let title = opts.title ?? ''
       if (!title) {
@@ -360,15 +389,20 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
 
   async sendMessage(opts: AgentSendMessageOptions): Promise<{ reply: string }> {
     try {
-      // 覆盖设置随 prompt 请求转发（DSH 当前按会话创建时的设置执行；字段为前向兼容扩展）
-      const overrides = {
-        ...(opts.model?.trim() ? { model: opts.model.trim() } : {}),
-        ...(opts.reasoning?.trim() ? { reasoning: opts.reasoning.trim() } : {}),
-        ...(opts.permissions?.trim() ? { permissions: opts.permissions.trim() } : {}),
+      // 覆盖设置：宿主 selectModel 对会话下一次请求生效（权限为客户端预设，编排接口无对应能力）
+      if (opts.model?.trim()) {
+        const catalog = readDshCatalog()
+        const provider = catalog.providerByModel[opts.model.trim()]
+        if (provider) {
+          await this.request('POST', `/sessions/${encodeURIComponent(opts.sessionId)}/model`, {
+            provider,
+            model: opts.model.trim(),
+            ...(opts.reasoning?.trim() ? { reasoningEffort: opts.reasoning.trim() } : {}),
+          })
+        }
       }
       const accepted = (await this.request('POST', `/sessions/${encodeURIComponent(opts.sessionId)}/prompt`, {
         text: opts.message,
-        ...overrides,
       })) as { promptAccepted?: unknown }
       if (accepted?.promptAccepted === false) {
         throw new Error('DSH 未受理该消息（会话可能正忙或已关闭）')
