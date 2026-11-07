@@ -369,9 +369,9 @@ export function SessionVariableValueEditor(props: {
   className?: string;
   onCommit: (value: string) => void;
 }) {
-  const variables = useBlueprintStore((s) =>
-    (s.asset?.variables ?? []).filter((v) => v.type === 'session'),
-  );
+  // selector 必须返回稳定引用：filter 在外部做（新数组引用会触发无限重渲染 / 白屏）
+  const allVariables = useBlueprintStore((s) => s.asset?.variables);
+  const variables = (allVariables ?? []).filter((v) => v.type === 'session');
   const current = props.mixed || props.value === undefined ? '' : String(props.value);
   const missing = current !== '' && !variables.some((v) => v.name === current);
   return (
