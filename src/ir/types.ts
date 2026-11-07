@@ -421,6 +421,8 @@ export interface PinSpec {
   options?: ParamOption[];
   /** 内联默认值（未连线时作为输入值，引脚上可内联编辑；IRNode.pinDefaults 的初值来源） */
   defaultValue?: unknown;
+  /** 检视面板默认值编辑器用多行文本框（长文本输入，如提示词；version 不升，可选字段） */
+  multiLine?: boolean;
 }
 
 /** 节点运行上下文（解释器构造，NodeRunFn 第一参数） */

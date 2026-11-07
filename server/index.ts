@@ -21,6 +21,7 @@
  * 错误格式统一：成功 { ok: true, ... }；失败 { ok: false, message }。
  */
 import http from 'node:http'
+import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { WebSocketServer } from 'ws'
@@ -208,6 +209,27 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         wsHub: wsHub.stats(),
         uptimeSec: Math.round((Date.now() - STARTED_AT) / 1000),
       })
+      return
+    }
+
+    // 系统目录选择对话框（macOS：osascript 拉起原生「选择文件夹」窗口；供 agent 工作区设置用）
+    if (pathname === '/api/dialog/select-directory' && req.method === 'POST') {
+      execFile(
+        'osascript',
+        ['-e', 'POSIX path of (choose folder with prompt "选择工作区目录")'],
+        { timeout: 300_000 },
+        (err, stdout) => {
+          if (err) {
+            const canceled = /User canceled|用户已取消/i.test(err.message)
+            sendJson(res, 200, {
+              ok: false,
+              ...(canceled ? { canceled: true, message: '已取消选择' } : { message: `无法打开系统目录选择：${err.message}` }),
+            })
+            return
+          }
+          sendJson(res, 200, { ok: true, path: String(stdout).trim().replace(/\/+$/, '') })
+        },
+      )
       return
     }
 

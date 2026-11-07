@@ -468,6 +468,29 @@ export function ParamFieldRow(props: {
 }
 
 /**
+ * 多行文本默认值编辑器（pin.multiLine：长文本如提示词；失焦提交，Shift+Enter 换行）。
+ */
+function MultiLineTextEditor(props: {
+  value: unknown;
+  onCommit: (value: unknown) => void;
+}) {
+  const initial = typeof props.value === 'string' ? props.value : '';
+  const [draft, setDraft] = useState(initial);
+  useEffect(() => setDraft(initial), [initial]);
+  return (
+    <textarea
+      className="bp-det-input"
+      style={{ minHeight: 72, resize: 'vertical', lineHeight: 1.5 }}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft !== initial) props.onCommit(draft);
+      }}
+    />
+  );
+}
+
+/**
  * 引脚默认值行（未连线数据输入引脚）：
  * 已连线 → 「已连线」置灰；无内联编辑器的类型 → 只读值显示。
  */
@@ -503,6 +526,8 @@ export function PinDefaultRow(props: {
             placeholder={props.pin.defaultValue !== undefined ? displayValue(props.pin.defaultValue) : undefined}
             onCommit={props.onCommit}
           />
+        ) : kind === 'text' && props.pin.multiLine ? (
+          <MultiLineTextEditor value={value} onCommit={props.onCommit} />
         ) : (
           <ValueEditor
             kind={kind}

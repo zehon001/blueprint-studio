@@ -331,7 +331,8 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       const created = (await this.request('POST', '/sessions', {
         workspaceId,
         ...(opts.title ? { title: opts.title } : {}),
-        ...(effective.model ? { agentPreset: effective.model } : {}),
+        // 注意：agentPreset 是 Agent 预设 id（如 "standard"），不是 LLM 模型 id——
+        // 大模型 / 思考强度为记录性设置（编排接口暂不支持下发，勿作为 preset 传递）
       })) as { sessionId?: unknown }
       const sessionId = typeof created?.sessionId === 'string' ? created.sessionId : ''
       if (!sessionId) throw new Error('编排器未返回 sessionId')
