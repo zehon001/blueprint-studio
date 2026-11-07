@@ -8,62 +8,237 @@
       "id": "agent.createSession",
       "title": "创建 Agent 会话",
       "kind": "action",
-      "keywords": ["agent", "session", "会话", "创建", "dsh", "codex", "claude", "编排"],
-      "doc": "在指定平台创建 Agent 会话，返回会话值（赋给「会话」类型变量）。标题留空时使用 DSH 自动生成的标题；工作区 = 当前蓝图项目目录（按路径幂等复用）。大模型引脚经编排器 agentPreset 传递（创建时生效，留空 = DSH 默认）。平台 = DSH / Codex（预留）/ Claude（预留）。",
+      "keywords": [
+        "agent",
+        "session",
+        "会话",
+        "创建",
+        "dsh",
+        "codex",
+        "claude",
+        "编排"
+      ],
+      "doc": "在指定平台创建 Agent 会话，返回会话值（赋给「会话」类型变量）。标题留空时使用 DSH 自动生成的标题；工作区 = 当前蓝图项目目录（按路径幂等复用）。大模型引脚下拉读取 DSH 模型目录（settings.yaml），经编排器 agentPreset 传递（创建时生效，留空 = DSH 默认）。平台 = DSH / Codex（预留）/ Claude（预留）。",
       "inputs": [
-        { "id": "exec", "type": "exec" },
-        { "id": "platform", "type": "string", "label": "平台", "options": [
-          { "value": "dsh", "label": "DSH" },
-          { "value": "codex", "label": "Codex（预留）" },
-          { "value": "claude", "label": "Claude（预留）" }
-        ] },
-        { "id": "title", "type": "string", "label": "会话标题", "optional": true },
-        { "id": "model", "type": "string", "label": "大模型（Agent 预设）", "optional": true }
+        {
+          "id": "exec",
+          "type": "exec"
+        },
+        {
+          "id": "platform",
+          "type": "string",
+          "label": "平台",
+          "options": [
+            {
+              "value": "dsh",
+              "label": "DSH"
+            },
+            {
+              "value": "codex",
+              "label": "Codex（预留）"
+            },
+            {
+              "value": "claude",
+              "label": "Claude（预留）"
+            }
+          ]
+        },
+        {
+          "id": "title",
+          "type": "string",
+          "label": "会话标题",
+          "optional": true
+        },
+        {
+          "id": "model",
+          "type": "string",
+          "label": "大模型（Agent 预设）",
+          "optional": true
+        }
       ],
       "outputs": [
-        { "id": "exec", "type": "exec" },
-        { "id": "session", "type": "session", "label": "会话" },
-        { "id": "sessionId", "type": "string", "label": "会话ID" }
+        {
+          "id": "exec",
+          "type": "exec"
+        },
+        {
+          "id": "session",
+          "type": "session",
+          "label": "会话"
+        },
+        {
+          "id": "sessionId",
+          "type": "string",
+          "label": "会话ID"
+        }
       ]
     },
     {
       "id": "agent.sessionEvent",
       "title": "会话事件",
       "kind": "event",
-      "keywords": ["agent", "notification", "会话", "通知", "监听", "事件", "dsh"],
+      "keywords": [
+        "agent",
+        "notification",
+        "会话",
+        "通知",
+        "监听",
+        "事件",
+        "dsh"
+      ],
       "doc": "监听会话通知（编排器 SSE 实时推送）：检视器「会话变量」选择会话类型变量后，仅该会话的通知触发本节点。出脚：通知类型（created / status / turn-start / turn-end / completed=完成+结果摘要 / interrupted / failed）、内容文本、原始 JSON、会话ID。",
       "params": [
-        { "id": "sessionVar", "label": "会话变量", "type": "variable", "default": "", "group": "监听" },
-        { "id": "eventName", "label": "事件名", "type": "string", "default": "agent.notification", "group": "高级" }
+        {
+          "id": "sessionVar",
+          "label": "会话变量",
+          "type": "variable",
+          "default": "",
+          "group": "监听"
+        },
+        {
+          "id": "eventName",
+          "label": "事件名",
+          "type": "string",
+          "default": "agent.notification",
+          "group": "高级"
+        }
       ],
       "inputs": [],
       "outputs": [
-        { "id": "exec", "type": "exec" },
-        { "id": "kind", "type": "string", "label": "通知类型" },
-        { "id": "content", "type": "string", "label": "内容" },
-        { "id": "raw", "type": "string", "label": "原始数据" },
-        { "id": "sessionId", "type": "string", "label": "会话ID" }
+        {
+          "id": "exec",
+          "type": "exec"
+        },
+        {
+          "id": "kind",
+          "type": "string",
+          "label": "通知类型"
+        },
+        {
+          "id": "content",
+          "type": "string",
+          "label": "内容"
+        },
+        {
+          "id": "raw",
+          "type": "string",
+          "label": "原始数据"
+        },
+        {
+          "id": "sessionId",
+          "type": "string",
+          "label": "会话ID"
+        }
       ]
     },
     {
       "id": "agent.sendMessage",
       "title": "发送 Agent 消息",
       "kind": "action",
-      "keywords": ["agent", "message", "发送", "消息", "提示词", "prompt", "模型", "思考", "权限"],
-      "doc": "给会话发送消息（提示词，经编排器 /prompt 送达）。勾选「等待完成通知」（默认勾选）时阻塞等待会话空闲并回读最终回复（reply 出脚）；否则立即结束。大模型 / 思考强度 / 权限引脚为预留：当前编排器发送接口未暴露对应字段，设置暂不生效。",
+      "keywords": [
+        "agent",
+        "message",
+        "发送",
+        "消息",
+        "提示词",
+        "prompt",
+        "模型",
+        "思考",
+        "权限"
+      ],
+      "doc": "给会话发送消息（提示词，经编排器 /prompt 送达）。勾选「等待完成通知」（默认勾选）时阻塞等待会话空闲并回读最终回复（reply 出脚）；否则立即结束。大模型 / 思考强度 / 权限引脚的下拉读取 DSH 本机配置（settings.yaml 模型目录 / 权限预设）；运行中切换需编排器后续支持，当前以会话创建时的设置为准。",
       "inputs": [
-        { "id": "exec", "type": "exec" },
-        { "id": "session", "type": "session", "label": "会话" },
-        { "id": "message", "type": "string", "label": "消息内容（提示词）", "optional": true },
-        { "id": "waitForCompletion", "type": "bool", "label": "等待完成通知", "defaultValue": true },
-        { "id": "model", "type": "string", "label": "大模型", "optional": true, "options": [] },
-        { "id": "reasoning", "type": "string", "label": "思考强度", "optional": true, "options": [] },
-        { "id": "permissions", "type": "string", "label": "权限", "optional": true, "options": [] }
+        {
+          "id": "exec",
+          "type": "exec"
+        },
+        {
+          "id": "session",
+          "type": "session",
+          "label": "会话"
+        },
+        {
+          "id": "message",
+          "type": "string",
+          "label": "消息内容（提示词）",
+          "optional": true
+        },
+        {
+          "id": "waitForCompletion",
+          "type": "bool",
+          "label": "等待完成通知",
+          "defaultValue": true
+        },
+        {
+          "id": "model",
+          "type": "string",
+          "label": "大模型",
+          "optional": true,
+          "options": []
+        },
+        {
+          "id": "reasoning",
+          "type": "string",
+          "label": "思考强度",
+          "optional": true,
+          "options": []
+        },
+        {
+          "id": "permissions",
+          "type": "string",
+          "label": "权限",
+          "optional": true,
+          "options": []
+        }
       ],
       "outputs": [
-        { "id": "exec", "type": "exec" },
-        { "id": "reply", "type": "string", "label": "回复" },
-        { "id": "sent", "type": "bool", "label": "已发送" }
+        {
+          "id": "exec",
+          "type": "exec"
+        },
+        {
+          "id": "reply",
+          "type": "string",
+          "label": "回复"
+        },
+        {
+          "id": "sent",
+          "type": "bool",
+          "label": "已发送"
+        }
+      ]
+    },
+    {
+      "id": "agent.deleteSession",
+      "title": "删除 Agent 会话",
+      "kind": "action",
+      "keywords": [
+        "agent",
+        "session",
+        "会话",
+        "删除",
+        "结束",
+        "归档",
+        "关闭",
+        "dsh"
+      ],
+      "doc": "删除（归档）会话：运行中的回合先取消，然后从工作区导航隐藏（会话日志保留）。输入会话类型变量；执行流经 exec 出脚继续。",
+      "inputs": [
+        {
+          "id": "exec",
+          "type": "exec"
+        },
+        {
+          "id": "session",
+          "type": "session",
+          "label": "会话"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "exec",
+          "type": "exec"
+        }
       ]
     }
   ]

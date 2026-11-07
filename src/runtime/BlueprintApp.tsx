@@ -14,6 +14,7 @@ import { createRuntime, type RuntimeHandle } from './interpreter'
 import type { NodeSpec } from '@/ir/types'
 import { deserializeIR } from '@/ir/validate'
 import { DebugWsClient } from '@/shell/debug/debug-ws'
+import { DebugProbe } from './debug-probe'
 
 interface LoadState {
   status: 'loading' | 'running' | 'error'
@@ -32,6 +33,7 @@ export function BlueprintApp() {
   const [title, setTitle] = useState(bpParam)
   const runtimeRef = useRef<RuntimeHandle | null>(null)
   const wsRef = useRef<DebugWsClient | null>(null)
+  const probeRef = useRef<DebugProbe | null>(null)
   const linesRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -72,9 +74,14 @@ export function BlueprintApp() {
 
         // 事件总线：插件推送（流 / Agent 通知）统一入队
         const bus = createEventBus({ onWarn: (m) => print(`[事件总线] ${m}`) })
+        // 调试探针（节点高亮 / 端口实时值 → 编辑器叠加层）：一个运行窗口一个实例
+        const probe = new DebugProbe({ project })
+        probeRef.current = probe
+
         const rt = createRuntime(resolved.asset, specs, {
           onPrint: print,
           onError: (err, graphName, nodeId) => print(`[错误] ${graphName}/${nodeId}：${err.message}`),
+          onDebug: (ev) => probe.push(bp, ev),
           notify: (message) => print(`[通知] ${message}`),
           clipboardWrite: () => print('[剪贴板] 运行窗口暂不支持写入剪贴板，已忽略'),
           openUrl: (url) => print(`[链接] ${url}`),
@@ -140,6 +147,8 @@ export function BlueprintApp() {
       alive = false
       runtimeRef.current?.stop()
       runtimeRef.current = null
+      probeRef.current?.stop()
+      probeRef.current = null
       wsRef.current?.close()
       wsRef.current = null
     }

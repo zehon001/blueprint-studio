@@ -1,0 +1,96 @@
+/* 检视面板骨架样式（insp-* 前缀；颜色 / 间距引用 theme token） */
+
+.insp-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-panel);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  user-select: none;
+}
+
+.insp-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: calc(var(--panel-header-h) + var(--space-1));
+  padding: 0 var(--space-3);
+  background: var(--bg-panel-header);
+  border-bottom: 1px solid var(--border);
+}
+
+.insp-title {
+  flex: none;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-md);
+  font-weight: 600;
+}
+
+.insp-badge {
+  flex: none;
+  padding: 1px var(--space-2);
+  font-size: var(--font-xs);
+  color: var(--accent-hover);
+  border: 1px solid rgba(91, 140, 255, 0.35);
+  border-radius: var(--radius-sm);
+  background: rgba(91, 140, 255, 0.1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.insp-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.insp-info-body {
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.insp-info-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.insp-info-label {
+  flex: none;
+  width: 64px;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+.insp-info-value {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.insp-info-value.mono {
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
+}
+
+.insp-info-hint {
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  line-height: 1.6;
+}
+
+.insp-blueprint-host {
+  min-height: 0;
+}

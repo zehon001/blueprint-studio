@@ -48,6 +48,10 @@ class ReservedAdapter implements OrchestratorAdapter {
     throw this.unavailable()
   }
 
+  async deleteSession(): Promise<void> {
+    throw this.unavailable()
+  }
+
   onNotification(): void {
     /* 预留平台无通知流 */
   }
@@ -126,6 +130,11 @@ export class AgentGateway {
       ...(opts.waitForCompletion !== undefined ? { waitForCompletion: opts.waitForCompletion } : {}),
       ...(opts.timeoutSec !== undefined ? { timeoutSec: opts.timeoutSec } : {}),
     })
+  }
+
+  /** 归档会话（删除会话节点；平台取会话值自带字段，无需额外缓存） */
+  async deleteSession(platform: AgentPlatform, sessionId: string): Promise<void> {
+    await this.adapter(platform).deleteSession(sessionId)
   }
 
   /** 外部创建的会话也能收到通知（登记路由） */

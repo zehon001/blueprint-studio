@@ -21,9 +21,17 @@
  *   POST /sessions/:id/prompt {text}     追加用户消息
  *   POST /sessions/:id/wait {timeoutMs}  阻塞等待空闲（超时 {idle:false,timedOut:true}）
  *   GET  /sessions/:id/result            最后一条 assistant 回复 → {result}
+ *   POST /sessions/:id/cancel            取消运行
+ *   POST /sessions/:id/archive           归档会话（删除会话节点 = 取消 + 归档）
  *   GET  /events（SSE）                  session.status / turn-start / turn-end /
  *                                        completed / interrupted / failed / created
- * 未覆盖的编排端点（cancel / archive / relations / hooks）留适配器扩展点。
+ * 未覆盖的编排端点（relations / hooks / workspaces 管理）留适配器扩展点。
+ *
+ * 大模型 / 思考强度 / 权限的真实清单：编排器 REST 未暴露目录接口，适配器直接读
+ * DSH 本机配置（零依赖迷你 YAML 解析）：
+ *   - 模型：~/.dsh/settings.yaml → llm-pi-ai.providers.*.models[]（id / name / reasoningEfforts）
+ *   - 权限：~/.dsh/profiles/<profile>/cordis.patch.yml → @deepseek-ai/dsh-permission-presets
+ *     的 presets 键（read-only / workspace-write / danger-full-access 等）
  */
 
 /** Agent 平台（DSH 真实连接；Codex / Claude 预留） */
@@ -51,11 +59,17 @@ export interface AgentNotification {
   ts: number
 }
 
-/** 平台能力（DSH 编排器未暴露模型/权限清单接口：connected 之外留空，检视器降级文本输入） */
+/** 模型条目（DSH 配置目录；value = id，下拉显示 name） */
+export interface AgentModelOption {
+  id: string
+  name: string
+}
+
+/** 平台能力（模型 / 思考强度 / 权限来自 DSH 本机配置，见文件头说明） */
 export interface AgentCapabilities {
   platform: AgentPlatform
   connected: boolean
-  models: string[]
+  models: AgentModelOption[]
   reasoningLevels: string[]
   permissions: string[]
 }
@@ -89,6 +103,8 @@ export interface OrchestratorAdapter {
   createSession(opts: AgentCreateSessionOptions): Promise<AgentSessionValue>
   /** 发送消息；waitForCompletion=true 时阻塞等待完成并返回最终回复 */
   sendMessage(opts: AgentSendMessageOptions): Promise<{ reply: string }>
+  /** 归档会话（先取消运行中的回合，best-effort；日志保留） */
+  deleteSession(sessionId: string): Promise<void>
   /** 通知回调注册（网关注入；SSE 事件映射后回调） */
   onNotification(cb: (n: AgentNotification) => void): void
   /** 释放连接（进程退出 / 测试隔离用） */

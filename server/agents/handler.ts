@@ -55,6 +55,14 @@ export async function invokeAgentNode(
       })
       return { ok: true, outputs: { session, sessionId: session.sessionId } }
     }
+    if (node === 'agent.deleteSession' || node.endsWith('.deleteSession')) {
+      const session = sessionArg(args.session)
+      if (!session) {
+        return { ok: false, message: '删除 Agent 会话需要 session 输入（会话类型变量，来自创建 Agent 会话节点）' }
+      }
+      await agentGateway.deleteSession(session.platform, session.sessionId)
+      return { ok: true, outputs: {} }
+    }
     if (node === 'agent.sendMessage' || node.endsWith('.sendMessage')) {
       const session = sessionArg(args.session)
       if (!session) {

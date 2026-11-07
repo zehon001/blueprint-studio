@@ -9,11 +9,15 @@
 import type {
   AgentCapabilities,
   AgentCreateSessionOptions,
+  AgentModelOption,
   AgentNotification,
   AgentSendMessageOptions,
   AgentSessionValue,
   OrchestratorAdapter,
 } from './types'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 /** DSH web 宿主地址（BP_DSH_URL 覆盖；桌面端 dsh web 缺省端口见宿主启动日志） */
 export function dshBaseUrl(): string {
@@ -55,6 +59,151 @@ function chineseError(action: string, err: unknown): Error {
   return new Error(`${action}失败：${message}`)
 }
 
+/* ============================================================
+ * DSH 本机配置目录（模型 / 思考强度 / 权限预设的真实来源；零依赖迷你解析）
+ * ============================================================ */
+
+/** DSH 根目录（DSH_HOME 覆盖；缺省 ~/.dsh） */
+function dshHome(): string {
+  return process.env.DSH_HOME?.trim() || path.join(os.homedir(), '.dsh')
+}
+
+/** DSH profile（BP_DSH_PROFILE 覆盖；桌面端缺省 desktop） */
+function dshProfile(): string {
+  return process.env.BP_DSH_PROFILE?.trim() || 'desktop'
+}
+
+/** 模型目录条目（id / 显示名 / 该模型支持的思考强度） */
+interface DshModelEntry {
+  id: string
+  name: string
+  efforts: string[]
+}
+
+/**
+ * 解析 settings.yaml 的模型目录（llm-pi-ai.providers.*.models[]）：
+ * 逐行缩进扫描——`models:` 开块，`- id:` 开新条目，条目内收集 name 与
+ * reasoningEfforts 的键（低配 YAML，无依赖；解析失败返回空表由调用方兜底）。
+ */
+export function parseDshModelCatalog(text: string): DshModelEntry[] {
+  const out: DshModelEntry[] = []
+  let modelsIndent: number | null = null
+  let current: DshModelEntry | null = null
+  let inEfforts = false
+  for (const raw of text.split(/\r?\n/)) {
+    if (!raw.trim() || raw.trim().startsWith('#')) continue
+    const indent = raw.length - raw.trimStart().length
+    const line = raw.trim()
+    if (modelsIndent === null) {
+      if (/^models:\s*$/.test(line)) modelsIndent = indent
+      continue
+    }
+    if (/^-\s+id:\s*(.+)$/.test(line) && indent === modelsIndent + 2) {
+      const id = /-\s+id:\s*(.+)$/.exec(line)![1]!.trim()
+      current = { id, name: '', efforts: [] }
+      inEfforts = false
+      out.push(current)
+      continue
+    }
+    if (indent <= modelsIndent) {
+      // 离开 models 块（下一 provider / 顶层键）
+      if (/^models:\s*$/.test(line)) continue
+      modelsIndent = null
+      current = null
+      inEfforts = false
+      continue
+    }
+    if (!current) continue
+    const nameMatch = /^name:\s*(.+)$/.exec(line)
+    if (nameMatch && !inEfforts) {
+      current.name = nameMatch[1]!.trim()
+      continue
+    }
+    if (/^reasoningEfforts:\s*$/.test(line)) {
+      inEfforts = true
+      continue
+    }
+    if (inEfforts) {
+      const effortMatch = /^([A-Za-z][\w-]*):\s/.exec(line)
+      if (effortMatch) {
+        current.efforts.push(effortMatch[1]!)
+        continue
+      }
+      inEfforts = false
+    }
+  }
+  return out
+}
+
+/**
+ * 解析 profile cordis.patch.yml 的权限预设（dsh-permission-presets 条目的 presets
+ * 键列表；条目形态两种：`- id: @deepseek-ai/dsh-permission-presets` 或
+ * `- id: permission` + `name: "@deepseek-ai/dsh-permission-presets"`）。
+ */
+export function parseDshPermissionPresets(text: string): string[] {
+  const lines = text.split(/\r?\n/)
+  let scope = false
+  let pendingName = false
+  let presetsIndent: number | null = null
+  const out: string[] = []
+  for (const raw of lines) {
+    const indent = raw.length - raw.trimStart().length
+    const line = raw.trim()
+    if (!scope) {
+      if (/^-\s+id:\s*@deepseek-ai\/dsh-permission-presets\s*$/.test(line)) scope = true
+      else if (/^-\s+id:/.test(line)) pendingName = true
+      else if (pendingName && /^name:\s*"?.*dsh-permission-presets/.test(line)) scope = true
+      else if (line !== '') pendingName = false
+      continue
+    }
+    if (/^-\s+id:/.test(line)) break // 下一插件条目：作用域结束
+    if (presetsIndent === null) {
+      if (/^presets:\s*$/.test(line)) presetsIndent = indent
+      continue
+    }
+    if (/^defaultPreset:/.test(line)) break
+    const key = /^([\w-]+):\s*$/.exec(line)
+    if (key && indent === presetsIndent + 2) out.push(key[1]!)
+    else if (indent <= presetsIndent) break
+  }
+  return out
+}
+
+/** 配置目录缓存（60s；打开检视器频繁拉取时避免反复读盘） */
+interface CatalogCache {
+  at: number
+  models: AgentModelOption[]
+  reasoningLevels: string[]
+  permissions: string[]
+}
+let catalogCache: CatalogCache | null = null
+const CATALOG_TTL_MS = 60_000
+
+/** 读 DSH 本机配置生成真实能力目录（读盘失败各自兜底为空表） */
+function readDshCatalog(): Pick<CatalogCache, 'models' | 'reasoningLevels' | 'permissions'> {
+  if (catalogCache && Date.now() - catalogCache.at < CATALOG_TTL_MS) return catalogCache
+  const models: AgentModelOption[] = []
+  const efforts = new Set<string>()
+  try {
+    for (const entry of parseDshModelCatalog(fs.readFileSync(path.join(dshHome(), 'settings.yaml'), 'utf8'))) {
+      models.push({ id: entry.id, name: entry.name || entry.id })
+      for (const e of entry.efforts) efforts.add(e)
+    }
+  } catch {
+    /* settings.yaml 不可读：模型目录留空 */
+  }
+  let permissions: string[] = []
+  try {
+    permissions = parseDshPermissionPresets(
+      fs.readFileSync(path.join(dshHome(), 'profiles', dshProfile(), 'cordis.patch.yml'), 'utf8'),
+    )
+  } catch {
+    /* profile 不可读：权限预设留空 */
+  }
+  catalogCache = { at: Date.now(), models, reasoningLevels: [...efforts], permissions }
+  return catalogCache
+}
+
 export class DshOrchestratorAdapter implements OrchestratorAdapter {
   readonly platform = 'dsh' as const
 
@@ -84,7 +233,8 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
   async capabilities(): Promise<AgentCapabilities> {
     try {
       await this.request('GET', '/health')
-      return { platform: 'dsh', connected: true, models: [], reasoningLevels: [], permissions: [] }
+      const catalog = readDshCatalog()
+      return { platform: 'dsh', connected: true, ...catalog }
     } catch {
       return { platform: 'dsh', connected: false, models: [], reasoningLevels: [], permissions: [] }
     }
@@ -138,6 +288,17 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       return { reply }
     } catch (err) {
       throw chineseError('发送 Agent 消息', err)
+    }
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    const enc = encodeURIComponent(sessionId)
+    try {
+      // 运行中的回合先取消（未运行 / 已空闲时取消失败不阻塞归档）
+      await this.request('POST', `/sessions/${enc}/cancel`).catch(() => undefined)
+      await this.request('POST', `/sessions/${enc}/archive`)
+    } catch (err) {
+      throw chineseError('删除 Agent 会话', err)
     }
   }
 

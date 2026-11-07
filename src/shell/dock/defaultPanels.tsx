@@ -20,6 +20,7 @@ import { registerFileSystemPanel } from '@/panels/file-system'
 import { registerConsolePanel } from '@/panels/console'
 import { registerRuntimePanel } from '@/panels/runtime'
 import { registerLibraryPanel } from '@/panels/library'
+import { registerDetailsPanel } from '@/panels/details'
 import { ensureAssetPanelsInLayout, syncWorkspaceFromDock } from './assetPanel'
 
 /* 内置面板 id（跨卡契约：替换实现时保持 id 不变） */
@@ -27,12 +28,14 @@ export const PANEL_ID_FILE_SYSTEM = 'file-system'
 export const PANEL_ID_RUNTIME = 'runtime'
 export const PANEL_ID_CONSOLE = 'console'
 export const PANEL_ID_LIBRARY = 'library'
+export const PANEL_ID_DETAILS = 'details'
 
 /* 面板注册（模块副作用；每面板一行） */
 registerFileSystemPanel() // T0.7 文件系统（id: 'file-system'）
 registerConsolePanel() // T1.6 控制台（id: 'console'）
 registerRuntimePanel() // T8.5 内置运行视图（iframe + embed；id: 'runtime'）
 registerLibraryPanel() // 资源库（函数；默认右列；id: 'library'）
+registerDetailsPanel() // 检视（蓝图节点 / 图参数；id: 'details'）
 
 /** 单面板 tabs 组 */
 function oneTabs(panelId: string): DockNode {
@@ -53,7 +56,7 @@ export function buildDefaultLayout(): DockNode {
         children: [
           oneTabs(PANEL_ID_FILE_SYSTEM),
           oneTabs(PANEL_ID_RUNTIME),
-          oneTabs(PANEL_ID_LIBRARY),
+          makeTabs([PANEL_ID_DETAILS, PANEL_ID_LIBRARY]),
         ],
       },
       oneTabs(PANEL_ID_CONSOLE),

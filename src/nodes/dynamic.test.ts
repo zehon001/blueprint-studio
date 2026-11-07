@@ -119,11 +119,11 @@ describe('pluginSpecsFromManifest：phone-log 真实清单 → NodeSpec[]', () =
     assert.equal(specs.length, 2);
     const [read, onLine] = specs;
 
-    // id：manifest 已带 camelCase 前缀 → 原样；category 恒为「插件」；title 带来源角标
+    // id：manifest 已带 camelCase 前缀 → 原样；category 恒为「插件」；title 不带角标（来源在副标题/doc）
     assert.equal(read.id, 'phoneLog.read');
     assert.equal(read.category, '插件');
     assert.ok(read.title.startsWith('读取手机日志'), `title=${read.title}`);
-    assert.ok(read.title.includes('内置'), 'title 应含来源角标（内置）');
+    assert.equal(read.title, '读取手机日志', 'title 不加来源角标（来源信息在分类 / doc）');
     assert.equal(headVariantFor(read.id, read), 'plugin', '分类「插件」→ 紫头变体');
 
     assert.equal(onLine.id, 'phoneLog.onLine');
@@ -195,7 +195,7 @@ describe('pluginSpecsFromManifest：phone-log 真实清单 → NodeSpec[]', () =
     const spec = specs[0]!;
     assert.equal(spec.id, 'feishuCli.send', 'pluginNodePrefix(feishu-cli) = feishuCli.');
     assert.equal(pluginNodePrefix('feishu-cli'), 'feishuCli.');
-    assert.ok(spec.title.includes('项目'), '来源角标（项目）');
+    assert.equal(spec.title, '发送消息', 'title 不加来源角标');
 
     const target = pinOf(spec.inputs, 'target');
     assert.equal(target.type, 'string');
@@ -242,8 +242,7 @@ describe('loadPluginSpecs：清单加载 / 跨源去重 / 记忆化', () => {
     }));
     const { specs, warnings } = await loadPluginSpecs('MyTool', impl);
     assert.equal(specs.length, 1, '同节点 id 去重后仅 1 个');
-    assert.equal(specs[0]!.title.includes('项目增强版'), true, '项目级清单先到先得');
-    assert.equal(specs[0]!.title.includes('项目'), true, 'title 带项目来源角标');
+    assert.equal(specs[0]!.title, '读取手机日志（项目增强版）', '项目级清单先到先得（title 不加角标）');
     assert.equal(warnings.length, 1, '重复同 id 记防御性告警');
     assert.ok(warnings[0]!.includes('phoneLog.read'));
     assert.equal(calls.length, 1);
@@ -268,7 +267,7 @@ describe('loadPluginSpecs：清单加载 / 跨源去重 / 记忆化', () => {
     }));
     const { specs, warnings } = await loadPluginSpecs('Conflict', impl);
     assert.equal(specs.length, 1, '同节点 id 只保留先到者');
-    assert.equal(specs[0]!.title, '读取（插件·内置）');
+    assert.equal(specs[0]!.title, '读取');
     assert.equal(warnings.length, 1);
     assert.ok(warnings[0]!.includes('phoneLog.read'));
   });

@@ -253,7 +253,7 @@ function makePluginNodeRun(info: PluginRunInfo): NodeRunFn {
 /**
  * 单清单 → NodeSpec[]（T6.4 入口 1）。
  * - id：规范化 camelCase 前缀 + 尾段（phone-log 的 'phoneLog.read' 保持，'phone-log.read' 归一）；
- * - title：节点 title + 来源角标（如「读取手机日志（插件·内置）」；无来源标注时不加）；
+ * - title：节点 title 原样（来源信息在副标题分类「插件」与 doc 中，不加重复角标）；
  * - category：恒为 '插件'（覆盖清单手写分类，保证紫头与搜索同组）；
  * - 引脚：pinFromManifest 规范化；params / doc / keywords 透传（keywords 补插件名 / id / 尾段）；
  * - run：makePluginNodeRun（经服务端 CLI 桥调用；编辑器从不执行 run，仅运行窗口使用）。
@@ -263,7 +263,6 @@ export function pluginSpecsFromManifest(
   options?: PluginSpecsOptions,
 ): NodeSpec[] {
   const source = manifest.source;
-  const badge = source ? `（插件·${PLUGIN_SOURCE_LABEL[source] ?? source}）` : '';
   const isEventOf = (node: PluginNodeSpec): boolean => (node.kind ?? 'action') === 'event';
   return (manifest.nodes ?? []).map((node) => {
     const id = canonicalPluginNodeId(manifest, node);
@@ -278,7 +277,7 @@ export function pluginSpecsFromManifest(
     const docSuffix = `（来源：插件「${manifest.name}」${source ? PLUGIN_SOURCE_LABEL[source] ?? source : ''}，经 CLI 桥 /api/plugins/invoke 调用）`;
     return {
       id,
-      title: `${node.title}${badge}`,
+      title: node.title,
       category: PLUGIN_CATEGORY,
       keywords,
       inputs,
@@ -427,9 +426,20 @@ function strList(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x !== '') : [];
 }
 
+/** 模型目录条目（服务端 AgentCapabilities.models：{id, name}） */
+function modelOptions(v: unknown): ParamOption[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((m): m is { id?: unknown; name?: unknown } => m !== null && typeof m === 'object')
+    .filter((m) => typeof m.id === 'string' && m.id !== '')
+    .map((m) => ({ value: m.id as string, label: typeof m.name === 'string' && m.name ? m.name : (m.id as string) }));
+}
+
 /**
- * agent.sendMessage 的 model / reasoning / permissions 参数注入能力表选项：
- * 服务端可达且平台已连接 → 真实下拉；不可达 → 选项留空（检视器降级文本输入）。
+ * agent 节点的 model / reasoning / permissions 引脚注入能力表选项（读 DSH 本机配置）：
+ * 编排器可达 → 真实下拉；不可达 → 选项留空（检视器降级文本输入）。
+ * 平台来源：会话连线上游节点为 DSH 类型时平台即 dsh（codex / claude 预留无目录），
+ * 服务端按会话缓存平台，故此处直接注入 dsh 目录。
  * 失败静默（spec 结构不受影响，蓝图可跑）。
  */
 async function enrichAgentSpecOptions(
@@ -443,18 +453,18 @@ async function enrichAgentSpecOptions(
     if (!body || body.ok !== true || !Array.isArray(body.platforms)) return [...specs];
     const dsh = body.platforms.find((p) => p?.platform === 'dsh');
     if (!dsh || dsh.connected !== true) return [...specs];
-    const modelOpts = strList(dsh.models).map((m) => ({ value: m, label: m }));
+    const modelOpts = modelOptions(dsh.models);
     const reasoningOpts = strList(dsh.reasoningLevels).map((r) => ({ value: r, label: r }));
     const permissionOpts = [
       { value: '', label: '（默认）' },
       ...strList(dsh.permissions).map((p) => ({ value: p, label: p })),
     ];
     return specs.map((spec) => {
-      if (spec.id !== 'agent.sendMessage') return spec;
+      if (spec.id !== 'agent.sendMessage' && spec.id !== 'agent.createSession') return spec;
       return {
         ...spec,
         inputs: spec.inputs.map((pin) => {
-          if (pin.id === 'model') return { ...pin, options: modelOpts };
+          if (pin.id === 'model' && modelOpts.length > 0) return { ...pin, options: modelOpts };
           if (pin.id === 'reasoning') return { ...pin, options: reasoningOpts };
           if (pin.id === 'permissions') return { ...pin, options: permissionOpts };
           return pin;
