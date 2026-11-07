@@ -486,6 +486,7 @@ export function PinDefaultRow(props: {
           <ValueEditor
             kind={kind}
             value={value}
+            options={props.pin.options}
             placeholder={props.pin.defaultValue !== undefined ? String(props.pin.defaultValue) : undefined}
             onCommit={props.onCommit}
           />

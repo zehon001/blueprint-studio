@@ -272,6 +272,120 @@ describe('loadPluginSpecs：清单加载 / 跨源去重 / 记忆化', () => {
     assert.ok(warnings[0]!.includes('phoneLog.read'));
   });
 
+  test('agent 能力注入：模型 / 思考强度 / 权限下拉来自 capabilities；结果记忆化', async () => {
+    clearPluginSpecsCache();
+    const agentManifest = {
+      id: 'agent',
+      name: 'Agent 会话',
+      kind: 'custom',
+      description: '',
+      nodes: [
+        {
+          id: 'agent.sendMessage',
+          title: '发送 Agent 消息',
+          kind: 'action',
+          inputs: [
+            { id: 'exec', type: 'exec' },
+            { id: 'session', type: 'session' },
+            { id: 'model', type: 'string', label: '大模型', options: [] },
+            { id: 'reasoning', type: 'string', label: '思考强度', options: [] },
+            { id: 'permissions', type: 'string', label: '权限', options: [] },
+          ],
+          outputs: [{ id: 'exec', type: 'exec' }],
+        },
+        {
+          id: 'agent.createSession',
+          title: '创建 Agent 会话',
+          kind: 'action',
+          inputs: [
+            { id: 'exec', type: 'exec' },
+            { id: 'model', type: 'string', label: '大模型', options: [] },
+          ],
+          outputs: [
+            { id: 'exec', type: 'exec' },
+            { id: 'session', type: 'session' },
+          ],
+        },
+      ],
+    } as unknown as PluginManifest;
+    let capsCalls = 0;
+    const { impl } = mockFetch((url) => {
+      if (url.includes('/api/agents/capabilities')) {
+        capsCalls += 1;
+        return {
+          ok: true,
+          platforms: [
+            {
+              platform: 'dsh',
+              connected: true,
+              models: [{ id: 'group/glm-5.3', name: 'GLM-5.3' }],
+              reasoningLevels: ['low', 'high'],
+              permissions: ['read-only'],
+            },
+          ],
+        };
+      }
+      return { ok: true, manifests: [agentManifest], warnings: [] };
+    });
+    const { specs } = await loadPluginSpecs('AgentCaps', impl);
+    const send = specs.find((s) => s.id === 'agent.sendMessage')!;
+    const create = specs.find((s) => s.id === 'agent.createSession')!;
+    assert.deepEqual(pinOf(send.inputs, 'model').options, [{ value: 'group/glm-5.3', label: 'GLM-5.3' }]);
+    assert.deepEqual(
+      pinOf(send.inputs, 'reasoning').options!.map((o) => o.value),
+      ['low', 'high'],
+    );
+    assert.equal(pinOf(send.inputs, 'permissions').options![0].value, '', '权限首项 = 默认');
+    assert.equal(pinOf(create.inputs, 'model').options!.length, 1, 'createSession 大模型同享下拉');
+    // 记忆化：第二次不再打 capabilities
+    await loadPluginSpecs('AgentCaps', impl);
+    assert.equal(capsCalls, 1);
+  });
+
+  test('agent 能力注入自愈：capabilities 瞬时不可达 → 不写缓存，下次重试成功', async () => {
+    clearPluginSpecsCache();
+    const agentManifest = {
+      id: 'agent',
+      name: 'Agent 会话',
+      kind: 'custom',
+      description: '',
+      nodes: [
+        {
+          id: 'agent.sendMessage',
+          title: '发送 Agent 消息',
+          inputs: [
+            { id: 'exec', type: 'exec' },
+            { id: 'model', type: 'string', label: '大模型', options: [] },
+          ],
+          outputs: [{ id: 'exec', type: 'exec' }],
+        },
+      ],
+    } as unknown as PluginManifest;
+    let capsOk = false;
+    const { impl } = mockFetch((url) => {
+      if (url.includes('/api/agents/capabilities')) {
+        return capsOk
+          ? {
+              ok: true,
+              platforms: [
+                { platform: 'dsh', connected: true, models: [{ id: 'm1', name: '模型一' }], reasoningLevels: [], permissions: [] },
+              ],
+            }
+          : { ok: false, message: 'boom' };
+      }
+      return { ok: true, manifests: [agentManifest], warnings: [] };
+    });
+    const first = await loadPluginSpecs('AgentHeal', impl);
+    assert.equal(pinOf(first.specs.find((s) => s.id === 'agent.sendMessage')!.inputs, 'model').options?.length ?? 0, 0);
+    capsOk = true;
+    const second = await loadPluginSpecs('AgentHeal', impl);
+    assert.notEqual(second, first, '失败结果不写缓存 → 第二次重新拉取');
+    assert.equal(
+      pinOf(second.specs.find((s) => s.id === 'agent.sendMessage')!.inputs, 'model').options![0].value,
+      'm1',
+    );
+  });
+
   test('网络失败：warnings 记中文提示、specs 为空、不抛错；记忆化生效 + clear 失效', async () => {
     clearPluginSpecsCache();
     const broken = (async () => {

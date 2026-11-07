@@ -124,7 +124,7 @@ export function parseDshModelCatalog(text: string): DshModelEntry[] {
       continue
     }
     if (inEfforts) {
-      const effortMatch = /^([A-Za-z][\w-]*):\s/.exec(line)
+      const effortMatch = /^"?([A-Za-z][\w-]*)"?:\s/.exec(line)
       if (effortMatch) {
         current.efforts.push(effortMatch[1]!)
         continue
@@ -207,6 +207,11 @@ function readDshCatalog(): Pick<CatalogCache, 'models' | 'reasoningLevels' | 'pe
 export class DshOrchestratorAdapter implements OrchestratorAdapter {
   readonly platform = 'dsh' as const
 
+  /** fetch 替身（测试注入；缺省全局 fetch） */
+  private readonly fetchImpl: typeof fetch
+  /** fetch 是否为注入替身（替身模式跳过本机认证配置要求） */
+  private readonly injected: boolean
+
   /** 换取的 DSH 会话 Cookie（BP_DSH_CONNECT_TOKEN 通道；token 通道不需要） */
   private cookie: string | null = null
   /** 自动探测缓存的宿主地址（BP_DSH_URL 未设置时使用；连接失败后清除重新探测） */
@@ -215,6 +220,11 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
   private sseAbort: AbortController | null = null
   private sseBackoffMs = 500
   private disposed = false
+
+  constructor(fetchImpl?: typeof fetch) {
+    this.fetchImpl = fetchImpl ?? fetch
+    this.injected = fetchImpl !== undefined
+  }
 
   onNotification(cb: (n: AgentNotification) => void): void {
     this.notificationCb = cb
@@ -338,7 +348,7 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
         if (index >= ports.length) return null
         const port = ports[index]!
         try {
-          const res = await fetch(new URL(`${ORCHESTRATOR_PREFIX}/health`, `http://127.0.0.1:${port}`), {
+          const res = await this.fetchImpl(new URL(`${ORCHESTRATOR_PREFIX}/health`, `http://127.0.0.1:${port}`), {
             headers,
             signal: AbortSignal.timeout(DSH_PROBE_TIMEOUT_MS),
           })
@@ -360,28 +370,28 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
   private async authHeaders(extra?: Record<string, string>): Promise<Record<string, string>> {
     const token = process.env.BP_DSH_TOKEN?.trim()
     if (token) return { 'x-api-token': token, ...extra }
-    if (!this.cookie) {
+    if (!this.cookie && !this.injected) {
       const connectToken = process.env.BP_DSH_CONNECT_TOKEN?.trim()
       if (!connectToken) {
         throw new Error('未配置编排器认证：请设置 BP_DSH_TOKEN（插件 apiToken）或 BP_DSH_CONNECT_TOKEN（DSH 启动令牌）')
       }
-      const res = await fetch(new URL('/connect', await this.baseUrl()), {
+      const res = await this.fetchImpl(new URL('/connect', await this.baseUrl()), {
         redirect: 'manual',
         ...(extra ? { headers: extra } : {}),
       })
       const headersWithSetCookie = res.headers as Headers & { getSetCookie?: () => string[] }
-      const setCookie = headersWithSetCookie.getSetCookie?.()[0] ?? res.headers.get('set-cookie')
+      const setCookie = headersWithSetCookie.getSetCookie?.()[0] ?? res.headers.get('set-cookie') ?? ''
       if (!setCookie) throw new Error('/connect 未返回 Cookie（启动令牌无效或已过期）')
       this.cookie = setCookie.split(';')[0] ?? ''
     }
-    return { cookie: this.cookie, ...extra }
+    return { cookie: this.cookie ?? '', ...extra }
   }
 
   private async request(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<unknown> {
     const headers = await this.authHeaders(body === undefined ? undefined : { 'content-type': 'application/json' })
     let res: Response
     try {
-      res = await fetch(new URL(`${ORCHESTRATOR_PREFIX}${path}`, await this.baseUrl()), {
+      res = await this.fetchImpl(new URL(`${ORCHESTRATOR_PREFIX}${path}`, await this.baseUrl()), {
         method,
         headers,
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -390,7 +400,7 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       // 宿主可能重启换了端口：清除探测缓存，重探一次
       this.resolvedBase = null
       if (process.env.BP_DSH_URL?.trim()) throw err
-      res = await fetch(new URL(`${ORCHESTRATOR_PREFIX}${path}`, await this.baseUrl()), {
+      res = await this.fetchImpl(new URL(`${ORCHESTRATOR_PREFIX}${path}`, await this.baseUrl()), {
         method,
         headers,
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -443,7 +453,7 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
     while (!this.disposed && !controller.signal.aborted) {
       try {
         const headers = await this.authHeaders({ accept: 'text/event-stream' })
-        const res = await fetch(new URL(`${ORCHESTRATOR_PREFIX}/events`, await this.baseUrl()), {
+        const res = await this.fetchImpl(new URL(`${ORCHESTRATOR_PREFIX}/events`, await this.baseUrl()), {
           headers,
           signal: controller.signal,
         })

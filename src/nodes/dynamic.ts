@@ -346,8 +346,8 @@ export async function loadPluginSpecs(
   const task = (async (): Promise<PluginSpecsLoadResult> => {
     const warnings: string[] = [];
     const manifests: PluginManifest[] = [];
+    const f = fetchImpl ?? moduleConfig.fetchImpl ?? fetch;
     try {
-      const f = fetchImpl ?? moduleConfig.fetchImpl ?? fetch;
       const url = project
         ? `/api/plugins?project=${encodeURIComponent(project)}`
         : '/api/plugins';
@@ -389,10 +389,15 @@ export async function loadPluginSpecs(
       }
     }
     // agent 插件：模型 / 思考强度 / 权限下拉注入真实能力表（服务端 /api/agents/capabilities）
-    const enriched = manifests.some((m) => m.id === 'agent')
-      ? await enrichAgentSpecOptions(specs, warnings)
-      : specs;
+    const hasAgent = manifests.some((m) => m.id === 'agent');
+    const enriched = hasAgent ? await enrichAgentSpecOptions(specs, warnings, f) : specs;
     const result: PluginSpecsLoadResult = { specs: enriched, warnings };
+    // 自愈：agent 插件在列但能力注入未生效（编排器瞬时不可达）→ 不写缓存，
+    // 下次 openAsset / loadAndStart 重新拉取注入（成功后恢复记忆化）
+    const modelOptionsInjected = enriched.some(
+      (s) => s.id === 'agent.sendMessage' && s.inputs.some((p) => p.id === 'model' && (p.options?.length ?? 0) > 0),
+    );
+    if (hasAgent && !modelOptionsInjected) return result;
     specsCache.set(key, result);
     return result;
   })();
@@ -437,7 +442,8 @@ function modelOptions(v: unknown): ParamOption[] {
 
 /**
  * agent 节点的 model / reasoning / permissions 引脚注入能力表选项（读 DSH 本机配置）：
- * 编排器可达 → 真实下拉；不可达 → 选项留空（检视器降级文本输入）。
+ * 编排器可达 → 真实下拉；能力表一次不可达 / 未连接时重试一次，仍失败返回未注入
+ * 结果（调用方据此不写 specs 缓存，下次 openAsset 重试自愈）。
  * 平台来源：会话连线上游节点为 DSH 类型时平台即 dsh（codex / claude 预留无目录），
  * 服务端按会话缓存平台，故此处直接注入 dsh 目录。
  * 失败静默（spec 结构不受影响，蓝图可跑）。
@@ -445,11 +451,22 @@ function modelOptions(v: unknown): ParamOption[] {
 async function enrichAgentSpecOptions(
   specs: readonly NodeSpec[],
   warnings: string[],
+  fetchImpl?: typeof fetch,
 ): Promise<NodeSpec[]> {
+  const f = fetchImpl ?? moduleConfig.fetchImpl ?? fetch;
+  const fetchCapabilities = async (): Promise<AgentCapabilitiesBody | null> => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await f('/api/agents/capabilities');
+        return (await res.json().catch(() => null)) as AgentCapabilitiesBody | null;
+      } catch {
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 300));
+      }
+    }
+    return null;
+  };
   try {
-    const f = moduleConfig.fetchImpl ?? fetch;
-    const res = await f('/api/agents/capabilities');
-    const body = (await res.json().catch(() => null)) as AgentCapabilitiesBody | null;
+    const body = await fetchCapabilities();
     if (!body || body.ok !== true || !Array.isArray(body.platforms)) return [...specs];
     const dsh = body.platforms.find((p) => p?.platform === 'dsh');
     if (!dsh || dsh.connected !== true) return [...specs];
