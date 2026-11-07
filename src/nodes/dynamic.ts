@@ -427,6 +427,7 @@ interface AgentCapabilitiesBody {
     models?: unknown;
     reasoningLevels?: unknown;
     permissions?: unknown;
+    defaults?: { model?: unknown; reasoning?: unknown; permission?: unknown };
   }>;
 }
 
@@ -480,6 +481,14 @@ async function enrichAgentSpecOptions(
       { value: '', label: '（默认）' },
       ...strList(dsh.permissions).map((p) => ({ value: p, label: p })),
     ];
+    // DSH 当前默认设置（模型目录首个 / 首个思考强度 / defaultPreset）：
+    // 写入 createSession 参数默认值 → 选中 DSH 后检视器直接显示默认而非「—」
+    const defaultOf = (raw: unknown): string => (typeof raw === 'string' ? raw : '');
+    const defaults = {
+      model: defaultOf(dsh.defaults?.model),
+      reasoning: defaultOf(dsh.defaults?.reasoning),
+      permissions: defaultOf(dsh.defaults?.permission),
+    };
     return specs.map((spec) => {
       if (
         (spec.id !== 'agent.sendMessage' && spec.id !== 'agent.createSession') ||
@@ -490,10 +499,16 @@ async function enrichAgentSpecOptions(
       return {
         ...spec,
         params: spec.params.map((param) => {
-          if (param.id === 'model' && modelOpts.length > 0) return { ...param, options: modelOpts };
-          if (param.id === 'reasoning') return { ...param, options: reasoningOpts };
-          if (param.id === 'permissions') return { ...param, options: permissionOpts };
-          return param;
+          let next = param;
+          if (param.id === 'model' && modelOpts.length > 0) next = { ...param, options: modelOpts };
+          else if (param.id === 'reasoning') next = { ...param, options: reasoningOpts };
+          else if (param.id === 'permissions') next = { ...param, options: permissionOpts };
+          // 默认值仅写入 createSession（sendMessage 空 = 继承会话设置）
+          if (spec.id === 'agent.createSession' && next.default === '') {
+            const fallback = defaults[param.id as keyof typeof defaults];
+            if (fallback) next = { ...next, default: fallback };
+          }
+          return next;
         }),
       };
     });

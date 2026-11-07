@@ -37,7 +37,14 @@ class ReservedAdapter implements OrchestratorAdapter {
   }
 
   async capabilities(): Promise<AgentCapabilities> {
-    return { platform: this.platform, connected: false, models: [], reasoningLevels: [], permissions: [] }
+    return {
+      platform: this.platform,
+      connected: false,
+      models: [],
+      reasoningLevels: [],
+      permissions: [],
+      defaults: { model: '', reasoning: '', permission: '' },
+    }
   }
 
   async createSession(): Promise<AgentSessionValue> {
@@ -100,12 +107,14 @@ export class AgentGateway {
   async createSession(
     platform: AgentPlatform,
     project: string,
-    opts: { title?: string; cwd?: string; model?: string; reuse?: boolean } = {},
+    opts: { title?: string; cwd?: string; model?: string; reasoning?: string; permissions?: string; reuse?: boolean } = {},
   ): Promise<AgentSessionValue> {
     const session = await this.adapter(platform).createSession({
       ...(opts.title !== undefined ? { title: opts.title } : {}),
       ...(opts.cwd ? { cwd: opts.cwd } : {}),
       ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
+      ...(opts.permissions ? { permissions: opts.permissions } : {}),
       ...(opts.reuse !== undefined ? { reuse: opts.reuse } : {}),
     })
     this.sessionProjects.set(session.sessionId, project)
@@ -121,6 +130,9 @@ export class AgentGateway {
     project: string
     sessionId: string
     message: string
+    model?: string
+    reasoning?: string
+    permissions?: string
     waitForCompletion?: boolean
     timeoutSec?: number
   }): Promise<{ reply: string }> {
@@ -128,6 +140,9 @@ export class AgentGateway {
     return await this.adapter(opts.platform).sendMessage({
       sessionId: opts.sessionId,
       message: opts.message,
+      ...(opts.model ? { model: opts.model } : {}),
+      ...(opts.reasoning ? { reasoning: opts.reasoning } : {}),
+      ...(opts.permissions ? { permissions: opts.permissions } : {}),
       ...(opts.waitForCompletion !== undefined ? { waitForCompletion: opts.waitForCompletion } : {}),
       ...(opts.timeoutSec !== undefined ? { timeoutSec: opts.timeoutSec } : {}),
     })

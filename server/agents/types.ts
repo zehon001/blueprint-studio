@@ -44,6 +44,12 @@ export interface AgentSessionValue {
   platform: AgentPlatform
   sessionId: string
   title: string
+  /** 创建会话时生效的大模型（agentPreset；空 = DSH 默认） */
+  model?: string
+  /** 创建会话时生效的思考强度 */
+  reasoning?: string
+  /** 创建会话时生效的权限预设 */
+  permissions?: string
 }
 
 /** Agent 通知（会话事件节点监听的目标；由 SSE 事件映射而来） */
@@ -72,6 +78,8 @@ export interface AgentCapabilities {
   models: AgentModelOption[]
   reasoningLevels: string[]
   permissions: string[]
+  /** DSH 当前默认设置（模型目录首个条目 / 该模型的第一个思考强度 / profile defaultPreset） */
+  defaults: { model: string; reasoning: string; permission: string }
 }
 
 /** 会话创建选项 */
@@ -82,6 +90,10 @@ export interface AgentCreateSessionOptions {
   cwd?: string
   /** Agent 预设（DSH 会话的 agentPreset；创建时生效） */
   model?: string
+  /** 思考强度（空 = DSH 默认；创建时生效） */
+  reasoning?: string
+  /** 权限预设（空 = profile defaultPreset；创建时生效） */
+  permissions?: string
   /** 复用已有会话：按标题 + 工作区搜索；标题为空或搜索不到才新建 */
   reuse?: boolean
 }
@@ -90,6 +102,10 @@ export interface AgentCreateSessionOptions {
 export interface AgentSendMessageOptions {
   sessionId: string
   message: string
+  /** 覆盖设置（空 = 继承会话创建时的设置；随 prompt 请求转发，DSH 侧按能力应用） */
+  model?: string
+  reasoning?: string
+  permissions?: string
   waitForCompletion?: boolean
   timeoutSec?: number
 }

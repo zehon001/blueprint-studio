@@ -20,7 +20,12 @@ import type { IRAsset, IRGraph, IRNode, IRParamSpec, IRStructDef, IRValueType, N
 import { structPinsOf } from '../../ir/structs';
 import { useBlueprintStore } from '../store/blueprint-store';
 import { TypeSelect } from '../type-picker';
-import { commonParamRows, connectedInputPins, groupParams } from './details-model';
+import {
+  agentInheritedSettings,
+  commonParamRows,
+  connectedInputPins,
+  groupParams,
+} from './details-model';
 import { ParamFieldRow, PinDefaultRow } from './param-editors';
 
 /* ============================================================
@@ -227,6 +232,13 @@ function SingleNodeSection(props: {
   const dataInputs = [...mergedInputs.values()].filter((p) => p.type !== 'exec');
   const connected = connectedInputPins(graph, node.id);
   const unknownParams = spec ? [] : Object.entries(node.params ?? {});
+  // agent.sendMessage：会话连线时内部设置暗显上游继承值（未修改 = 随会话创建设置）
+  const inherited =
+    node.type === 'agent.sendMessage' && graph
+      ? agentInheritedSettings(node, graph, useBlueprintStore.getState().specs, asset)
+      : null;
+  const inheritedOf = (paramId: string): unknown =>
+    inherited ? inherited[paramId as keyof typeof inherited] : undefined;
 
   return (
     <>
@@ -255,6 +267,7 @@ function SingleNodeSection(props: {
                       key={param.id}
                       param={param}
                       value={node.params?.[param.id] !== undefined ? node.params[param.id] : param.default}
+                      inherited={inheritedOf(param.id)}
                       onCommit={(value) =>
                         useBlueprintStore.getState().setNodeParams(node.id, { [param.id]: value })
                       }
@@ -267,6 +280,7 @@ function SingleNodeSection(props: {
                   key={param.id}
                   param={param}
                   value={node.params?.[param.id] !== undefined ? node.params[param.id] : param.default}
+                      inherited={inheritedOf(param.id)}
                   onCommit={(value) =>
                     useBlueprintStore.getState().setNodeParams(node.id, { [param.id]: value })
                   }

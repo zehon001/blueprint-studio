@@ -169,23 +169,40 @@ export function parseDshPermissionPresets(text: string): string[] {
   return out
 }
 
+/** profile 权限预设配置（presets + defaultPreset；与 parseDshPermissionPresets 同源） */
+export function parseDshPermissionConfig(text: string): { presets: string[]; defaultPreset: string } {
+  const presets = parseDshPermissionPresets(text)
+  let defaultPreset = ''
+  for (const raw of text.split(/\r?\n/)) {
+    const m = /^defaultPreset:\s*(.+)$/.exec(raw.trim())
+    if (m) {
+      defaultPreset = m[1]!.trim().replace(/^['"]|['"]$/g, '')
+      break
+    }
+  }
+  return { presets, defaultPreset }
+}
+
 /** 配置目录缓存（60s；打开检视器频繁拉取时避免反复读盘） */
 interface CatalogCache {
   at: number
   models: AgentModelOption[]
   reasoningLevels: string[]
   permissions: string[]
+  defaults: { model: string; reasoning: string; permission: string }
 }
 let catalogCache: CatalogCache | null = null
 const CATALOG_TTL_MS = 60_000
 
 /** 读 DSH 本机配置生成真实能力目录（读盘失败各自兜底为空表） */
-function readDshCatalog(): Pick<CatalogCache, 'models' | 'reasoningLevels' | 'permissions'> {
+function readDshCatalog(): CatalogCache {
   if (catalogCache && Date.now() - catalogCache.at < CATALOG_TTL_MS) return catalogCache
   const models: AgentModelOption[] = []
   const efforts = new Set<string>()
+  let entries: { id: string; name: string; efforts: string[] }[] = []
   try {
-    for (const entry of parseDshModelCatalog(fs.readFileSync(path.join(dshHome(), 'settings.yaml'), 'utf8'))) {
+    entries = parseDshModelCatalog(fs.readFileSync(path.join(dshHome(), 'settings.yaml'), 'utf8'))
+    for (const entry of entries) {
       models.push({ id: entry.id, name: entry.name || entry.id })
       for (const e of entry.efforts) efforts.add(e)
     }
@@ -193,15 +210,28 @@ function readDshCatalog(): Pick<CatalogCache, 'models' | 'reasoningLevels' | 'pe
     /* settings.yaml 不可读：模型目录留空 */
   }
   let permissions: string[] = []
+  let defaultPermission = ''
   try {
-    permissions = parseDshPermissionPresets(
+    const perm = parseDshPermissionConfig(
       fs.readFileSync(path.join(dshHome(), 'profiles', dshProfile(), 'cordis.patch.yml'), 'utf8'),
     )
+    permissions = perm.presets
+    defaultPermission = perm.defaultPreset
   } catch {
     /* profile 不可读：权限预设留空 */
   }
-  catalogCache = { at: Date.now(), models, reasoningLevels: [...efforts], permissions }
-  return catalogCache
+  // 默认设置：模型目录首个条目 / 该模型的第一个思考强度 / profile defaultPreset
+  const defaultModel = entries[0]?.id ?? ''
+  const defaultReasoning = entries[0]?.efforts[0] ?? ''
+  const value: CatalogCache = {
+    at: Date.now(),
+    models,
+    reasoningLevels: [...efforts],
+    permissions,
+    defaults: { model: defaultModel, reasoning: defaultReasoning, permission: defaultPermission },
+  }
+  catalogCache = value
+  return value
 }
 
 export class DshOrchestratorAdapter implements OrchestratorAdapter {
@@ -246,13 +276,27 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       const catalog = readDshCatalog()
       return { platform: 'dsh', connected: true, ...catalog }
     } catch {
-      return { platform: 'dsh', connected: false, models: [], reasoningLevels: [], permissions: [] }
+      return {
+        platform: 'dsh',
+        connected: false,
+        models: [],
+        reasoningLevels: [],
+        permissions: [],
+        defaults: { model: '', reasoning: '', permission: '' },
+      }
     }
   }
 
   async createSession(opts: AgentCreateSessionOptions): Promise<AgentSessionValue> {
     if (!opts.cwd) throw new Error('创建会话需要 cwd（蓝图项目目录）')
     try {
+      // 有效设置 = 参数非空项；空项回落 DSH 当前默认（模型目录首个 / 首个思考强度 / defaultPreset）
+      const catalog = readDshCatalog()
+      const effective = {
+        model: opts.model?.trim() || catalog.defaults.model,
+        reasoning: opts.reasoning?.trim() || catalog.defaults.reasoning,
+        permissions: opts.permissions?.trim() || catalog.defaults.permission,
+      }
       const ws = (await this.request('POST', '/workspaces', {
         path: opts.cwd,
         ...(opts.title ? { title: opts.title } : {}),
@@ -277,7 +321,7 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
             }
             const title = typeof body?.status?.title === 'string' ? body.status.title : body?.title
             if (title === opts.title) {
-              return { platform: 'dsh', sessionId: sid, title: opts.title }
+              return { platform: 'dsh', sessionId: sid, title: opts.title, ...effective }
             }
           } catch {
             /* 单个会话状态读取失败：跳过继续搜索 */
@@ -287,7 +331,7 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       const created = (await this.request('POST', '/sessions', {
         workspaceId,
         ...(opts.title ? { title: opts.title } : {}),
-        ...(opts.model ? { agentPreset: opts.model } : {}),
+        ...(effective.model ? { agentPreset: effective.model } : {}),
       })) as { sessionId?: unknown }
       const sessionId = typeof created?.sessionId === 'string' ? created.sessionId : ''
       if (!sessionId) throw new Error('编排器未返回 sessionId')
@@ -305,7 +349,7 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
           /* 标题回读失败不阻塞创建 */
         }
       }
-      return { platform: 'dsh', sessionId, title }
+      return { platform: 'dsh', sessionId, title, ...effective }
     } catch (err) {
       throw chineseError('创建 Agent 会话', err)
     }
@@ -313,8 +357,15 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
 
   async sendMessage(opts: AgentSendMessageOptions): Promise<{ reply: string }> {
     try {
+      // 覆盖设置随 prompt 请求转发（DSH 当前按会话创建时的设置执行；字段为前向兼容扩展）
+      const overrides = {
+        ...(opts.model?.trim() ? { model: opts.model.trim() } : {}),
+        ...(opts.reasoning?.trim() ? { reasoning: opts.reasoning.trim() } : {}),
+        ...(opts.permissions?.trim() ? { permissions: opts.permissions.trim() } : {}),
+      }
       const accepted = (await this.request('POST', `/sessions/${encodeURIComponent(opts.sessionId)}/prompt`, {
         text: opts.message,
+        ...overrides,
       })) as { promptAccepted?: unknown }
       if (accepted?.promptAccepted === false) {
         throw new Error('DSH 未受理该消息（会话可能正忙或已关闭）')

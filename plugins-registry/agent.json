@@ -18,7 +18,7 @@
         "claude",
         "编排"
       ],
-      "doc": "在指定平台创建 Agent 会话，返回会话值（赋给「会话」类型变量）。标题留空时使用 DSH 自动生成的标题。内部设置：大模型（下拉读 DSH 模型目录，经 agentPreset 传递）；工作区（留空 = 当前蓝图项目目录，可点「选择目录」）；复用已有会话（按会话标题 + 工作区搜索复用，标题为空或搜索不到才新建）。平台 = DSH / Codex（预留）/ Claude（预留）。",
+      "doc": "在指定平台创建 Agent 会话，返回会话值（赋给「会话」类型变量，携带创建时生效的模型 / 思考强度 / 权限）。标题留空时使用 DSH 自动生成的标题。内部设置：大模型 / 思考强度 / 权限（下拉读 DSH 配置，空 = 显示并使用 DSH 当前默认）；工作区（留空 = 当前蓝图项目目录，可点「选择目录」）；复用已有会话（默认勾选：按会话标题 + 工作区搜索复用，标题为空或搜索不到才新建）。平台 = DSH / Codex（预留）/ Claude（预留）。",
       "inputs": [
         {
           "id": "exec",
@@ -76,6 +76,22 @@
           "group": "内部设置"
         },
         {
+          "id": "reasoning",
+          "label": "思考强度",
+          "type": "select",
+          "default": "",
+          "options": [],
+          "group": "内部设置"
+        },
+        {
+          "id": "permissions",
+          "label": "权限",
+          "type": "select",
+          "default": "",
+          "options": [],
+          "group": "内部设置"
+        },
+        {
           "id": "workspace",
           "label": "工作区",
           "type": "directory",
@@ -86,7 +102,7 @@
           "id": "reuse",
           "label": "复用已有会话",
           "type": "bool",
-          "default": false,
+          "default": true,
           "group": "内部设置"
         }
       ]

@@ -223,6 +223,11 @@
   color: var(--text-dim);
 }
 
+/* 继承值暗显（agent.sendMessage 会话连线的内部设置；修改即恢复亮色） */
+.bp-det-input--inherited {
+  color: var(--text-dim);
+}
+
 .bp-det-check {
   accent-color: var(--accent);
 }

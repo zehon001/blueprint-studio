@@ -25,6 +25,10 @@ function sessionArg(v: unknown): AgentSessionValue | null {
     platform: (AGENT_PLATFORMS as readonly string[]).includes(platform) ? platform : 'dsh',
     sessionId,
     title: typeof o.title === 'string' ? o.title : '',
+    // 创建会话时生效的设置（sendMessage 继承用；变量存取整对象，字段随版本演进可选）
+    ...(strArg(o.model) ? { model: strArg(o.model) } : {}),
+    ...(strArg(o.reasoning) ? { reasoning: strArg(o.reasoning) } : {}),
+    ...(strArg(o.permissions) ? { permissions: strArg(o.permissions) } : {}),
   }
 }
 
@@ -65,7 +69,10 @@ export async function invokeAgentNode(
         ...(strArg(args.title) ? { title: strArg(args.title) } : {}),
         cwd,
         ...(strArg(args.model) ? { model: strArg(args.model) } : {}),
-        reuse: args.reuse === true,
+        ...(strArg(args.reasoning) ? { reasoning: strArg(args.reasoning) } : {}),
+        ...(strArg(args.permissions) ? { permissions: strArg(args.permissions) } : {}),
+        // 复用已有会话：默认勾选（ParamSpec.default=true 经解释器合入；仅显式 false 关闭）
+        reuse: args.reuse !== false,
       })
       return { ok: true, outputs: { session, sessionId: session.sessionId } }
     }
@@ -93,10 +100,33 @@ export async function invokeAgentNode(
         project,
         sessionId: session.sessionId,
         message,
+        // 内部设置覆盖：空 = 继承会话创建时的设置（session 值携带；再空 = DSH 默认）
+        ...(strArg(args.model) ? { model: strArg(args.model) } : session.model ? { model: session.model } : {}),
+        ...(strArg(args.reasoning)
+          ? { reasoning: strArg(args.reasoning) }
+          : session.reasoning
+            ? { reasoning: session.reasoning }
+            : {}),
+        ...(strArg(args.permissions)
+          ? { permissions: strArg(args.permissions) }
+          : session.permissions
+            ? { permissions: session.permissions }
+            : {}),
         waitForCompletion,
         timeoutSec,
       })
-      return { ok: true, outputs: { reply, sent: true } }
+      return {
+        ok: true,
+        outputs: {
+          reply,
+          sent: true,
+          settings: {
+            model: strArg(args.model) || session.model || '',
+            reasoning: strArg(args.reasoning) || session.reasoning || '',
+            permissions: strArg(args.permissions) || session.permissions || '',
+          },
+        },
+      }
     }
     return { ok: false, message: `agent 插件未实现节点「${node}」的服务端执行器` }
   } catch (err) {

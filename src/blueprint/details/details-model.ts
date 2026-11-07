@@ -9,7 +9,7 @@
  * 契约真源：src/ir/types.ts（ParamSpec / PinSpec）。控件风格与检视器面板（T1.5）
  * 观感一致，但蓝图域独立实现、不共用代码。
  */
-import type { IRGraph, IRNode, NodeSpec, ParamSpec, PinSpec } from '../../ir/types';
+import type { IRAsset, IRGraph, IRNode, NodeSpec, ParamSpec, PinSpec } from '../../ir/types';
 import { isArrayType } from '../../ir/types';
 
 /* ============================================================
@@ -57,6 +57,58 @@ export function paramEditorKindOf(param: ParamSpec): EditorKind {
     default:
       return 'text';
   }
+}
+
+/** Agent 会话继承设置（sendMessage 会话连线时显示的上游值） */
+export interface AgentInheritedSettings {
+  model?: string;
+  reasoning?: string;
+  permissions?: string;
+}
+
+function strSetting(v: unknown): string | undefined {
+  return typeof v === 'string' && v !== '' ? v : undefined;
+}
+
+/**
+ * 解析 sendMessage 会话引脚上游的继承设置（检视面板暗显用）：
+ *  - 上游 agent.createSession → 其内部设置（空项回落该节点参数默认 = DSH 默认）；
+ *  - 上游 var.get → 会话类型变量默认值对象中的 model / reasoning / permissions。
+ * 无会话连线 / 上游不可识别 → null（显示「—」）。
+ */
+export function agentInheritedSettings(
+  node: IRNode,
+  graph: IRGraph,
+  specs: ReadonlyMap<string, NodeSpec>,
+  asset: IRAsset | null,
+): AgentInheritedSettings | null {
+  const edge = graph.edges.find((e) => e.kind === 'data' && e.to.node === node.id && e.to.pin === 'session');
+  if (!edge) return null;
+  const src = graph.nodes.find((n) => n.id === edge.from.node);
+  if (!src) return null;
+  const specDefault = (type: string, id: string): string | undefined =>
+    strSetting(specs.get(type)?.params?.find((p) => p.id === id)?.default);
+  if (src.type === 'agent.createSession') {
+    return {
+      model: strSetting(src.params?.model) ?? specDefault('agent.createSession', 'model'),
+      reasoning: strSetting(src.params?.reasoning) ?? specDefault('agent.createSession', 'reasoning'),
+      permissions: strSetting(src.params?.permissions) ?? specDefault('agent.createSession', 'permissions'),
+    };
+  }
+  if (src.type === 'var.get') {
+    const variable = asset?.variables.find((v) => v.name === src.params?.varName);
+    const value = variable?.default;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+      const hit: AgentInheritedSettings = {};
+      for (const key of ['model', 'reasoning', 'permissions'] as const) {
+        const v = strSetting(record[key]);
+        if (v !== undefined) hit[key] = v;
+      }
+      return hit;
+    }
+  }
+  return null;
 }
 
 /**

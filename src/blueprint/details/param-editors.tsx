@@ -151,6 +151,8 @@ export function SelectValueEditor(props: {
   value: unknown;
   options: readonly ParamOption[];
   mixed?: boolean;
+  /** 继承值暗显（当前项变灰，修改即正常显示） */
+  dim?: boolean;
   className?: string;
   onCommit: (value: string) => void;
 }) {
@@ -158,9 +160,11 @@ export function SelectValueEditor(props: {
   const known = props.options.some((o) => o.value === current);
   return (
     <select
-      className={`${props.className ?? 'bp-det-select'}${props.mixed ? ' bp-det-input--mixed' : ''}`}
+      className={`${props.className ?? 'bp-det-select'}${props.mixed ? ' bp-det-input--mixed' : ''}${
+        props.dim ? ' bp-det-input--inherited' : ''
+      }`}
       value={current}
-      title={props.mixed ? MIXED_TITLE : undefined}
+      title={props.mixed ? MIXED_TITLE : props.dim ? '继承会话设置（修改后以此为准）' : undefined}
       onChange={(e) => props.onCommit(e.target.value)}
     >
       {current === '' || !known ? (
@@ -364,6 +368,8 @@ export function ValueEditor(props: {
   value: unknown;
   mixed?: boolean;
   options?: readonly ParamOption[];
+  /** 继承值暗显（选中项变灰，提示未修改） */
+  dim?: boolean;
   /** 文本 / 数字框的占位提示（引脚默认值回落 PinSpec.defaultValue 时显示） */
   placeholder?: string;
   onCommit: (value: unknown) => void;
@@ -386,6 +392,7 @@ export function ValueEditor(props: {
           value={props.value}
           options={props.options ?? []}
           mixed={props.mixed}
+          dim={props.dim}
           onCommit={props.onCommit}
         />
       );
@@ -428,9 +435,19 @@ export function ParamFieldRow(props: {
   param: ParamSpec;
   value: unknown;
   mixed?: boolean;
+  /**
+   * 会话继承值（agent.sendMessage 内部设置；会话连线且节点未写入时暗显）：
+   * undefined / '' = 无继承值可显示。
+   */
+  inherited?: unknown;
   onCommit: (value: unknown) => void;
 }) {
   const kind = paramEditorKindOf(props.param);
+  const inheritedActive =
+    props.inherited !== undefined &&
+    props.inherited !== null &&
+    props.inherited !== '' &&
+    (props.value === undefined || props.value === null || props.value === '');
   return (
     <div className="bp-det-row">
       <span className="bp-det-label" title={props.param.label}>
@@ -439,9 +456,10 @@ export function ParamFieldRow(props: {
       <div className="bp-det-control">
         <ValueEditor
           kind={kind}
-          value={props.value}
+          value={inheritedActive ? props.inherited : props.value}
           mixed={props.mixed}
           options={props.param.options}
+          dim={inheritedActive}
           onCommit={props.onCommit}
         />
       </div>
