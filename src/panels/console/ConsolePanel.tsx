@@ -10,25 +10,16 @@
  * 组件只做订阅与渲染。
  */
 import { useEffect, useRef, useState } from 'react'
+import { useRuntimeStore } from '@/panels/runtime/store'
+import {
+  CONSOLE_CHANNEL,
+  CONSOLE_MAX_LINES,
+  parseConsoleEvent,
+  type ConsoleMessage,
+} from './protocol'
 
-/** 频道名（运行窗口 RuntimeApp 与本面板的跨窗口契约） */
-export const CONSOLE_CHANNEL = 'bps-console'
-
-/** 行数上限（FIFO；与运行窗口控制台同量级） */
-export const CONSOLE_MAX_LINES = 1000
-
-/** 运行窗口广播的控制台消息（BroadcastChannel 契约） */
-export interface ConsoleMessage {
-  type: 'console.line'
-  /** 控制台行文本（运行窗口已拼好前缀） */
-  line: string
-  /** 项目文件夹名（过滤/展示用） */
-  project: string
-  /** 运行模式：main（F5）/ current（F6） */
-  mode: 'main' | 'current'
-  /** 发送时间戳（epoch ms） */
-  ts: number
-}
+export { CONSOLE_CHANNEL, CONSOLE_MAX_LINES, parseConsoleEvent } from './protocol'
+export type { ConsoleMessage } from './protocol'
 
 /** 面板内的一行（渲染视图：时间 + 正文） */
 export interface ConsoleRow {
@@ -49,25 +40,11 @@ export function reduceConsoleMessage(rows: ConsoleRow[], msg: ConsoleMessage): C
   return next
 }
 
-/** 从 BroadcastChannel 事件还原消息（非法负载返回 null） */
-export function parseConsoleEvent(data: unknown): ConsoleMessage | null {
-  if (!data || typeof data !== 'object') return null
-  const m = data as Partial<ConsoleMessage>
-  if (m.type !== 'console.line' || typeof m.line !== 'string') return null
-  if (typeof m.ts !== 'number') return null
-  return {
-    type: 'console.line',
-    line: m.line,
-    project: typeof m.project === 'string' ? m.project : '',
-    mode: m.mode === 'current' ? 'current' : 'main',
-    ts: m.ts,
-  }
-}
-
 /** 控制台面板（dock 注册组件；占位面板 ConsolePanelPlaceholder 的正式实现） */
 export function ConsolePanel() {
   const [rows, setRows] = useState<ConsoleRow[]>([])
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  const runtimeTarget = useRuntimeStore((s) => s.target)
 
   useEffect(() => {
     if (typeof BroadcastChannel === 'undefined') return
@@ -96,7 +73,11 @@ export function ConsolePanel() {
     <div className="bps-console">
       <div className="bps-console-toolbar">
         <span className="bps-console-title">控制台</span>
-        <span className="bps-console-hint">运行窗口日志实时推送（print / 生命周期 / 错误）</span>
+        <span className="bps-console-hint" title={runtimeTarget ? runtimeTarget.bp : undefined}>
+          {runtimeTarget
+            ? `运行中 · ${runtimeTarget.bp} —— print / 生命周期 / 错误实时推送到这里`
+            : '运行窗口日志实时推送（print / 生命周期 / 错误）'}
+        </span>
         <button
           type="button"
           className="bps-console-clear"

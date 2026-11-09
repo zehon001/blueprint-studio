@@ -15,6 +15,7 @@ import type { NodeSpec } from '@/ir/types'
 import { deserializeIR } from '@/ir/validate'
 import { DebugWsClient } from '@/shell/debug/debug-ws'
 import { DebugProbe } from './debug-probe'
+import { createConsoleMirror } from '@/panels/console/protocol'
 
 interface LoadState {
   status: 'loading' | 'running' | 'error'
@@ -39,10 +40,16 @@ export function BlueprintApp() {
   useEffect(() => {
     let alive = true
     const prints: string[] = []
+    // 编辑器控制台镜像：隐藏运行宿主没有可见输出，所有 print 必须经频道推送到编辑器控制台
+    const mirror = createConsoleMirror({
+      project,
+      mode: bpParam ? 'current' : 'main',
+    })
     const print = (...parts: unknown[]): void => {
       const line = parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p) ?? String(p))).join(' ')
       prints.push(line)
       if (alive) setLines((prev) => [...prev, line])
+      mirror.post(line)
     }
 
     const run = async (): Promise<void> => {
@@ -151,6 +158,7 @@ export function BlueprintApp() {
       probeRef.current = null
       wsRef.current?.close()
       wsRef.current = null
+      mirror.close()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
