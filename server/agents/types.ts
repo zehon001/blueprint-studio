@@ -4,14 +4,13 @@
  * 平台：dsh = dsh-plugin-orchestrator（真实连接）；codex / claude = 预留。
  *
  * dsh-plugin-orchestrator 真实接入方式（见插件 README，仓库
- * ~/Project/Common/harness-workspace/dsh-plugin-orchestrator）：插件**不自行监听端口**，
- * REST 网关挂在 DSH web 宿主上（`http://<host>:<port>/api/orchestrator/*`，桌面端默认
- * 端口随 `dsh web`，示例为 49300）；完成通知走 SSE（GET /api/orchestrator/events）。
+ * ~/Project/Common/harness-workspace/dsh-plugin-orchestrator）：插件自建独立回环 HTTP
+ * 服务（固定 `http://127.0.0.1:49301/api/orchestrator/*`）；完成通知走 SSE
+ * （GET /api/orchestrator/events）。
  *
  * 环境变量：
- *   BP_DSH_URL           DSH web 宿主地址（缺省 http://127.0.0.1:49300）
+ *   BP_DSH_URL           编排器地址（缺省 http://127.0.0.1:49301）
  *   BP_DSH_TOKEN         插件 apiToken（cordis.patch.yml 配置；请求头 x-api-token）
- *   BP_DSH_CONNECT_TOKEN DSH 启动令牌（无 apiToken 时经 /connect?token= 换取 Cookie）
  *
  * 用到的端点（响应均为 {ok:true,...} / {ok:false,error:{code,message}}）：
  *   GET  /health                         健康检查

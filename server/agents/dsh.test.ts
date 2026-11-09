@@ -1,72 +1,12 @@
 /**
  * DSH 适配器单测（node:test；fetch 注入，不触网）
  *
- * 覆盖：模型目录 / 权限预设 YAML 解析；createSession（工作区幂等 + 自动标题回读）、
- * sendMessage（prompt + wait 空闲 + result 回读）、deleteSession（取消 + 归档）、
- * capabilities（离线 connected:false / 在线读配置目录）。
+ * 覆盖：createSession（工作区幂等 + 自动标题回读）、sendMessage（prompt + wait 空闲 +
+ * result 回读）、deleteSession（取消 + 归档）；能力目录经 GET /capabilities 下发。
  */
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DshOrchestratorAdapter, parseDshModelCatalog, parseDshPermissionPresets } from './dsh'
-
-const MODEL_YAML = `
-llm-pi-ai:
-  providers:
-    magpie:
-      models:
-        - id: group/glm-5.3
-          name: GLM-5.3 · routing group
-          reasoningEfforts:
-            low: low
-            high: high
-            xhigh: xhigh
-        - id: group/deepseek-v4-pro
-          name: DeepSeek-V4-Pro
-          reasoningEfforts:
-            "off": none
-            low: low
-`
-
-const PROFILE_YAML = `
-- id: other
-  name: "@deepseek-ai/other"
-  config:
-    presets:
-      wrong:
-        sandbox: nope
-- id: permission
-  name: "@deepseek-ai/dsh-permission-presets"
-  config:
-    presets:
-      read-only:
-        sandbox: read-only
-      workspace-write:
-        sandbox: workspace-write
-      danger-full-access:
-        sandbox: danger-full-access
-    defaultPreset: danger-full-access
-- id: after
-  name: "@deepseek-ai/after"
-`
-
-describe('DSH 配置目录解析', () => {
-  test('parseDshModelCatalog：多模型 id / name / 思考强度键', () => {
-    const models = parseDshModelCatalog(MODEL_YAML)
-    assert.equal(models.length, 2)
-    assert.equal(models[0].id, 'group/glm-5.3')
-    assert.match(models[0].name, /GLM-5\.3/)
-    assert.deepEqual(models[0].efforts, ['low', 'high', 'xhigh'])
-    assert.deepEqual(models[1].efforts, ['off', 'low'])
-  })
-
-  test('parseDshPermissionPresets：两种条目形态 + 作用域隔离', () => {
-    const presets = parseDshPermissionPresets(PROFILE_YAML)
-    assert.deepEqual(presets, ['read-only', 'workspace-write', 'danger-full-access'])
-    // 内联 id 形态
-    const inline = parseDshPermissionPresets('- id: @deepseek-ai/dsh-permission-presets\n  config:\n    presets:\n      standard:\n        sandbox: x\n')
-    assert.deepEqual(inline, ['standard'])
-  })
-})
+import { DshOrchestratorAdapter } from './dsh'
 
 describe('DshOrchestratorAdapter（fetch 注入）', () => {
   const calls: Array<{ method: string; url: string; body?: unknown }> = []
@@ -81,6 +21,15 @@ describe('DshOrchestratorAdapter（fetch 注入）', () => {
       const reply = (payload: unknown): Response =>
         new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } })
       if (url.endsWith('/health')) return reply({ ok: true, plugin: 'dsh-plugin-orchestrator' })
+      if (url.endsWith('/capabilities')) {
+        return reply({
+          ok: true,
+          models: [{ id: 'group/glm-5.3', name: 'GLM-5.3 · routing group', provider: 'magpie', efforts: ['low'] }],
+          reasoningLevels: ['low'],
+          permissions: ['danger-full-access'],
+          defaults: { model: 'group/glm-5.3', reasoning: 'low', permission: 'danger-full-access' },
+        })
+      }
       if (url.endsWith('/workspaces')) return reply({ ok: true, workspace: { workspaceId: 'ws-1' } })
       if (url.endsWith('/workspaces/ws-1/sessions')) {
         return reply({

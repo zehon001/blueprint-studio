@@ -1,9 +1,9 @@
 /**
  * 顶栏（T0.3 · PLAN §6.2 · UI-REDESIGN P5）
  *
- * 左：Logo（Boxes + 字标）+ 项目 chip（点击返回项目管理器切换项目）；
+ * 左：Logo（Boxes + 字标，点击切换左侧菜单显隐）+ 项目 chip（点击返回项目管理器切换项目）；
  * 中：运行（实心强调，运行当前打开的蓝图）/ 调试（ghost）/ 分隔线 / 保存（附带脏状态点）；
- * 右：撤销 / 重做 IconButton、面板菜单（统一 Menu）、重置布局、设置。
+ * 右：编辑菜单（面板 / 撤销 / 重做 / 重置布局 / 资源库导入导出冲突处理新建）、设置。
  * F5/F6 快捷键注册在入口 main.tsx（attachKeyboard 已 preventDefault，不触发浏览器刷新）。
  */
 import { useState } from 'react'
@@ -12,8 +12,13 @@ import {
   Bug,
   Eye,
   EyeOff,
+  Download,
+  FilePlus2,
+  GitMerge,
   LayoutDashboard,
+  LibraryBig,
   Package,
+  PenLine,
   Play,
   Redo2,
   RotateCcw,
@@ -21,14 +26,13 @@ import {
   Settings,
   Square,
   Undo2,
+  Upload,
 } from 'lucide-react'
 import {
   redo,
   undo,
   useCanRedo,
   useCanUndo,
-  useEditorStore,
-  type CommandEntry,
 } from '@/shell/commands'
 import { getBindings } from '@/shell/keymap/registry'
 import { launchRuntime } from '@/shell/runtime-launch'
@@ -41,53 +45,108 @@ import { openSettings } from '@/shell/settings'
 import { Icon } from '@/shell/ui/Icon'
 import { IconButton } from '@/shell/ui/IconButton'
 import { Menu, type MenuItem } from '@/shell/ui/Menu'
+import { useSidebarStore } from '@/shell/sidebar/sidebar-store'
+import { useLibraryUiStore } from '@/panels/library/ui-store'
 import { useRuntimeStore } from '@/panels/runtime/store'
-
-/** 顶栏栈顶命令摘要选择器（tooltip 显示 label 用） */
-function topUndo(s: { undoStack: CommandEntry[] }): CommandEntry | undefined {
-  return s.undoStack[s.undoStack.length - 1]
-}
-function topRedo(s: { redoStack: CommandEntry[] }): CommandEntry | undefined {
-  return s.redoStack[s.redoStack.length - 1]
-}
 
 export default function Toolbar() {
   const projectName = useWorkspaceStore((s) => s.currentProject?.name ?? null)
   const dirty = useWorkspaceStore((s) => s.openTabs.some((t) => t.dirty))
   const canUndo = useCanUndo()
   const canRedo = useCanRedo()
-  const undoTop = useEditorStore(topUndo)
-  const redoTop = useEditorStore(topRedo)
   const panels = usePanels()
   const resetLayout = useDockStore((s) => s.resetLayout)
+  const importPolicy = useLibraryUiStore((s) => s.policy)
   const runtimeTarget = useRuntimeStore((s) => s.target)
   const stopRuntime = useRuntimeStore((s) => s.clearTarget)
-  const [panelMenu, setPanelMenu] = useState<{ x: number; y: number } | null>(null)
+  const [editMenu, setEditMenu] = useState<{ x: number; y: number } | null>(null)
 
   /** 触发 keymap 注册的 file.save（与 Ctrl+S 同一 handler） */
   const onSave = (): void => {
     getBindings('file.save')[0]?.handler()
   }
 
-  const panelItems: MenuItem[] = panels.map((p) => {
-    const open = findTabsByPanel(useDockStore.getState().root, p.id) !== null
-    return {
-      label: `${open ? '关闭' : '打开'}「${p.title}」`,
-      icon: open ? EyeOff : Eye,
-      onSelect: () => {
-        if (open) requestClosePanel(p.id)
-        else useDockStore.getState().openPanel(p.id, p.defaultArea)
-      },
-    }
-  })
+  const panelItems: MenuItem[] = panels
+    .filter((p) => !p.id.startsWith('asset:'))
+    .map((p) => {
+      const open = findTabsByPanel(useDockStore.getState().root, p.id) !== null
+      return {
+        label: `${open ? '关闭' : '打开'}「${p.title}」`,
+        icon: open ? EyeOff : Eye,
+        onSelect: () => {
+          if (open) requestClosePanel(p.id)
+          else useDockStore.getState().openPanel(p.id, p.defaultArea)
+        },
+      }
+    })
+
+  const setPolicy = (policy: 'skip' | 'overwrite' | 'rename'): void => {
+    useLibraryUiStore.getState().setPolicy(policy)
+  }
+
+  const editItems: MenuItem[] = [
+    { label: '面板', icon: LayoutDashboard, children: panelItems },
+    { label: '撤销', icon: Undo2, shortcut: 'Ctrl+Z', disabled: !canUndo, onSelect: () => undo() },
+    { label: '重做', icon: Redo2, shortcut: 'Ctrl+Shift+Z', disabled: !canRedo, onSelect: () => redo() },
+    { label: '重置布局', icon: RotateCcw, onSelect: resetLayout },
+    { separator: true },
+    {
+      label: '资源库',
+      icon: LibraryBig,
+      children: [
+        {
+          label: '导入…',
+          icon: Download,
+          hint: 'zip',
+          onSelect: () => useLibraryUiStore.getState().openModal('import'),
+        },
+        {
+          label: '导出…',
+          icon: Upload,
+          onSelect: () => useLibraryUiStore.getState().openModal('export'),
+        },
+        {
+          label: '冲突处理',
+          icon: GitMerge,
+          children: [
+            {
+              label: '冲突跳过',
+              hint: importPolicy === 'skip' ? '当前' : undefined,
+              onSelect: () => setPolicy('skip'),
+            },
+            {
+              label: '冲突覆盖',
+              hint: importPolicy === 'overwrite' ? '当前' : undefined,
+              onSelect: () => setPolicy('overwrite'),
+            },
+            {
+              label: '并存改名',
+              hint: importPolicy === 'rename' ? '当前' : undefined,
+              onSelect: () => setPolicy('rename'),
+            },
+          ],
+        },
+        {
+          label: '新建函数…',
+          icon: FilePlus2,
+          onSelect: () => useLibraryUiStore.getState().openModal('create'),
+        },
+      ],
+    },
+  ]
 
   return (
     <div className="toolbar">
       <div className="toolbar-left">
-        <span className="toolbar-logo">
+        <button
+          type="button"
+          className="toolbar-logo toolbar-logo-btn"
+          title="点击展开 / 收起左侧菜单（文件系统 · 资源库）"
+          onClick={() => useSidebarStore.getState().toggle()}
+        >
           <Icon icon={Boxes} size={16} />
           <span>Blueprint Studio</span>
-        </span>
+        </button>
         <button
           type="button"
           className="toolbar-project"
@@ -147,44 +206,28 @@ export default function Toolbar() {
       <div className="toolbar-spacer" />
 
       <div className="toolbar-right">
-        <IconButton
-          icon={Undo2}
-          label={undoTop ? `撤销：${undoTop.label}` : '撤销'}
-          shortcut="Ctrl+Z"
-          disabled={!canUndo}
-          onClick={() => undo()}
-        />
-        <IconButton
-          icon={Redo2}
-          label={redoTop ? `重做：${redoTop.label}` : '重做'}
-          shortcut="Ctrl+Shift+Z"
-          disabled={!canRedo}
-          onClick={() => redo()}
-        />
-
         <button
           type="button"
           className="toolbar-btn"
           onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect()
-            setPanelMenu({ x: Math.max(8, rect.right - 200), y: rect.bottom + 4 })
+            setEditMenu({ x: Math.max(8, rect.right - 220), y: rect.bottom + 4 })
           }}
-          title="打开 / 关闭面板"
+          title="编辑：面板 / 撤销 / 重做 / 重置布局 / 资源库"
           aria-haspopup="menu"
         >
-          <Icon icon={LayoutDashboard} size={13} />
-          面板
+          <Icon icon={PenLine} size={13} />
+          编辑
         </button>
-        {panelMenu ? (
+        {editMenu ? (
           <Menu
-            x={panelMenu.x}
-            y={panelMenu.y}
-            items={panelItems}
-            onClose={() => setPanelMenu(null)}
+            x={editMenu.x}
+            y={editMenu.y}
+            items={editItems}
+            onClose={() => setEditMenu(null)}
           />
         ) : null}
 
-        <IconButton icon={RotateCcw} label="重置布局" onClick={resetLayout} />
         <IconButton
           icon={Settings}
           label="设置"

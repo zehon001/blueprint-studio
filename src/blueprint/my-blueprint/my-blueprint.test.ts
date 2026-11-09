@@ -12,7 +12,7 @@
  *     - 插入变量 Get/Set、事件入口节点
  *  3. 保存校验联动（PLAN §8.5）：函数图与 flow.call 不再被判 unknown-node
  *  4. DOM 冒烟（happy-dom）：My Blueprint 分节列表 + 暴露勾选 + 新建/重命名/
- *     右键菜单删除；GraphTabs 切图 + ＋函数新建
+ *     右键菜单删除；函数图签已并入 dock 页签栏（原 GraphTabs 移除）
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -547,7 +547,7 @@ test('校验联动：store.specs 含 graph-op 补充 spec，函数子图与 flow
 });
 
 /* ============================================================
- * 8. DOM 冒烟（happy-dom：MyBlueprint / GraphTabs 挂载与交互）
+ * 8. DOM 冒烟（happy-dom：MyBlueprint 挂载与交互）
  * ============================================================ */
 import { Window } from 'happy-dom';
 
@@ -593,8 +593,6 @@ setGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 const { act, createElement } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { MyBlueprint } = await import('./MyBlueprint');
-const { GraphTabs } = await import('./GraphTabs');
-
 /** React 元素挂载到 happy-dom body（返回卸载函数） */
 function mount(node: ReturnType<typeof createElement>): () => Promise<void> {
   const container = dom.document.createElement('div');
@@ -789,15 +787,15 @@ test('DOM 冒烟：MyBlueprint 变量行右键菜单（插入 Get / 删除）', 
     const menuEl = dom.document.querySelector('.fs-menu');
     assert.ok(menuEl, '右键菜单（portal）出现');
 
-    // 插入 Get 节点
+    // 插入 获取 节点
     act(() => {
-      (findMenuItem('插入 Get 节点')! as unknown as HTMLButtonElement).click();
+      (findMenuItem('插入 获取 节点')! as unknown as HTMLButtonElement).click();
     });
     assert.ok(
       domainAsset().graphs['main']!.nodes.some(
         (n) => n.type === 'var.get' && n.params['varName'] === 'hp' && n.id !== 'get1',
       ),
-      '菜单插入 Get 节点',
+      '菜单插入 获取 节点',
     );
     assert.equal(dom.document.querySelector('.fs-menu'), null, '选择后菜单关闭');
 
@@ -908,40 +906,3 @@ test('DOM 冒烟：MyBlueprint 新建事件（名 + 参数行）', async () => {
   }
 });
 
-test('DOM 冒烟：GraphTabs 切图 + ＋函数新建并自动切图', async () => {
-  dom.document.body.innerHTML = '';
-  open(completeAsset());
-  const unmount = mount(createElement(GraphTabs, {}));
-  try {
-    const tabs = [...dom.document.querySelectorAll('.bp-mb-tab')];
-    assert.equal(tabs.length, 3, 'main + calc + ＋函数');
-    assert.equal(tabs[0]!.textContent, 'main', '主图置首');
-    assert.ok(tabs[0]!.className.includes('bp-mb-tab--entry'), '主图标识');
-    assert.ok(tabs[0]!.getAttribute('aria-selected') === 'true', '当前图高亮');
-
-    // 点击函数 tab 切图
-    act(() => {
-      (tabs[1]! as unknown as HTMLButtonElement).click();
-    });
-    assert.equal(useBlueprintStore.getState().graphName, 'calc', '切图生效');
-
-    // ＋函数 → 行内输入 → Enter
-    const addTab = dom.document.querySelector('.bp-mb-tab--add') as unknown as HTMLButtonElement;
-    act(() => {
-      addTab.click();
-    });
-    const input = dom.document.querySelector('.bp-mb-tabs-add-input') as unknown as HTMLInputElement;
-    assert.ok(input, '新建函数输入框出现');
-    act(() => {
-      setControlledValue(input, '结算');
-    });
-    act(() => {
-      pressKey(input, 'Enter');
-    });
-    assert.ok(domainAsset().graphs['结算'], '函数图已建');
-    assert.equal(useBlueprintStore.getState().graphName, '结算', '新建后自动切图');
-    assert.ok(peekUndo()?.label === '函数：新建');
-  } finally {
-    await unmount();
-  }
-});

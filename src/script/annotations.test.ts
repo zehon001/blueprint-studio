@@ -297,8 +297,8 @@ test('DOM：@expose → 蓝图 My Blueprint 变量列表 + 右键「插入 Get/S
     })
     assert.ok(await waitFor(() => dom.document.querySelector('.fs-menu') !== null), '行右键菜单出现')
     const menuBtns = [...dom.document.querySelectorAll('.fs-menu button')] as unknown as HTMLButtonElement[]
-    const getBtn = menuBtns.find((b) => b.textContent === '插入 Get 节点')
-    const setBtn = menuBtns.find((b) => b.textContent === '插入 Set 节点')
+    const getBtn = menuBtns.find((b) => b.textContent === '插入 获取 节点')
+    const setBtn = menuBtns.find((b) => b.textContent === '插入 设置 节点')
     assert.ok(getBtn && setBtn, '菜单含「插入 Get/Set 节点」')
     // 插入 Get → 主图出现 var.get（varName=packageName）
     act(() => {
@@ -317,7 +317,7 @@ test('DOM：@expose → 蓝图 My Blueprint 变量列表 + 右键「插入 Get/S
     await waitFor(() => dom.document.querySelector('.fs-menu') !== null)
     const setBtn2 = (
       [...dom.document.querySelectorAll('.fs-menu button')] as unknown as HTMLButtonElement[]
-    ).find((b) => b.textContent === '插入 Set 节点')
+    ).find((b) => b.textContent === '插入 设置 节点')
     act(() => {
       setBtn2?.click()
     })

@@ -1,0 +1,9 @@
+/* 隐藏运行宿主：后台执行蓝图（输出经 BroadcastChannel 进编辑器控制台） */
+.runtime-hidden-iframe {
+  position: fixed;
+  width: 0;
+  height: 0;
+  border: 0;
+  visibility: hidden;
+  pointer-events: none;
+}

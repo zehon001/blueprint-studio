@@ -16,6 +16,7 @@ import {
   BackgroundVariant,
   ConnectionLineType,
   MiniMap,
+  PanOnScrollMode,
   ReactFlow,
   type EdgeMouseHandler,
   type EdgeTypes,
@@ -164,10 +165,12 @@ export function BPGraphCanvas({
         panActivationKeyCode={panActivationKeyCode}
         minZoom={0.2}
         maxZoom={2.5}
-        zoomOnScroll
-        panOnScroll={false}
+        zoomOnScroll={false}
+        panOnScroll
+        panOnScrollMode={PanOnScrollMode.Free}
         selectionOnDrag
-        // 平移：中键拖拽（button 1）+ 空格+左键（panActivationKeyCode）。
+        // 平移：触控板双指滚动（自由方向）/ 中键拖拽（button 1）/ 空格+左键（panActivationKeyCode）。
+        // 缩放：双指捏合（ctrl+wheel 通道）/ Ctrl+滚轮；zoomOnScroll 关闭避免与平移抢占。
         // 注意不可含 button 2：ReactFlow 在 panOnDrag 含右键时会吞掉画布右键菜单
         // （§8.2 第 1 条「右键呼出节点搜索」依赖 onPaneContextMenu）。
         panOnDrag={[1]}

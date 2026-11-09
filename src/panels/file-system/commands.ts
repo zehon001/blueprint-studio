@@ -345,7 +345,7 @@ function handleReplay(notice: ReplayNotice, api: FsApi): void {
 }
 
 /**
- * 启动 undo/redo 磁盘补偿同步（模块级一次；在 registerFileSystemPanel() 中调用）。
+ * 启动 undo/redo 磁盘补偿同步（模块级一次；在 defaultPanels 启动装配中调用）。
  * 面板即使被关闭/卸载，filesystem 域命令的撤销依然会落盘。
  */
 export function startFsUndoSync(api: FsApi = defaultFsApi): void {

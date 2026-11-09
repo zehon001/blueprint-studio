@@ -441,7 +441,7 @@ function VarNodeView({ data, selected }: { data: BPNodeData; selected: boolean }
   const rootClass = `bp-node bp-node-var${selected ? ' bp-node--selected' : ''}${debugClassOf(data)}`;
   const titleEl = (
     <span className="bp-var-title">
-      {op === 'set' ? 'Set ' : 'Get '}
+      {op === 'set' ? '设置 ' : '获取 '}
       {name}
     </span>
   );

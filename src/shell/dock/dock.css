@@ -57,6 +57,20 @@ body {
   color: var(--text);
 }
 
+/* Logo 可点击：切换左侧菜单显隐 */
+.toolbar-logo-btn {
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+.toolbar-logo-btn:hover {
+  background: var(--bg-hover);
+}
+
 .toolbar-project {
   display: inline-flex;
   align-items: center;
@@ -230,6 +244,12 @@ body {
 }
 
 /* ===== dock 区 ===== */
+.shell-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
 .dock-area {
   position: relative;
   flex: 1;
@@ -473,6 +493,15 @@ body.dock-resizing-v * {
   margin-bottom: var(--space-2);
   color: var(--text);
   font-size: var(--font-md);
+}
+
+/* 空编辑组：居中弱提示（从左侧菜单打开资产） */
+.dock-panel-placeholder--empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-disabled);
 }
 
 /* ===== 拖放高亮（Godot 式蓝色） ===== */

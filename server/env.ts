@@ -1,7 +1,8 @@
 /**
  * 本地 .env 加载（零依赖）：服务启动时读取仓库根 .env（KEY=VALUE，# 注释），
  * 仅对未设置的环境变量生效（真实环境变量优先）。.env 已在 .gitignore 中，用于
- * 存放 BP_DSH_URL / BP_DSH_TOKEN / BP_DSH_CONNECT_TOKEN 等本地密钥。
+ * 存放 BP_DSH_URL / BP_DSH_TOKEN 等本地配置（可选；默认 127.0.0.1:49301 与
+ * profile cordis.patch.yml 的插件 apiToken）。
  */
 import fs from 'node:fs'
 import path from 'node:path'

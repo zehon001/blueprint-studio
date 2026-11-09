@@ -35,6 +35,7 @@ import { Menu } from '../../panels/file-system/Menu';
 import type { MenuItem } from '../../panels/file-system/Menu';
 import { useBlueprintStore } from '../store/blueprint-store';
 import { TypeSelect } from '../type-picker';
+import { FnBadge } from '../../shell/ui/FnBadge';
 import { hasPluginNodes } from '@/nodes/dynamic';
 import { useWorkspaceStore } from '../../shell/workspace-store';
 import {
@@ -697,8 +698,8 @@ export function MyBlueprint({
   };
 
   const variableMenu = (name: string): MenuItem[] => [
-    { label: '插入 Get 节点', onSelect: () => void useBlueprintStore.getState().insertVariableNode(name, 'get') },
-    { label: '插入 Set 节点', onSelect: () => void useBlueprintStore.getState().insertVariableNode(name, 'set') },
+    { label: '插入 获取 节点', onSelect: () => void useBlueprintStore.getState().insertVariableNode(name, 'get') },
+    { label: '插入 设置 节点', onSelect: () => void useBlueprintStore.getState().insertVariableNode(name, 'set') },
     { separator: true },
     { label: '编辑默认值…', onSelect: () => setEditingDefault(name) },
     { label: '重命名', onSelect: () => setRenaming(name) },
@@ -926,6 +927,7 @@ export function MyBlueprint({
                 onDoubleClick={() => jumpToGraph(name)}
                 onContextMenu={(e) => openRowMenu(e, functionMenu(name))}
               >
+                <FnBadge scope="local" title="局部函数（蓝图内）" />
                 <span className="bp-mb-row-name">{name}</span>
                 <span className="bp-mb-meta">参数 {paramCount}</span>
                 {name === graphName ? <span className="bp-mb-current">当前</span> : null}

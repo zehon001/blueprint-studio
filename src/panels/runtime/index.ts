@@ -1,27 +1,11 @@
 /**
- * 内置运行视图出口（v3 T8.5）
+ * 运行模块出口（运行面板已移除）
  *
- * 组件文件不 import CSS（node:test 可加载 store / URL 纯函数）；样式在入口引入。
- * defaultPanels 以 `runtime` id 注册（与默认布局中央组一致）。
+ * RuntimeHost 以隐藏 iframe 承载运行，输出并入控制台；defaultPanels 不再注册
+ * `runtime` 面板，历史布局中的 runtime 页签会被 normalize 剔除。
  */
-import { registerPanel, type PanelApi } from '@/shell/dock/registry'
-import { RuntimePanel } from './RuntimePanel'
-import { RUNTIME_PANEL_ID } from './store'
-import './runtime-panel.css'
-
-/** 注册内置运行面板（id 与默认布局中央组一致；重复调用覆盖） */
-export function registerRuntimePanel(): PanelApi {
-  return registerPanel({
-    id: RUNTIME_PANEL_ID,
-    title: '运行',
-    component: RuntimePanel,
-    defaultArea: 'center',
-  })
-}
-
-export { RuntimePanel, buildEmbedRuntimeUrl, buildExternalRuntimeUrl } from './RuntimePanel'
+export { RuntimeHost, buildEmbedRuntimeUrl, buildExternalRuntimeUrl } from './RuntimeHost'
 export {
   useRuntimeStore,
-  RUNTIME_PANEL_ID,
   type RuntimeTarget,
 } from './store'

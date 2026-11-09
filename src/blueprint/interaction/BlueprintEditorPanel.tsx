@@ -33,9 +33,8 @@ import { useDockStore } from '../../shell/dock/store';
 import { BPGraphCanvas, headVariantFor, nodeSizeFor } from '../view';
 import type { FlowEdge, FlowNode } from '../view';
 import { useBlueprintStore, EMPTY_SELECTION } from '../store/blueprint-store';
-// T2.3 结构面板（左栏 + 顶部图签）；v3 T8.2：Details 迁入统一检视器，编辑器变两栏
+// T2.3 结构面板（左栏）；图签并入 dock 页签栏（UI 改版），编辑器单栏画布
 import { MyBlueprint } from '../my-blueprint/MyBlueprint';
-import { GraphTabs } from '../my-blueprint/GraphTabs';
 // T2.7 注释框（图层 + 右键菜单 + 选中 id 换算）
 import {
   CommentContextMenu,
@@ -68,6 +67,7 @@ import '../../shell/debug/debug.css';
 // T3.7 片段节点：双击展开编辑模态 + 按资产注入片段 spec（ADR-007 §5）
 import { SnippetEditModal, saveSnippetEdit } from '../view/SnippetEditModal';
 import { setFunctionSignature } from '../view/externalSignatures';
+import { functionSkeletonNodes } from '../functionAsset';
 import {
   SNIPPET_NODE_TYPE,
   snippetOfAsset,
@@ -170,7 +170,10 @@ function BlueprintEditorInner({
     // 面板激活（或无 dock 上下文）时才把本面板资产写入全局蓝图 store：
     // BlueprintEditorPanel 同时服务 main 蓝图 / 函数资产等多面板——store 是全局单例，
     // 不跟随激活面板同步会让后打开的资产覆盖先打开的（切回标签显示成别的资产）。
+    // 同资产跳过：重开会以「磁盘快照 prop」覆盖 store，冲掉未保存的内存编辑
+    // （如函数图加参后检视器 ↔ 画布往返）；仅跨资产切换才重开。
     if (panelId && useDockStore.getState().activePanelId !== panelId) return;
+    if (panelId && useBlueprintStore.getState().assetPath === assetPath) return;
     useBlueprintStore.getState().openAsset(asset, assetPath);
     // 资产 prop（受控）变化 / 面板激活切换时重开：注册命令域 + 重置编辑态
   }, [asset, assetPath, panelId]);
@@ -178,8 +181,27 @@ function BlueprintEditorInner({
   const activePanelId = useDockStore((s) => s.activePanelId);
   useEffect(() => {
     if (!panelId || activePanelId !== panelId) return;
+    if (useBlueprintStore.getState().assetPath === assetPath) return;
     useBlueprintStore.getState().openAsset(asset, assetPath);
   }, [activePanelId, panelId, asset, assetPath]);
+
+  // 面板关闭 / 布局移除时释放 store 归属：同路径重开（历史快照恢复重开页签等）才能重新读盘
+  useEffect(() => {
+    if (!panelId) return;
+    return () => {
+      const st = useBlueprintStore.getState();
+      if (st.assetPath === assetPath) {
+        useBlueprintStore.setState({ asset: null, assetPath: null });
+      }
+    };
+  }, [panelId, assetPath]);
+
+  // 插件能力表自愈：能力注入失败（编排器瞬时不可达 → 模型 / 思考强度 / 权限变输入框）时，
+  // 同资产激活不再走 openAsset，在此按需重试注入（成功后 loadPluginSpecs 记忆化，不再重复 fetch）
+  useEffect(() => {
+    if (panelId && activePanelId !== panelId) return;
+    useBlueprintStore.getState().refreshPluginSpecs();
+  }, [panelId, activePanelId]);
 
   useEffect(() => {
     useBlueprintStore.getState().loadRecentSpecs();
@@ -528,7 +550,7 @@ function BlueprintEditorInner({
         name,
         params: [],
         returns: [],
-        graph: { nodes: [], edges: [] },
+        graph: { nodes: functionSkeletonNodes(), edges: [] },
       },
       null,
       2,
@@ -643,7 +665,6 @@ function BlueprintEditorInner({
         </aside>
         {/* 中部：图签 + 画布（叠加层以画布区为定位基准） */}
         <div className="bp-editor-main">
-          <GraphTabs allowAdd={!hideFunctionSection} />
           <div className="bp-editor-canvas" ref={canvasRef}>
             {/* T5.4 观察开关（画布右上）：默认开，localStorage 记忆；WS 未连接 / 无运行实例静默降级 */}
             <button

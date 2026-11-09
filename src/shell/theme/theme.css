@@ -48,6 +48,10 @@
   --success: #3ecf8e;
   --warning: #f5b544;
   --error: #f87171;
+  /* 函数作用域徽标（f 图标）：局部函数 / 内置库函数 / 项目库函数 */
+  --fn-local: #b18cff;
+  --fn-builtin: #f5b544;
+  --fn-project: #3ecf8e;
 
   /* —— 阴影 / 动效 —— */
   --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border);

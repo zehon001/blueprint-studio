@@ -261,11 +261,30 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.library-row-meta {
-  flex: none;
-  color: var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: 9px;
+
+/* 弹窗（编辑菜单：导入 / 导出 / 新建）内的条目列表 */
+.lib-modal-list {
+  max-height: 240px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.lib-modal-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  color: var(--text);
+  cursor: pointer;
+}
+.lib-modal-row:hover {
+  background: var(--bg-hover);
 }
 .library-detail {
   flex: none;

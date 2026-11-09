@@ -10,6 +10,7 @@ import { create } from 'zustand'
 import { saveLayout } from './persist'
 import {
   activatePanelIn,
+  firstEmptyTabsGroup,
   findTabsById,
   findTabsByPanel,
   firstTabsGroup,
@@ -124,17 +125,19 @@ function insertPanelBeside(
 
 /**
  * 新建文档的落点：
+ *   0) 空 tabs 组（默认布局的空中央编辑区）→ 直接落入；
  *   1) 当前聚焦的是文档 → 并入该文档所在组（与 VS Code 的活跃编辑器组一致）；
  *   2) 存在纯文档组（主编辑区）→ 并入文档数最多的组；
- *   3) 主编辑区已随最后一个文档关闭被剪枝 → 在右侧工具组（检视器/事件）左侧
+ *   3) 主编辑区已随最后一个文档关闭被剪枝 → 在右侧工具组（检视器）左侧
  *      重建编辑组（默认布局中主编辑区的位置），避免把文档塞进底部工具组；
- *   4) 无右侧工具组 → 退回运行视图组 / 文档序首个组。
- * 注意不能只用运行视图组——运行面板可被用户移到底部控制台旁（v3 布局可拖拽）。
+ *   4) 无右侧工具组 → 退回文档序首个组。
  */
 function pickCenterTarget(
   root: DockNode | null,
   activePanelId: string | null,
 ): DropTarget | { kind: 'new-beside'; anchorGroupId: string } {
+  const empty = firstEmptyTabsGroup(root)
+  if (empty) return { kind: 'group', groupId: empty.node.id }
   if (isDocPanel(activePanelId)) {
     const activeGroup = findTabsByPanel(root, activePanelId)?.node.id
     if (activeGroup) return { kind: 'group', groupId: activeGroup }
@@ -142,10 +145,10 @@ function pickCenterTarget(
   const doc = findDocGroupId(root)
   if (doc) return { kind: 'group', groupId: doc }
   const anchor =
-    findTabsByPanel(root, 'inspector')?.node.id ?? findTabsByPanel(root, 'events')?.node.id
+    findTabsByPanel(root, 'details')?.node.id ??
+    findTabsByPanel(root, 'inspector')?.node.id ??
+    findTabsByPanel(root, 'events')?.node.id
   if (anchor) return { kind: 'new-beside', anchorGroupId: anchor }
-  const runtime = findTabsByPanel(root, 'runtime')?.node.id
-  if (runtime) return { kind: 'group', groupId: runtime }
   const first = firstTabsGroup(root)?.node.id
   return first ? { kind: 'group', groupId: first } : { kind: 'group', groupId: '' }
 }

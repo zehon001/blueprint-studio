@@ -160,6 +160,8 @@ export interface BlueprintStore {
   refreshFromDomain(): void;
   /** 合并节点定义表（T6.4 插件节点注入入口） */
   setSpecs(specs: Map<string, NodeSpec>): void;
+  /** 插件节点 specs 自愈重试：能力表注入失败（编排器瞬时不可达）后按需重拉（成功记忆化） */
+  refreshPluginSpecs(): void;
   markSaved(): void;
   setValidation(issues: ValidationIssue[]): void;
   notify(text: string, kind?: 'info' | 'error'): void;
@@ -587,6 +589,9 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
 
     setSpecs(specs) {
       set({ specs });
+    },
+    refreshPluginSpecs() {
+      void refreshPluginSpecsInBackground();
     },
 
     markSaved() {

@@ -3,7 +3,9 @@
  *
  * - REST 调用：createSession（工作区幂等复用 + 会话创建）、prompt、wait（分片长轮询）、result。
  * - 通知：GET /events（SSE）常驻订阅，断线指数退避重连；事件映射为 AgentNotification。
- * - 认证：BP_DSH_TOKEN（x-api-token 头）优先；否则 BP_DSH_CONNECT_TOKEN 经 /connect 换 Cookie。
+ * - 服务：插件自建独立回环 HTTP 服务，固定地址 http://127.0.0.1:49301
+ *   （BP_DSH_URL 可覆盖，供测试/特殊部署使用）。
+ * - 认证：BP_DSH_TOKEN 优先；未设置时读 profile cordis.patch.yml 的插件 apiToken。
  * - 未启动 / 未认证：抛中文错误，invoke 层转为 ok:false（蓝图按降级继续，不崩）。
  */
 import type {
@@ -19,24 +21,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-/** DSH web 宿主地址（BP_DSH_URL 覆盖；桌面端 dsh web 缺省端口见宿主启动日志） */
+/** 编排器地址（插件独立回环服务固定 49301；BP_DSH_URL 覆盖供测试/特殊部署） */
 export function dshBaseUrl(): string {
-  return process.env.BP_DSH_URL?.trim()?.replace(/\/+$/, '') || 'http://127.0.0.1:49300'
+  return process.env.BP_DSH_URL?.trim()?.replace(/\/+$/, '') || 'http://127.0.0.1:49301'
 }
 
 /** 编排器 REST 前缀 */
 const ORCHESTRATOR_PREFIX = '/api/orchestrator'
-
-/**
- * 自动探测（BP_DSH_URL 未设置时）：扫描 49300–49999（DSH web 端口在宿主启动时动态
- * 分配于该段），以 health 响应体识别编排器宿主：
- *  - 含 "dsh-plugin-orchestrator" → 命中（认证有效）；
- *  - error.code = unauthorized → 命中（DSH 宿主，认证待配置，后续调用报 401 中文错误）；
- *  - 其余（LLM 代理 proxy_auth / 桥接宿主 not-found / 无响应）→ 跳过。
- */
-const DSH_PROBE_RANGE: [number, number] = [49300, 49999]
-const DSH_PROBE_CONCURRENCY = 12
-const DSH_PROBE_TIMEOUT_MS = 800
 
 /** 单次 wait 长轮询分片（毫秒）：避免宿主/代理对超长请求的头部超时（undici 默认 300s） */
 const WAIT_CHUNK_MS = 30_000
@@ -53,8 +44,7 @@ interface OrchestratorError {
 function chineseError(action: string, err: unknown): Error {
   const message = err instanceof Error ? err.message : String(err)
   if (/fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i.test(message)) {
-    const where = process.env.BP_DSH_URL?.trim() ?? `自动探测 127.0.0.1:${DSH_PROBE_RANGE[0]}-${DSH_PROBE_RANGE[1]}`
-    return new Error(`无法连接 dsh-plugin-orchestrator（${where}）：请确认 DSH 已启动且编排插件已加载`)
+    return new Error(`无法连接 dsh-plugin-orchestrator（${dshBaseUrl()}）：请确认 DSH 已启动且编排插件已加载`)
   }
   return new Error(`${action}失败：${message}`)
 }
@@ -73,124 +63,51 @@ function dshProfile(): string {
   return process.env.BP_DSH_PROFILE?.trim() || 'desktop'
 }
 
-/** 模型目录条目（id / 显示名 / 该模型支持的思考强度） */
-interface DshModelEntry {
-  id: string
-  name: string
-  efforts: string[]
-  /** 所属 provider 键（settings.yaml llm-pi-ai.providers.<key>；selectModel 必填） */
-  provider: string
-}
+/** 编排器 apiToken 缓存（60s；DSH 设置面板改 token 后随缓存过期生效） */
+let orchestratorTokenCache: { at: number; token: string } | null = null
+const ORCHESTRATOR_TOKEN_TTL_MS = 60_000
 
 /**
- * 解析 settings.yaml 的模型目录（llm-pi-ai.providers.*.models[]）：
- * 逐行缩进扫描——`models:` 开块，`- id:` 开新条目，条目内收集 name 与
- * reasoningEfforts 的键（低配 YAML，无依赖；解析失败返回空表由调用方兜底）。
+ * 编排器 apiToken：BP_DSH_TOKEN 优先；否则读 DSH profile 的 cordis.patch.yml
+ * （dsh-plugin-orchestrator 条目下的 config.apiToken）。
+ * DSH webServer 端口随重启变化、token 不变，自动读取可免去手动配置环境变量。
  */
-export function parseDshModelCatalog(text: string): DshModelEntry[] {
-  const out: DshModelEntry[] = []
-  let provider = ''
-  let modelsIndent: number | null = null
-  let current: DshModelEntry | null = null
-  let inEfforts = false
-  for (const raw of text.split(/\r?\n/)) {
-    if (!raw.trim() || raw.trim().startsWith('#')) continue
-    const indent = raw.length - raw.trimStart().length
-    const line = raw.trim()
-    // provider 键（llm-pi-ai.providers.<key>:）：记录当前 provider 供模型归属
-    const isBareKey = /^([A-Za-z][\w-]*):\s*$/.exec(line)
-    const bareKey = isBareKey ? isBareKey[1]! : ''
-    const isProviderKey = bareKey !== '' && modelsIndent === null && !['llm-pi-ai', 'providers', 'models'].includes(bareKey)
-    if (isProviderKey) {
-      provider = bareKey
-    }
-    if (modelsIndent === null) {
-      if (/^models:\s*$/.test(line)) modelsIndent = indent
-      continue
-    }
-    if (/^-\s+id:\s*(.+)$/.test(line) && indent === modelsIndent + 2) {
-      const id = /-\s+id:\s*(.+)$/.exec(line)![1]!.trim()
-      current = { id, name: '', efforts: [], provider }
-      inEfforts = false
-      out.push(current)
-      continue
-    }
-    if (indent <= modelsIndent) {
-      // 离开 models 块（下一 provider / 顶层键）
-      if (/^models:\s*$/.test(line)) continue
-      modelsIndent = null
-      current = null
-      inEfforts = false
-      continue
-    }
-    if (!current) continue
-    const nameMatch = /^name:\s*(.+)$/.exec(line)
-    if (nameMatch && !inEfforts) {
-      current.name = nameMatch[1]!.trim()
-      continue
-    }
-    if (/^reasoningEfforts:\s*$/.test(line)) {
-      inEfforts = true
-      continue
-    }
-    if (inEfforts) {
-      const effortMatch = /^"?([A-Za-z][\w-]*)"?:\s/.exec(line)
-      if (effortMatch) {
-        current.efforts.push(effortMatch[1]!)
+function orchestratorApiToken(): string {
+  const envToken = process.env.BP_DSH_TOKEN?.trim()
+  if (envToken) return envToken
+  if (
+    orchestratorTokenCache &&
+    Date.now() - orchestratorTokenCache.at < ORCHESTRATOR_TOKEN_TTL_MS
+  ) {
+    return orchestratorTokenCache.token
+  }
+  let token = ''
+  try {
+    const text = fs.readFileSync(
+      path.join(dshHome(), 'profiles', dshProfile(), 'cordis.patch.yml'),
+      'utf8',
+    )
+    let inEntry = false
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim()
+      if (/^-\s+id:\s*dsh-plugin-orchestrator\s*$/.test(line)) {
+        inEntry = true
         continue
       }
-      inEfforts = false
+      if (inEntry) {
+        if (/^-\s+id:/.test(line)) break
+        const m = /^apiToken:\s*(.+)$/.exec(line)
+        if (m) {
+          token = m[1]!.trim().replace(/^['"]|['"]$/g, '')
+          break
+        }
+      }
     }
+  } catch {
+    /* 配置不可读：token 留空（未配置 apiToken 时回环服务不校验 token） */
   }
-  return out
-}
-
-/**
- * 解析 profile cordis.patch.yml 的权限预设（dsh-permission-presets 条目的 presets
- * 键列表；条目形态两种：`- id: @deepseek-ai/dsh-permission-presets` 或
- * `- id: permission` + `name: "@deepseek-ai/dsh-permission-presets"`）。
- */
-export function parseDshPermissionPresets(text: string): string[] {
-  const lines = text.split(/\r?\n/)
-  let scope = false
-  let pendingName = false
-  let presetsIndent: number | null = null
-  const out: string[] = []
-  for (const raw of lines) {
-    const indent = raw.length - raw.trimStart().length
-    const line = raw.trim()
-    if (!scope) {
-      if (/^-\s+id:\s*@deepseek-ai\/dsh-permission-presets\s*$/.test(line)) scope = true
-      else if (/^-\s+id:/.test(line)) pendingName = true
-      else if (pendingName && /^name:\s*"?.*dsh-permission-presets/.test(line)) scope = true
-      else if (line !== '') pendingName = false
-      continue
-    }
-    if (/^-\s+id:/.test(line)) break // 下一插件条目：作用域结束
-    if (presetsIndent === null) {
-      if (/^presets:\s*$/.test(line)) presetsIndent = indent
-      continue
-    }
-    if (/^defaultPreset:/.test(line)) break
-    const key = /^([\w-]+):\s*$/.exec(line)
-    if (key && indent === presetsIndent + 2) out.push(key[1]!)
-    else if (indent <= presetsIndent) break
-  }
-  return out
-}
-
-/** profile 权限预设配置（presets + defaultPreset；与 parseDshPermissionPresets 同源） */
-export function parseDshPermissionConfig(text: string): { presets: string[]; defaultPreset: string } {
-  const presets = parseDshPermissionPresets(text)
-  let defaultPreset = ''
-  for (const raw of text.split(/\r?\n/)) {
-    const m = /^defaultPreset:\s*(.+)$/.exec(raw.trim())
-    if (m) {
-      defaultPreset = m[1]!.trim().replace(/^['"]|['"]$/g, '')
-      break
-    }
-  }
-  return { presets, defaultPreset }
+  orchestratorTokenCache = { at: Date.now(), token }
+  return token
 }
 
 /** 配置目录缓存（60s；打开检视器频繁拉取时避免反复读盘） */
@@ -206,50 +123,6 @@ interface CatalogCache {
 let catalogCache: CatalogCache | null = null
 const CATALOG_TTL_MS = 60_000
 
-/** 读 DSH 本机配置生成真实能力目录（读盘失败各自兜底为空表） */
-function readDshCatalog(): CatalogCache {
-  if (catalogCache && Date.now() - catalogCache.at < CATALOG_TTL_MS) return catalogCache
-  const models: AgentModelOption[] = []
-  const efforts = new Set<string>()
-  let entries: { id: string; name: string; efforts: string[]; provider: string }[] = []
-  const providerByModel: Record<string, string> = {}
-  try {
-    entries = parseDshModelCatalog(fs.readFileSync(path.join(dshHome(), 'settings.yaml'), 'utf8'))
-    for (const entry of entries) {
-      models.push({ id: entry.id, name: entry.name || entry.id })
-      providerByModel[entry.id] = entry.provider
-      for (const e of entry.efforts) efforts.add(e)
-    }
-  } catch {
-    /* settings.yaml 不可读：模型目录留空 */
-  }
-  let permissions: string[] = []
-  let defaultPermission = ''
-  try {
-    const perm = parseDshPermissionConfig(
-      fs.readFileSync(path.join(dshHome(), 'profiles', dshProfile(), 'cordis.patch.yml'), 'utf8'),
-    )
-    permissions = perm.presets
-    defaultPermission = perm.defaultPreset
-  } catch {
-    /* profile 不可读：权限预设留空 */
-  }
-  // 默认设置：模型目录首个条目 / 该模型的第一个思考强度 / profile defaultPreset
-  const defaultModel = entries[0]?.id ?? ''
-  const defaultReasoning = entries[0]?.efforts[0] ?? ''
-  const defaults = { model: defaultModel, reasoning: defaultReasoning, permission: defaultPermission }
-  const value: CatalogCache = {
-    at: Date.now(),
-    models,
-    reasoningLevels: [...efforts],
-    permissions,
-    defaults,
-    providerByModel,
-  }
-  catalogCache = value
-  return value
-}
-
 export class DshOrchestratorAdapter implements OrchestratorAdapter {
   readonly platform = 'dsh' as const
 
@@ -258,10 +131,6 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
   /** fetch 是否为注入替身（替身模式跳过本机认证配置要求） */
   private readonly injected: boolean
 
-  /** 换取的 DSH 会话 Cookie（BP_DSH_CONNECT_TOKEN 通道；token 通道不需要） */
-  private cookie: string | null = null
-  /** 自动探测缓存的宿主地址（BP_DSH_URL 未设置时使用；连接失败后清除重新探测） */
-  private resolvedBase: string | null = null
   private notificationCb: ((n: AgentNotification) => void) | null = null
   private sseAbort: AbortController | null = null
   private sseBackoffMs = 500
@@ -286,10 +155,78 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
     }
   }
 
+  /**
+   * 能力目录（GET /capabilities）：模型 / 思考强度 / 权限预设由插件在 DSH 宿主内
+   * 解析后经 HTTP 下发，蓝图端不读取 DSH 本地配置文件。
+   */
+  private async fetchRemoteCatalog(): Promise<CatalogCache | null> {
+    try {
+      const body = (await this.request('GET', '/capabilities')) as {
+        ok?: unknown
+        models?: unknown
+        reasoningLevels?: unknown
+        permissions?: unknown
+        defaults?: { model?: unknown; reasoning?: unknown; permission?: unknown }
+        at?: unknown
+      }
+      if (body === null || body.ok !== true || !Array.isArray(body.models)) return null
+      const models: AgentModelOption[] = []
+      const providerByModel: Record<string, string> = {}
+      const efforts = new Set<string>()
+      for (const raw of body.models) {
+        if (raw === null || typeof raw !== 'object') continue
+        const entry = raw as { id?: unknown; name?: unknown; provider?: unknown; efforts?: unknown }
+        if (typeof entry.id !== 'string' || entry.id === '') continue
+        models.push({
+          id: entry.id,
+          name: typeof entry.name === 'string' && entry.name !== '' ? entry.name : entry.id,
+        })
+        if (typeof entry.provider === 'string' && entry.provider !== '') {
+          providerByModel[entry.id] = entry.provider
+        }
+        if (Array.isArray(entry.efforts)) {
+          for (const effort of entry.efforts) {
+            if (typeof effort === 'string' && effort !== '') efforts.add(effort)
+          }
+        }
+      }
+      const reasoningLevels = Array.isArray(body.reasoningLevels)
+        ? body.reasoningLevels.filter((x): x is string => typeof x === 'string' && x !== '')
+        : [...efforts]
+      const permissions = Array.isArray(body.permissions)
+        ? body.permissions.filter((x): x is string => typeof x === 'string' && x !== '')
+        : []
+      const str = (value: unknown): string => (typeof value === 'string' ? value : '')
+      return {
+        at: typeof body.at === 'number' ? body.at : Date.now(),
+        models,
+        reasoningLevels,
+        permissions,
+        defaults: {
+          model: str(body.defaults?.model),
+          reasoning: str(body.defaults?.reasoning),
+          permission: str(body.defaults?.permission),
+        },
+        providerByModel,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /** 能力目录（HTTP /capabilities；60s 缓存） */
+  private async loadCatalog(): Promise<CatalogCache> {
+    if (catalogCache && Date.now() - catalogCache.at < CATALOG_TTL_MS) return catalogCache
+    const remote = await this.fetchRemoteCatalog()
+    if (remote === null) throw new Error('编排器未返回有效的能力目录（GET /capabilities）')
+    catalogCache = remote
+    return remote
+  }
+
   async capabilities(): Promise<AgentCapabilities> {
     try {
       await this.request('GET', '/health')
-      const catalog = readDshCatalog()
+      const catalog = await this.loadCatalog()
       return { platform: 'dsh', connected: true, ...catalog }
     } catch {
       return {
@@ -307,7 +244,7 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
     if (!opts.cwd) throw new Error('创建会话需要 cwd（蓝图项目目录）')
     try {
       // 有效设置 = 参数非空项；空项回落 DSH 当前默认（模型目录首个 / 首个思考强度 / defaultPreset）
-      const catalog = readDshCatalog()
+      const catalog = await this.loadCatalog()
       const effective = {
         model: opts.model?.trim() || catalog.defaults.model,
         reasoning: opts.reasoning?.trim() || catalog.defaults.reasoning,
@@ -391,7 +328,7 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
     try {
       // 覆盖设置：宿主 selectModel 对会话下一次请求生效（权限为客户端预设，编排接口无对应能力）
       if (opts.model?.trim()) {
-        const catalog = readDshCatalog()
+        const catalog = await this.loadCatalog()
         const provider = catalog.providerByModel[opts.model.trim()]
         if (provider) {
           await this.request('POST', `/sessions/${encodeURIComponent(opts.sessionId)}/model`, {
@@ -435,92 +372,21 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
 
   /* ---------------- 内部：REST ---------------- */
 
-  /** 宿主地址：BP_DSH_URL 优先；否则探测候选端口（health 任意 HTTP 响应即命中） */
-  private async baseUrl(): Promise<string> {
-    const configured = process.env.BP_DSH_URL?.trim()
-    if (configured) return configured.replace(/\/+$/, '')
-    if (this.resolvedBase) return this.resolvedBase
-    const hit = await this.probeOrchestratorPort()
-    if (hit !== null) {
-      this.resolvedBase = `http://127.0.0.1:${hit}`
-      return this.resolvedBase
-    }
-    throw new Error(
-      `无法定位 dsh-plugin-orchestrator 宿主（已探测 127.0.0.1:${DSH_PROBE_RANGE[0]}-${DSH_PROBE_RANGE[1]}）：请确认 DSH 已启动、编排插件已加载，或用 BP_DSH_URL 指定`,
-    )
-  }
-
-  /** 并发探测端口段；返回首个编排器宿主端口（识别规则见 DSH_PROBE_RANGE 注释） */
-  private async probeOrchestratorPort(): Promise<number | null> {
-    const token = process.env.BP_DSH_TOKEN?.trim()
-    const headers: Record<string, string> = token ? { 'x-api-token': token } : {}
-    const ports: number[] = []
-    for (let p = DSH_PROBE_RANGE[0]; p <= DSH_PROBE_RANGE[1]; p++) ports.push(p)
-    let cursor = 0
-    const worker = async (): Promise<number | null> => {
-      for (;;) {
-        const index = cursor++
-        if (index >= ports.length) return null
-        const port = ports[index]!
-        try {
-          const res = await this.fetchImpl(new URL(`${ORCHESTRATOR_PREFIX}/health`, `http://127.0.0.1:${port}`), {
-            headers,
-            signal: AbortSignal.timeout(DSH_PROBE_TIMEOUT_MS),
-          })
-          const body = await res.text()
-          if (body.includes('"dsh-plugin-orchestrator"') || body.includes('"code":"unauthorized"')) {
-            return port
-          }
-        } catch {
-          /* 该端口无宿主 / 超时：继续 */
-        }
-      }
-    }
-    const workers = Array.from({ length: DSH_PROBE_CONCURRENCY }, () => worker())
-    const results = await Promise.all(workers)
-    return results.find((r): r is number => r !== null) ?? null
-  }
-
-  /** 认证头（apiToken 优先；否则 Cookie，需要时惰性经 /connect 换取） */
+  /** 认证头（插件 apiToken：x-api-token） */
   private async authHeaders(extra?: Record<string, string>): Promise<Record<string, string>> {
-    const token = process.env.BP_DSH_TOKEN?.trim()
+    const token = orchestratorApiToken()
     if (token) return { 'x-api-token': token, ...extra }
-    if (!this.cookie && !this.injected) {
-      const connectToken = process.env.BP_DSH_CONNECT_TOKEN?.trim()
-      if (!connectToken) {
-        throw new Error('未配置编排器认证：请设置 BP_DSH_TOKEN（插件 apiToken）或 BP_DSH_CONNECT_TOKEN（DSH 启动令牌）')
-      }
-      const res = await this.fetchImpl(new URL('/connect', await this.baseUrl()), {
-        redirect: 'manual',
-        ...(extra ? { headers: extra } : {}),
-      })
-      const headersWithSetCookie = res.headers as Headers & { getSetCookie?: () => string[] }
-      const setCookie = headersWithSetCookie.getSetCookie?.()[0] ?? res.headers.get('set-cookie') ?? ''
-      if (!setCookie) throw new Error('/connect 未返回 Cookie（启动令牌无效或已过期）')
-      this.cookie = setCookie.split(';')[0] ?? ''
-    }
-    return { cookie: this.cookie ?? '', ...extra }
+    if (this.injected) return { ...extra }
+    throw new Error('未配置编排器认证：请在 dsh-plugin-orchestrator 配置 apiToken（或设置 BP_DSH_TOKEN）')
   }
 
   private async request(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<unknown> {
     const headers = await this.authHeaders(body === undefined ? undefined : { 'content-type': 'application/json' })
-    let res: Response
-    try {
-      res = await this.fetchImpl(new URL(`${ORCHESTRATOR_PREFIX}${path}`, await this.baseUrl()), {
-        method,
-        headers,
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      })
-    } catch (err) {
-      // 宿主可能重启换了端口：清除探测缓存，重探一次
-      this.resolvedBase = null
-      if (process.env.BP_DSH_URL?.trim()) throw err
-      res = await this.fetchImpl(new URL(`${ORCHESTRATOR_PREFIX}${path}`, await this.baseUrl()), {
-        method,
-        headers,
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      })
-    }
+    const res = await this.fetchImpl(new URL(`${ORCHESTRATOR_PREFIX}${path}`, dshBaseUrl()), {
+      method,
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    })
     const json = (await res.json().catch(() => null)) as
       | { ok?: unknown; error?: OrchestratorError }
       | null
@@ -528,7 +394,7 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       const code = json?.error?.code ?? `HTTP ${res.status}`
       const message = json?.error?.message ?? res.statusText
       if (res.status === 401 || code === 'unauthorized') {
-        throw new Error('编排器认证失败（401）：请检查 BP_DSH_TOKEN / BP_DSH_CONNECT_TOKEN 是否有效')
+        throw new Error('编排器认证失败（401）：请检查 dsh-plugin-orchestrator 的 apiToken 配置')
       }
       throw new Error(`${code} ${message}`)
     }
@@ -568,7 +434,7 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
     while (!this.disposed && !controller.signal.aborted) {
       try {
         const headers = await this.authHeaders({ accept: 'text/event-stream' })
-        const res = await this.fetchImpl(new URL(`${ORCHESTRATOR_PREFIX}/events`, await this.baseUrl()), {
+        const res = await this.fetchImpl(new URL(`${ORCHESTRATOR_PREFIX}/events`, dshBaseUrl()), {
           headers,
           signal: controller.signal,
         })

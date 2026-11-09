@@ -414,3 +414,27 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ===== 函数作用域徽标（局部 / 内置库 / 项目库，f 图标区分颜色） ===== */
+.fn-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+.fn-badge--local {
+  color: var(--fn-local);
+}
+.fn-badge--builtin {
+  color: var(--fn-builtin);
+}
+.fn-badge--project {
+  color: var(--fn-project);
+}

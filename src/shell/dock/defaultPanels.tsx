@@ -4,37 +4,33 @@
  * 后续卡替换面板实现：改本文件对应 registerPanel 的 component（id 不变）；
  * 新增静态面板：加一行 registerPanel（≤10 行 DoD），需要默认可见时加进 buildDefaultLayout。
  *
- * v3 默认布局（PLAN §4.1）：
+ * 默认布局（文件系统/资源库移入左侧菜单、运行面板移除后）：
  * ┌ 顶栏 ──────────────────────────────────────────────┐
- * ├ 左列[文件系统|UI 树] ┬ 中央[资产面板|运行] ┬ 右列[检视器|事件面板] ┤
+ * ├ [左侧菜单(非 dock)] ┬ 中央[资产面板] ┬ 右列[检视器] ┤
  * ├ 底部[控制台] ──────────────────────────────────────┘
  *
  * 中央组不再有固定「工作区」面板：资产打开时以 `asset:<kind>:<path>` 动态注册并
  * 并入中央组；运行视图 `runtime` 作为中央初始页（F5 前的空态）。
  */
+import { registerFsDomain, startFsUndoSync } from '@/panels/file-system'
 import { parseLayout, readLayoutRaw } from './persist'
 import { listPanels } from './registry'
 import { useDockStore } from './store'
 import { makeTabs, type DockNode } from './tree'
-import { registerFileSystemPanel } from '@/panels/file-system'
 import { registerConsolePanel } from '@/panels/console'
-import { registerRuntimePanel } from '@/panels/runtime'
-import { registerLibraryPanel } from '@/panels/library'
 import { registerDetailsPanel } from '@/panels/details'
 import { ensureAssetPanelsInLayout, syncWorkspaceFromDock } from './assetPanel'
 
 /* 内置面板 id（跨卡契约：替换实现时保持 id 不变） */
-export const PANEL_ID_FILE_SYSTEM = 'file-system'
-export const PANEL_ID_RUNTIME = 'runtime'
 export const PANEL_ID_CONSOLE = 'console'
-export const PANEL_ID_LIBRARY = 'library'
 export const PANEL_ID_DETAILS = 'details'
 
+/* 文件系统命令域 + undo/redo 磁盘补偿（面板移入左侧菜单，域注册与补偿仍需启动） */
+registerFsDomain()
+startFsUndoSync()
+
 /* 面板注册（模块副作用；每面板一行） */
-registerFileSystemPanel() // T0.7 文件系统（id: 'file-system'）
 registerConsolePanel() // T1.6 控制台（id: 'console'）
-registerRuntimePanel() // T8.5 内置运行视图（iframe + embed；id: 'runtime'）
-registerLibraryPanel() // 资源库（函数；默认右列；id: 'library'）
 registerDetailsPanel() // 检视（蓝图节点 / 图参数；id: 'details'）
 
 /** 单面板 tabs 组 */
@@ -42,7 +38,7 @@ function oneTabs(panelId: string): DockNode {
   return makeTabs([panelId])
 }
 
-/** 默认布局：左列文件系统、中央运行/资产、右列资源库、底部控制台 */
+/** 默认布局：中央编辑区（初始空态）、右列检视器、底部控制台 */
 export function buildDefaultLayout(): DockNode {
   return {
     kind: 'split',
@@ -52,12 +48,8 @@ export function buildDefaultLayout(): DockNode {
       {
         kind: 'split',
         dir: 'h',
-        sizes: [1, 3, 1],
-        children: [
-          oneTabs(PANEL_ID_FILE_SYSTEM),
-          oneTabs(PANEL_ID_RUNTIME),
-          makeTabs([PANEL_ID_DETAILS, PANEL_ID_LIBRARY]),
-        ],
+        sizes: [3, 1],
+        children: [makeTabs([]), makeTabs([PANEL_ID_DETAILS])],
       },
       oneTabs(PANEL_ID_CONSOLE),
     ],

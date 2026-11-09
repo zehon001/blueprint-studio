@@ -57,6 +57,8 @@ export interface MenuProps {
 const VIEWPORT_GAP = 6
 /** 子菜单宽度估算（用于判断向左/右展开） */
 const SUBMENU_WIDTH = 180
+/** 指针离开菜单项后子菜单延迟关闭（跨 portal 移动指针的缓冲） */
+const SUBMENU_CLOSE_DELAY_MS = 150
 
 /** 菜单项按钮（含子菜单展开） */
 function MenuEntry({
@@ -71,24 +73,51 @@ function MenuEntry({
   depth: number
 }) {
   const [subOpen, setSubOpen] = useState(false)
-  const [flipLeft, setFlipLeft] = useState(false)
+  const [subPos, setSubPos] = useState<{ left: number; top: number } | null>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
+  const closeTimerRef = useRef<number | null>(null)
   const hasChildren = (item.children?.length ?? 0) > 0
 
-  const toggleSub = (open: boolean): void => {
-    if (!hasChildren) return
-    if (open && btnRef.current) {
-      const rect = btnRef.current.getBoundingClientRect()
-      setFlipLeft(rect.right + SUBMENU_WIDTH > window.innerWidth - VIEWPORT_GAP)
+  const cancelSubClose = (): void => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
     }
-    setSubOpen(open)
   }
+
+  /** 打开子菜单：portal 到 body（菜单列表 overflow 裁剪会吞掉行内子菜单），按按钮矩形定位并视口翻转 */
+  const openSub = (): void => {
+    if (!hasChildren || !btnRef.current) return
+    const rect = btnRef.current.getBoundingClientRect()
+    const flip = rect.right + SUBMENU_WIDTH > window.innerWidth - VIEWPORT_GAP
+    setSubPos({
+      left: flip ? Math.max(VIEWPORT_GAP, rect.left - SUBMENU_WIDTH - 2) : rect.right + 2,
+      top: Math.max(VIEWPORT_GAP, rect.top - 4),
+    })
+    setSubOpen(true)
+  }
+
+  const scheduleSubClose = (): void => {
+    if (!hasChildren) return
+    cancelSubClose()
+    closeTimerRef.current = window.setTimeout(() => setSubOpen(false), SUBMENU_CLOSE_DELAY_MS)
+  }
+
+  useEffect(
+    () => () => {
+      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current)
+    },
+    [],
+  )
 
   return (
     <div
       className="fs-menu-item-wrap"
-      onMouseEnter={() => toggleSub(true)}
-      onMouseLeave={() => toggleSub(false)}
+      onMouseEnter={() => {
+        cancelSubClose()
+        openSub()
+      }}
+      onMouseLeave={scheduleSubClose}
     >
       <button
         ref={btnRef}
@@ -102,7 +131,8 @@ function MenuEntry({
         onClick={() => {
           if (item.disabled) return
           if (hasChildren) {
-            toggleSub(!subOpen)
+            if (subOpen) scheduleSubClose()
+            else openSub()
             return
           }
           item.onSelect?.()
@@ -123,19 +153,27 @@ function MenuEntry({
         ) : null}
       </button>
       {hasChildren && subOpen ? (
-        <div
-          className={`fs-menu fs-submenu${flipLeft ? ' fs-submenu--left' : ''}`}
-          role="menu"
-          data-depth={depth + 1}
-        >
-          {item.children!.map((child, i) =>
-            child.separator ? (
-              <div key={i} className="fs-menu-sep" role="separator" />
-            ) : (
-              <MenuEntry key={i} item={child} onClose={onClose} autoFocus={false} depth={depth + 1} />
-            ),
-          )}
-        </div>
+        subPos
+          ? createPortal(
+              <div
+                className="fs-menu fs-submenu"
+                role="menu"
+                data-depth={depth + 1}
+                style={{ position: 'fixed', left: subPos.left, top: subPos.top }}
+                onMouseEnter={cancelSubClose}
+                onMouseLeave={scheduleSubClose}
+              >
+                {item.children!.map((child, i) =>
+                  child.separator ? (
+                    <div key={i} className="fs-menu-sep" role="separator" />
+                  ) : (
+                    <MenuEntry key={i} item={child} onClose={onClose} autoFocus={false} depth={depth + 1} />
+                  ),
+                )}
+              </div>,
+              document.body,
+            )
+          : null
       ) : null}
     </div>
   )
@@ -215,6 +253,8 @@ export function Menu({ x, y, items, onClose }: MenuProps) {
     const onPointerDown = (e: Event): void => {
       const target = e.target
       if (ref.current && target instanceof Node && ref.current.contains(target)) return
+      // 子菜单 portal 在 body 下（不在 ref 内）：落在任意 .fs-menu 内的按下都视为菜单内
+      if (target instanceof Element && target.closest('.fs-menu')) return
       onClose()
     }
     const onKeyDown = (e: Event): void => {

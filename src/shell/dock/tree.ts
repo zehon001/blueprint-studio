@@ -150,6 +150,11 @@ export function firstTabsGroup(root: DockNode | null): DockTabsGroupRef | null {
   return findTabs(root, () => true)
 }
 
+/** 文档序第一个空 tabs 组（默认布局的空中央编辑区；打开首个资产时直接落入） */
+export function firstEmptyTabsGroup(root: DockNode | null): DockTabsGroupRef | null {
+  return findTabs(root, (n) => n.panels.length === 0)
+}
+
 /** 按路径取节点；路径越界返回 null */
 export function getNodeAtPath(root: DockNode, path: number[]): DockNode | null {
   let cur: DockNode = root

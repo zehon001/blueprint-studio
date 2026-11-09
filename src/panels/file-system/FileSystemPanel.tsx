@@ -23,8 +23,7 @@
  *    同名冲突拒绝。落定 POST /api/move 并入命令栈「移动…」（Ctrl+Z 移回）。
  *  - 拖入导入：OS 文件拖到目录行或面板空白 → 读文本 → PUT /api/file（二进制提示走右键导入）。
  *
- * 接线：由 src/panels/file-system/index.ts 的 registerFileSystemPanel() 注册（PM 在
- * defaultPanels.tsx 替换占位组件那一行即可），本文件不改 dock 代码。
+ * 接线：由左侧菜单（src/shell/sidebar/Sidebar.tsx）直接挂载，不再注册 dock 面板。
  */
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import type {
