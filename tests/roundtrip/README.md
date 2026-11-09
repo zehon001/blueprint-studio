@@ -63,7 +63,7 @@ normalizeIR(asset) ≡ normalizeIR(parseScriptToIR(codegenTS(asset)).asset)
   事件、函数图、双循环）、条件循环计数、日志分析管线、字符串处理链。
 - **snippet**（1 条）：T3.7 多片段引脚重建专项（exec 片段引脚连线 / 纯片段前奏 /
   链尾 / 孤儿多引脚，ADR-007）。
-- **asset**（2 条）：真实资产样本——读取 `templates/log-analyzer/logic/main.bp.json`
+- **asset**（2 条）：真实资产样本——读取 `templates/log-analyzer/blueprint/main.bp.json`
   （deserializeIR）直接 roundtrip；及其「片段演化」变体（模拟编辑器插入片段节点后再
   roundtrip）。另验证 `.bp.json` 序列化幂等（`serializeIR ∘ deserializeIR` 恒等）。
 

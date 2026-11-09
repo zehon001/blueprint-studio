@@ -366,7 +366,7 @@ export function migrateIR(raw: unknown): IRAsset {
 export interface ProjectFile {
   /** 项目名（显示名，可含中文） */
   name: string;
-  /** 主蓝图资产路径（相对项目根，如 'logic/main.bp.json'；运行入口） */
+  /** 主蓝图资产路径（相对项目根，如 'blueprint/main.bp.json'；运行入口） */
   mainBlueprint: string;
   /** 创建项目时的引擎版本（升级兼容检查用） */
   engineVersion: string;

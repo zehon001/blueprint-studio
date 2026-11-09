@@ -35,7 +35,7 @@ export const ERROR_TOAST_DEDUPE_MS = 2000;
 export interface UseDebugOverlayOptions {
   /** 观察开关（默认开；关闭 = 发 unsubscribe 并清空叠加状态） */
   enabled: boolean;
-  /** 观察的蓝图资产路径（如 'logic/main.bp.json'；空 = 不订阅） */
+  /** 观察的蓝图资产路径（如 'blueprint/main.bp.json'；空 = 不订阅） */
   assetPath?: string;
   /** 订阅的资产路径集合（缺省 = [assetPath]；同项目多图扩展位） */
   assetPaths?: readonly string[];

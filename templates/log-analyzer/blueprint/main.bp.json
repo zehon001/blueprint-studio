@@ -1,9 +1,9 @@
 {
   "version": 3,
   "name": "日志查看器",
-  "entry": "bind",
+  "entry": "main",
   "graphs": {
-    "bind": {
+    "main": {
       "nodes": [
         {
           "id": "n_start",
@@ -134,7 +134,7 @@
   "events": [],
   "snippets": [],
   "layout": {
-    "bind": {
+    "main": {
       "zoom": 1,
       "pan": [
         0,

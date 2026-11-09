@@ -29,11 +29,12 @@ function fullPath(projectPath: string, assetPath: string): string {
 }
 
 function emptyBlueprint(name: string): IRAsset {
+  const entry = name.trim() || 'main'
   return {
     version: 2,
     name,
-    entry: 'bind',
-    graphs: { bind: { nodes: [], edges: [] } },
+    entry,
+    graphs: { [entry]: { nodes: [], edges: [] } },
     variables: [],
     events: [],
     snippets: [],

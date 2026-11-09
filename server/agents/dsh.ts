@@ -281,10 +281,19 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
           try {
             // 状态体：{ ok, status: { title, ... } }（title 嵌套在 status 内）
             const body = (await this.request('GET', `/sessions/${encodeURIComponent(sid)}`)) as {
-              status?: { title?: unknown }
+              status?: {
+                title?: unknown
+                agentAvailable?: unknown
+                lastTurn?: { outcome?: unknown }
+              }
               title?: unknown
             }
-            const title = typeof body?.status?.title === 'string' ? body.status.title : body?.title
+            const status = body?.status
+            // 不可用会话 / 已阻塞会话不复用：否则每次 prompt 都会立即 blocked，
+            // wait 仍报 idle，最终把上一条旧回复当成新结果（用户侧表现为「没跑也不报错」）。
+            if (status?.agentAvailable === false) continue
+            if (status?.lastTurn?.outcome === 'blocked') continue
+            const title = typeof status?.title === 'string' ? status.title : body?.title
             if (title === opts.title) {
               // 复用同样应用模型设置（用户可能改了内部设置再运行）
               await applyModel(sid)
@@ -326,6 +335,13 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
 
   async sendMessage(opts: AgentSendMessageOptions): Promise<{ reply: string }> {
     try {
+      // prompt 前记录轮次：wait 返回 idle 后据此确认确实跑出了新回合，而不是直接读到旧结果
+      let turnBefore: number | null = null
+      try {
+        turnBefore = (await this.readTurnState(opts.sessionId))?.turn ?? null
+      } catch {
+        /* 预读失败不阻塞发送；下方仍会校验回合终态 */
+      }
       // 覆盖设置：宿主 selectModel 对会话下一次请求生效（权限为客户端预设，编排接口无对应能力）
       if (opts.model?.trim()) {
         const catalog = await this.loadCatalog()
@@ -345,7 +361,26 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
         throw new Error('DSH 未受理该消息（会话可能正忙或已关闭）')
       }
       if (opts.waitForCompletion !== true) return { reply: '' }
-      await this.waitIdle(opts.sessionId, Math.max(1, opts.timeoutSec ?? 600) * 1000)
+      const timeoutSec = Math.max(1, opts.timeoutSec ?? 600)
+      const idle = await this.waitIdle(opts.sessionId, timeoutSec * 1000)
+      if (!idle) {
+        throw new Error(`DSH 回合等待超时（${timeoutSec}s）；本次已停止以避免返回旧回复`)
+      }
+      const turnAfter = await this.readTurnState(opts.sessionId)
+      if (!turnAfter) {
+        throw new Error('无法读取 DSH 回合状态（编排器未返回 lastTurn）；本次已停止以避免返回旧回复')
+      }
+      if (turnAfter.outcome !== 'completed') {
+        const detail = turnAfter.reason && turnAfter.reason !== turnAfter.outcome ? `：${turnAfter.reason}` : ''
+        const hint =
+          turnAfter.outcome === 'blocked'
+            ? '（该会话已阻塞，重新运行会跳过它并复用/新建可用会话）'
+            : ''
+        throw new Error(`DSH 回合未完成（${turnAfter.outcome}${detail}）${hint}；本次已停止以避免返回旧回复`)
+      }
+      if (turnBefore !== null && turnAfter.turn <= turnBefore) {
+        throw new Error('DSH 未开始新回合（prompt 未被处理）；本次已停止以避免返回旧回复')
+      }
       const reply = await this.readResult(opts.sessionId)
       return { reply }
     } catch (err) {
@@ -401,15 +436,34 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
     return json
   }
 
-  /** 分片长轮询等空闲（总超时到点即返回，由调用方回读结果） */
-  private async waitIdle(sessionId: string, totalMs: number): Promise<void> {
+  /** 分片长轮询等空闲；超时返回 false（避免把上一条旧结果当成本次回复） */
+  private async waitIdle(sessionId: string, totalMs: number): Promise<boolean> {
     const deadline = Date.now() + totalMs
     while (Date.now() < deadline) {
       const chunk = Math.min(WAIT_CHUNK_MS, deadline - Date.now())
       const r = (await this.request('POST', `/sessions/${encodeURIComponent(sessionId)}/wait`, {
         timeoutMs: chunk,
       })) as { idle?: unknown }
-      if (r?.idle === true) return
+      if (r?.idle === true) return true
+    }
+    return false
+  }
+
+  /** 读取最近一个已结束回合的状态（turn / outcome / reason）；冷会话或无记录返回 null */
+  private async readTurnState(
+    sessionId: string,
+  ): Promise<{ turn: number; outcome: string; reason: string } | null> {
+    const body = (await this.request('GET', `/sessions/${encodeURIComponent(sessionId)}`)) as {
+      status?: {
+        lastTurn?: { turn?: unknown; outcome?: unknown; reason?: unknown }
+      }
+    }
+    const last = body?.status?.lastTurn
+    if (!last || typeof last.turn !== 'number') return null
+    return {
+      turn: last.turn,
+      outcome: typeof last.outcome === 'string' ? last.outcome : 'unknown',
+      reason: typeof last.reason === 'string' ? last.reason : '',
     }
   }
 

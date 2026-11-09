@@ -12,7 +12,7 @@
  *     - 插入变量 Get/Set、事件入口节点
  *  3. 保存校验联动（PLAN §8.5）：函数图与 flow.call 不再被判 unknown-node
  *  4. DOM 冒烟（happy-dom）：My Blueprint 分节列表 + 暴露勾选 + 新建/重命名/
- *     右键菜单删除；函数图签已并入 dock 页签栏（原 GraphTabs 移除）
+ *     右键菜单删除；局部函数图签由编辑器内部 GraphTabs 渲染
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

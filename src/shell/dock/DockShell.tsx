@@ -21,23 +21,21 @@ import {
 } from 'react'
 import Toolbar from '@/shell/Toolbar'
 import { Sidebar } from '@/shell/sidebar/Sidebar'
-import { useSidebarStore } from '@/shell/sidebar/sidebar-store'
+import { BlueprintPageActions } from '@/shell/BlueprintPageActions'
 import { LibraryModals } from '@/panels/library/LibraryModals'
+import '@/panels/library/library.css'
 import { RuntimeHost } from '@/panels/runtime'
-import { useBlueprintStore } from '@/blueprint/store/blueprint-store'
-import { orderedGraphNames } from '@/blueprint/my-blueprint/model'
+import { useConsoleUiStore } from '@/panels/console/ui-store'
 import { Icon } from '@/shell/ui/Icon'
 import { assetIconFor } from '@/shell/ui/icons'
 import { CommandPalette } from '@/shell/ui/CommandPalette'
 import { Toaster } from 'sonner'
-import { Maximize2, Minimize2, X, LayoutDashboard } from 'lucide-react'
+import { Maximize2, Minimize2, X, LayoutDashboard, Trash2, Workflow } from 'lucide-react'
 import { StatusBar } from '@/shell/StatusBar'
 import { computeDropSide, type Rect } from './dropZone'
 import { getPanel } from './registry'
 import { useDockStore } from './store'
 import {
-  assetPanelId,
-  collectAssetPanels,
   assetPanelTitle,
   ensureAssetPanelsInLayout,
   parseAssetPanelId,
@@ -46,6 +44,7 @@ import {
   syncWorkspaceFromDock,
 } from './assetPanel'
 import { tabIdOf, useWorkspaceStore } from '@/shell/workspace-store'
+import { useSidebarStore } from '@/shell/sidebar/sidebar-store'
 import {
   MIN_PANE_PX,
   resizeSashSizes,
@@ -298,7 +297,7 @@ function DockRoot() {
             <Icon icon={LayoutDashboard} size={40} className="dock-empty-icon" />
             <div className="dock-empty-title">没有打开的面板</div>
             <div className="dock-empty-desc">
-              从左侧菜单的「文件系统」双击蓝图文件打开编辑器，或按 Ctrl+K 搜索节点与命令。
+              从下方「文件系统」面板双击蓝图文件打开编辑器，或按 Ctrl+K 搜索节点与命令。
             </div>
           </div>
         )}
@@ -512,37 +511,8 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
   const popoutSessions = usePopoutsStore((s) => s.sessions)
   const poppedPanelIds = useMemo(() => new Set(Object.keys(popoutSessions)), [popoutSessions])
 
-  // UI 改版：图签并入 dock 页签栏 —— 按左侧菜单节过滤资产页签：
-  //   文件系统节 = 蓝图 / 脚本资产 + 当前蓝图的局部函数图签（主图 = 资产页签，不重复）；
-  //   资源库节 = 函数资产页签。
-  const section = useSidebarStore((s) => s.section)
-  const bpAsset = useBlueprintStore((s) => s.asset)
-  const bpGraphName = useBlueprintStore((s) => s.graphName)
-  const bpAssetPath = useBlueprintStore((s) => s.assetPath)
-
-  const panelVisible = (panelId: string): boolean => {
-    const ref = parseAssetPanelId(panelId)
-    if (!ref) return true
-    return section === 'library' ? ref.kind === 'function' : ref.kind !== 'function'
-  }
-
   const activeIdx = Math.min(Math.max(node.active, 0), Math.max(node.panels.length - 1, 0))
   const activePanelId = node.panels[activeIdx]
-
-  /** 当前蓝图资产的局部函数图签（图签行已移除，函数图在此切换） */
-  // 归属判定用 store.assetPath（store 跟随最后激活的编辑器面板同步），
-  // 不要求 globalActivePanelId 相等：点检视页签后 activePanelId 变为 details，
-  // 编辑器仍是 store 所有者，图签不应消失。
-  const graphTabs =
-    section === 'files' &&
-    activePanelId !== undefined &&
-    parseAssetPanelId(activePanelId)?.kind === 'blueprint' &&
-    bpAsset &&
-    bpAssetPath === parseAssetPanelId(activePanelId)?.path
-      ? orderedGraphNames(bpAsset).filter((name) => name !== bpAsset.entry)
-      : []
-  const anyVisible = node.panels.some((panelId) => panelVisible(panelId))
-  const fnSpec = assetIconFor('function')
 
   const activeDef = activePanelId !== undefined ? getPanel(activePanelId) : undefined
   const activePopped = activePanelId !== undefined && poppedPanelIds.has(activePanelId)
@@ -554,18 +524,6 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
     if ((panelId === 'inspector' || panelId === 'details') && prevActive && prevActive !== panelId) {
       useDockStore.getState().focusPanel(prevActive)
     }
-    // 蓝图资产页签 = 主图：重复点击已激活的蓝图页签时切回主图
-    // （函数图签切走后，store 的 openAsset 不会重跑，需在此显式切回，否则回不到 main）
-    if (panelId === prevActive) {
-      const ref = parseAssetPanelId(panelId)
-      if (ref?.kind === 'blueprint') {
-        const st = useBlueprintStore.getState()
-        if (st.asset) {
-          const target = st.asset.entry in st.asset.graphs ? st.asset.entry : Object.keys(st.asset.graphs)[0]
-          if (target) st.switchGraph(target)
-        }
-      }
-    }
     if (e.button === 0) {
       // 指针捕获：快速拖出窗口也能持续收到 pointermove/up（事件仍冒泡到 window）
       e.currentTarget.setPointerCapture(e.pointerId)
@@ -573,23 +531,20 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
     }
   }
 
+  const showBlueprintActions = node.panels.some(
+    (panelId) => parseAssetPanelId(panelId)?.kind === 'blueprint',
+  )
+  const alwaysShowActions = showBlueprintActions || activePanelId === 'console'
+
   return (
     <div className="dock-tabs" data-dock-tabs={node.id}>
       <div className="dock-tabs-bar">
         {node.panels.map((panelId, i) => {
-          if (!panelVisible(panelId)) return null
           const def = getPanel(panelId)
           const popped = poppedPanelIds.has(panelId)
-          // 蓝图资产页签 = 主图：正在查看局部函数图时，主图页签不再显示选中态（由函数图签高亮）
-          const graphShifted =
-            section === 'files' &&
-            parseAssetPanelId(panelId)?.kind === 'blueprint' &&
-            bpAsset !== null &&
-             bpAssetPath === parseAssetPanelId(panelId)?.path &&
-            bpGraphName !== bpAsset.entry
           const cls = [
             'dock-tab',
-            i === activeIdx && !graphShifted ? 'active' : '',
+            i === activeIdx ? 'active' : '',
             dragPanelId === panelId ? 'dragging' : '',
             popped ? 'dock-tab-popped' : '',
           ]
@@ -611,24 +566,19 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
             </div>
           )
         })}
-        {graphTabs.map((name) => (
-          <div
-            key={`graph:${name}`}
-            role="tab"
-            aria-selected={bpGraphName === name}
-            className={`dock-tab dock-tab--graph${bpGraphName === name ? ' active' : ''}`}
-            title={`局部函数「${name}」（点击切换函数图）`}
-            onClick={() => useBlueprintStore.getState().switchGraph(name)}
-          >
-            <span className="dock-tab-label">
-              <span className="dock-tab-badge" aria-hidden>
-                <Icon icon={fnSpec.icon} size={13} style={{ color: 'var(--fn-local)' }} />
-              </span>
-              <span className="dock-tab-name">{name}</span>
-            </span>
-          </div>
-        ))}
-        <div className="dock-tabs-actions">
+        <div className={`dock-tabs-actions${alwaysShowActions ? ' dock-tabs-actions--visible' : ''}`}>
+          {showBlueprintActions ? <BlueprintPageActions /> : null}
+          {activePanelId === 'console' ? (
+            <button
+              type="button"
+              className="dock-btn"
+              title="清空控制台"
+              aria-label="清空控制台"
+              onClick={() => useConsoleUiStore.getState().requestClear()}
+            >
+              <Icon icon={Trash2} size={14} />
+            </button>
+          ) : null}
           {activePopped ? (
             <button
               type="button"
@@ -677,7 +627,7 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
             <div
               key={panelId}
               className="dock-tab-page"
-              style={{ display: i === activeIdx && panelVisible(panelId) ? undefined : 'none' }}
+              style={{ display: i === activeIdx ? undefined : 'none' }}
               onPointerDownCapture={() => {
                 // 检视器自身不参与「激活面板」竞争：点它不应把 activePanelId 从
                 // 正在检视的 UI/蓝图/文件切走（否则内容立即变「未激活」）
@@ -695,15 +645,7 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
           )
         })}
         {node.panels.length === 0 ? (
-          <div className="dock-panel-placeholder dock-panel-placeholder--empty">
-            中央编辑区 —— 从左侧菜单双击蓝图文件 / 资源库函数开始编辑
-          </div>
-        ) : !anyVisible ? (
-          <div className="dock-panel-placeholder dock-panel-placeholder--empty">
-            {section === 'library'
-              ? '资源库 —— 双击左侧资源库函数打开编辑器'
-              : '文件系统 —— 双击左侧蓝图文件打开编辑器'}
-          </div>
+          <BlueprintEmptyEditor />
         ) : null}
       </div>
       {tabMenu ? (
@@ -713,29 +655,43 @@ function TabsView({ node, dragPanelId }: { node: DockTabsNode; dragPanelId: stri
   )
 }
 
+/** 蓝图编辑器空壳：默认布局 / 重置布局时显示，打开资产后被真实编辑器替换 */
+function BlueprintEmptyEditor() {
+  return (
+    <div className="bp-empty-editor">
+      <aside className="bp-empty-side">
+        <div className="bp-empty-side-header">My Blueprint</div>
+        <div className="bp-empty-side-body">尚未打开蓝图</div>
+      </aside>
+      <div className="bp-empty-canvas">
+        <div className="bp-empty-canvas-inner">
+          <Icon icon={Workflow} size={40} />
+          <div className="bp-empty-title">尚未打开蓝图</div>
+          <div className="bp-empty-desc">从下方文件系统面板双击蓝图文件开始编辑</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** 编辑器外壳：顶栏 + dock 区（+ T0.4 全局 toast 容器 + P2 命令面板） */
 export default function DockShell() {
   const section = useSidebarStore((s) => s.section)
-
-  // 切换左侧菜单节 → 同步激活对应资产页签（文件系统 → 蓝图 / 脚本；资源库 → 函数）
-  useEffect(() => {
-    const { root, activePanelId, activatePanel } = useDockStore.getState()
-    if (!root) return
-    const assets = collectAssetPanels(root)
-    const match =
-      assets.find((p) => p.kind === (section === 'library' ? 'function' : 'blueprint')) ??
-      (section === 'files' ? assets.find((p) => p.kind === 'script') : undefined)
-    if (!match) return
-    const id = assetPanelId(match.kind, match.path)
-    if (activePanelId !== id) activatePanel(id, 'center')
-  }, [section])
 
   return (
     <div className="shell">
       <Toolbar />
       <div className="shell-main">
         <Sidebar />
-        <DockRoot />
+        <main className="app-page">
+          <div className="app-page-home" style={{ display: section === 'home' ? undefined : 'none' }} />
+          <section
+            className="app-page-blueprint"
+            style={{ display: section === 'blueprint' ? undefined : 'none' }}
+          >
+            <DockRoot />
+          </section>
+        </main>
       </div>
       <StatusBar />
       <CommandPalette />

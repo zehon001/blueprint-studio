@@ -348,7 +348,7 @@ export function nodeSample(specId: string): IRAsset {
 }
 
 /* ============================================================
- * 真实资产样本（templates/log-analyzer/logic/main.bp.json）
+ * 真实资产样本（templates/log-analyzer/blueprint/main.bp.json）
  * ============================================================ */
 
 const TEMPLATE_FILE = path.resolve(
@@ -357,7 +357,7 @@ const TEMPLATE_FILE = path.resolve(
   '..',
   'templates',
   'log-analyzer',
-  'logic',
+  'blueprint',
   'main.bp.json',
 );
 
@@ -383,13 +383,13 @@ function realAssetWithSnippetSample(): IRAsset {
       },
     ],
   };
-  const bind = evolved.graphs['bind']!;
-  evolved.graphs['bind'] = {
+  const entryGraph = evolved.graphs[evolved.entry]!;
+  evolved.graphs[evolved.entry] = {
     nodes: [
-      ...bind.nodes,
+      ...entryGraph.nodes,
       node('n_snip', 'script.snippet', { params: { snippet: 'snipInit' }, position: { x: 400, y: 200 } }),
     ],
-    edges: [...bind.edges, execEdge('e_snip', 'n_print', 'n_snip')], // 挂链尾（exec 出脚单线，UE5 语义）
+    edges: [...entryGraph.edges, execEdge('e_snip', 'n_print', 'n_snip')], // 挂链尾（exec 出脚单线，UE5 语义）
   };
   return evolved;
 }
@@ -474,7 +474,7 @@ const assetSamples: RoundtripSample[] = [
     name: 'asset:log-analyzer-template',
     kind: 'asset',
     build: loadLogAnalyzerTemplate,
-    note: '真实资产模板 templates/log-analyzer/logic/main.bp.json 读取 → roundtrip',
+    note: '真实资产模板 templates/log-analyzer/blueprint/main.bp.json 读取 → roundtrip',
   },
   {
     name: 'asset:log-analyzer-template+snippet',

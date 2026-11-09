@@ -3,7 +3,7 @@
  *
  * 工作区接入（dock 面板）：
  *   import { BlueprintEditorPanel } from '@/blueprint';
- *   <BlueprintEditorPanel asset={irAsset} assetPath="logic/main.bp.json" onSave={...} />
+ *   <BlueprintEditorPanel asset={irAsset} assetPath="blueprint/main.bp.json" onSave={...} />
  *
  * 后续任务接线方式：
  *  - T2.3 结构面板：useBlueprintStore（asset / switchGraph / addNode 生成 Get/Set）；

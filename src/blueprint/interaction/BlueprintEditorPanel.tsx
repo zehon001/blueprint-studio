@@ -7,7 +7,7 @@
  * 经 src/blueprint/index.ts 导出，工作区接入：
  *
  *   import { BlueprintEditorPanel } from '@/blueprint';
- *   <BlueprintEditorPanel asset={irAsset} assetPath="logic/main.bp.json" onSave={...} />
+ *   <BlueprintEditorPanel asset={irAsset} assetPath="blueprint/main.bp.json" onSave={...} />
  *
  * 后续任务接线方式：
  *  - T2.7 注释框：已完成——画布右键「添加注释」（搜索菜单内伪条目拦截）、CommentLayer
@@ -17,12 +17,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { Pause, Play } from 'lucide-react';
+import { Play, Save, Square } from 'lucide-react';
 import { Icon } from '../../shell/ui/Icon';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import { registerShortcut, unregisterShortcut } from '../../shell/keymap/registry';
 import { registerSaveHandler } from '../../shell/workspace/saveRegistry';
 import { useWorkspaceStore } from '../../shell/workspace-store';
+import { launchRuntime } from '../../shell/runtime-launch';
+import { useRuntimeStore } from '../../panels/runtime/store';
 import { openAssetPanel } from '../../shell/dock/assetPanelModel';
 import { serializeIR, validateIR } from '../../ir/validate';
 import type { ValidationIssue } from '../../ir/validate';
@@ -33,8 +35,9 @@ import { useDockStore } from '../../shell/dock/store';
 import { BPGraphCanvas, headVariantFor, nodeSizeFor } from '../view';
 import type { FlowEdge, FlowNode } from '../view';
 import { useBlueprintStore, EMPTY_SELECTION } from '../store/blueprint-store';
-// T2.3 结构面板（左栏）；图签并入 dock 页签栏（UI 改版），编辑器单栏画布
+// T2.3 结构面板（左栏）；中栏为编辑器内部图签 + 画布
 import { MyBlueprint } from '../my-blueprint/MyBlueprint';
+import { GraphTabs, type GraphTabsScope } from '../my-blueprint/GraphTabs';
 // T2.7 注释框（图层 + 右键菜单 + 选中 id 换算）
 import {
   CommentContextMenu,
@@ -59,8 +62,6 @@ import {
   applyEdgeOverlay,
   applyNodeOverlay,
   buildInExecEdges,
-  loadObserveEnabled,
-  saveObserveEnabled,
   useDebugOverlay,
 } from '../../shell/debug';
 import '../../shell/debug/debug.css';
@@ -80,14 +81,16 @@ import type { IRSnippetPin } from '../../ir/types';
 export interface BlueprintEditorPanelProps {
   /** 受控资产（本期由工作区传入；文件加载接线属后续任务） */
   asset: IRAsset;
-  /** 资产路径（如 'logic/main.bp.json'；保存回调透传） */
+  /** 资产路径（如 'blueprint/main.bp.json'；保存回调透传） */
   assetPath?: string;
   /** 保存回调（Ctrl+S 校验通过后触发；返回 false = 外部校验失败，不提示保存成功） */
   onSave?: (asset: IRAsset, assetPath?: string) => void | boolean | Promise<void | boolean>;
   /** 附加类名（dock 面板内控制尺寸用） */
   className?: string;
-  /** 函数资产编辑器：单图契约，不允许再建函数子图 */
+  /** 隐藏函数分节并禁止新建局部函数（单图嵌入场景） */
   hideFunctionSection?: boolean;
+  /** 图签主入口类型（蓝图 / 内置库函数 / 项目库函数；缺省蓝图） */
+  graphScope?: GraphTabsScope;
   /** dock 面板 id（活动面板保存分发；缺省回落全局 file.save） */
   panelId?: string;
 }
@@ -125,6 +128,7 @@ function BlueprintEditorInner({
   onSave,
   className,
   hideFunctionSection = false,
+  graphScope = 'blueprint',
   panelId,
 }: BlueprintEditorPanelProps) {
   const rf = useReactFlow<FlowNode, FlowEdge>();
@@ -157,6 +161,11 @@ function BlueprintEditorInner({
   const specs = useBlueprintStore((s) => s.specs);
   const selection = useBlueprintStore((s) => s.selection);
   const dirty = useBlueprintStore((s) => s.dirty);
+  const runtimeTarget = useRuntimeStore((s) => s.target);
+  const projectParam = useWorkspaceStore((s) => {
+    const project = s.currentProject;
+    return project ? project.path || project.name : null;
+  });
   const recentSpecIds = useBlueprintStore((s) => s.recentSpecIds);
   const validation = useBlueprintStore((s) => s.validation);
   const toast = useBlueprintStore((s) => s.toast);
@@ -420,21 +429,11 @@ function BlueprintEditorInner({
 
   /* ---------------- T5.4：运行时蓝图观察（WS 反向通道叠加层） ---------------- */
 
-  // 观察开关：默认开（编辑器打开该蓝图视图时自动接入——WS 未连接 / 无运行实例时静默降级）；
-  // 状态持久化 localStorage（一键关闭即整链生效：编辑器 unsubscribe → 服务端 → 运行窗口 mute 停发）
-  const [observeEnabled, setObserveEnabled] = useState(() => loadObserveEnabled());
-  const toggleObserve = useCallback((): void => {
-    setObserveEnabled((prev) => {
-      saveObserveEnabled(!prev);
-      return !prev;
-    });
-  }, []);
-
   // nodeEnter → 入向 exec 边 的拓扑表（受控边变化时重建；流动动画的映射依据）
   const inExecEdges = useMemo(() => buildInExecEdges(interactions.edges), [interactions.edges]);
 
   const overlay = useDebugOverlay({
-    enabled: observeEnabled,
+    enabled: true,
     assetPath,
     foldContext: { inExecEdges, graphName },
   });
@@ -637,6 +636,46 @@ function BlueprintEditorInner({
   const commentOfMenu: IRComment | null =
     menu?.kind === 'comment' ? (commentList.find((c) => c.id === menu.commentId) ?? null) : null;
 
+  const isRunnableAsset = assetPath?.endsWith('.bp.json') === true;
+  const runningThisAsset =
+    isRunnableAsset && runtimeTarget?.bp === assetPath && runtimeTarget.project === projectParam;
+
+  /** 图签栏右侧操作（运行 / 保存）：水平位置沿用原画布右上浮层 */
+  const graphActions = (
+    <>
+      {isRunnableAsset ? (
+        runningThisAsset ? (
+          <button
+            type="button"
+            className="bp-canvas-action bp-canvas-action--stop"
+            title="停止运行：中止当前蓝图"
+            onClick={() => useRuntimeStore.getState().clearTarget()}
+          >
+            <Icon icon={Square} size={11} /> 停止
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="bp-canvas-action bp-canvas-action--run"
+            title="运行（F5）—— 运行当前蓝图"
+            onClick={() => void launchRuntime()}
+          >
+            <Icon icon={Play} size={11} /> 运行
+          </button>
+        )
+      ) : null}
+      <button
+        type="button"
+        className="bp-canvas-action"
+        title="保存（Ctrl+S）"
+        onClick={() => void save()}
+      >
+        <Icon icon={Save} size={11} /> 保存
+        {dirty ? <span className="bp-canvas-action-dot" aria-hidden="true" /> : null}
+      </button>
+    </>
+  );
+
   /**
    * T2.7：画布 handlers 包装——注释选择 RF 不感知，空白单击时补齐「取消注释选中」
    * （UE 同款：点空白取消全部选中；节点 / 连线取消由交互钩子的 onSelectionChange 负责）。
@@ -665,31 +704,12 @@ function BlueprintEditorInner({
         </aside>
         {/* 中部：图签 + 画布（叠加层以画布区为定位基准） */}
         <div className="bp-editor-main">
+          <GraphTabs
+            allowAdd={!hideFunctionSection}
+            scope={graphScope}
+            actions={graphActions}
+          />
           <div className="bp-editor-canvas" ref={canvasRef}>
-            {/* T5.4 观察开关（画布右上）：默认开，localStorage 记忆；WS 未连接 / 无运行实例静默降级 */}
-            <button
-              type="button"
-              className={`bp-observe-toggle${overlay.active ? ` bp-observe-toggle--on` : ''}`}
-              title={
-                overlay.active
-                  ? overlay.connected
-                    ? '观察运行中：节点高亮 / exec 流动 / 端口实时值（点击暂停）'
-                    : '观察已开启（WS 未连接，静默等待）——点击暂停'
-                  : '观察已暂停——点击开启（运行窗口的节点高亮 / 流动 / 端口值叠加）'
-              }
-              onClick={toggleObserve}
-            >
-              <span className="bp-observe-toggle-dot" aria-hidden="true" />
-              {overlay.active ? (
-                <>
-                  <Icon icon={Pause} size={11} /> 观察运行
-                </>
-              ) : (
-                <>
-                  <Icon icon={Play} size={11} /> 观察暂停
-                </>
-              )}
-            </button>
             <BPGraphCanvas
               nodes={viewNodes}
               edges={viewEdges}
@@ -747,7 +767,6 @@ function BlueprintEditorInner({
               dirty={dirty}
               graphName={graphName}
               onJump={onIssueJump}
-              onSave={save}
             />
             {toast ? (
               <div

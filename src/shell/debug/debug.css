@@ -5,8 +5,7 @@
  * 类挂载点：
  *  - .bp-node--debug-active / .bp-node--debug-error：BPNode 根元素（data.debugHighlight）；
  *  - .bp-edge--flow：连线流动动画（T2.1 已预置于 styles.css，此处不重复定义）；
- *  - .bp-debug-pin*：端口实时值徽标（ViewportPortal 层）；
- *  - .bp-observe-toggle：画布右上「观察运行」开关。
+ *  - .bp-debug-pin*：端口实时值徽标（ViewportPortal 层）。
  */
 
 /* ============ 节点高亮：描边脉冲（2s 衰减，nodeEnter/nodeExit） ============ */
@@ -85,44 +84,3 @@
   color: var(--success);
 }
 
-/* ============ 画布右上「观察运行」开关 ============ */
-
-.bp-observe-toggle {
-  position: absolute;
-  top: var(--space-2);
-  right: var(--space-2);
-  z-index: 45;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-ui);
-  font-size: var(--font-xs);
-  color: var(--text-dim);
-  cursor: pointer;
-}
-
-.bp-observe-toggle:hover {
-  color: var(--text);
-  border-color: var(--focus-ring);
-}
-
-/* 开 / 关状态点：绿=连接中观察，灰=未启用/未连接 */
-.bp-observe-toggle-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-disabled);
-}
-
-.bp-observe-toggle--on .bp-observe-toggle-dot {
-  background: var(--success);
-}
-
-.bp-observe-toggle--on {
-  color: var(--text);
-  border-color: var(--accent);
-}

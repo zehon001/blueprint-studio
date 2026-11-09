@@ -1,8 +1,9 @@
 /**
  * 函数资产编辑器（v3 T12.2）
  *
- * .fn.json 是「单图 + 签名」资产，不是 IRAsset；本组件把它包装成蓝图编辑器可编辑的
- * IRAsset 视图（entry = 'main'），保存时写回 .fn.json（项目文件 / 内置库 REST）。
+ * .fn.json 是「主图 + 签名（可选局部函数图）」资产，不是 IRAsset；本组件把它包装成
+ * 蓝图编辑器可编辑的 IRAsset 视图（entry = 'main'），保存时写回 .fn.json
+ * （项目文件 / 内置库 REST）。主图与局部函数图统一由编辑器内部图签切换。
  * 项目路径示例：library/functions/fmt.fn.json；内置库：@library/functions/fmt。
  */
 import { useEffect, useState } from 'react'
@@ -109,7 +110,7 @@ export function FunctionTab({ path, panelId }: FunctionTabProps) {
       assetPath={path}
       onSave={(ir) => save(ir)}
       className="workspace-bp-panel"
-      hideFunctionSection
+      graphScope={isLibraryFunctionPath(path) ? 'builtin' : 'project'}
       panelId={panelId ?? `asset:function:${path}`}
       key={panelId}
     />

@@ -10,7 +10,7 @@
  * 组件只做订阅与渲染。
  */
 import { useEffect, useRef, useState } from 'react'
-import { useRuntimeStore } from '@/panels/runtime/store'
+import { useConsoleUiStore } from './ui-store'
 import {
   CONSOLE_CHANNEL,
   CONSOLE_MAX_LINES,
@@ -44,7 +44,7 @@ export function reduceConsoleMessage(rows: ConsoleRow[], msg: ConsoleMessage): C
 export function ConsolePanel() {
   const [rows, setRows] = useState<ConsoleRow[]>([])
   const bodyRef = useRef<HTMLDivElement | null>(null)
-  const runtimeTarget = useRuntimeStore((s) => s.target)
+  const clearSeq = useConsoleUiStore((s) => s.clearSeq)
 
   useEffect(() => {
     if (typeof BroadcastChannel === 'undefined') return
@@ -63,6 +63,11 @@ export function ConsolePanel() {
     }
   }, [])
 
+  // 清空按钮在 dock 标签栏：收到请求后清空当前显示
+  useEffect(() => {
+    if (clearSeq > 0) setRows([])
+  }, [clearSeq])
+
   // 跟随滚动到底部（最新输出可见）
   useEffect(() => {
     const body = bodyRef.current
@@ -71,22 +76,6 @@ export function ConsolePanel() {
 
   return (
     <div className="bps-console">
-      <div className="bps-console-toolbar">
-        <span className="bps-console-title">控制台</span>
-        <span className="bps-console-hint" title={runtimeTarget ? runtimeTarget.bp : undefined}>
-          {runtimeTarget
-            ? `运行中 · ${runtimeTarget.bp} —— print / 生命周期 / 错误实时推送到这里`
-            : '运行窗口日志实时推送（print / 生命周期 / 错误）'}
-        </span>
-        <button
-          type="button"
-          className="bps-console-clear"
-          onClick={() => setRows([])}
-          title="清空当前显示（不影响运行窗口）"
-        >
-          清空
-        </button>
-      </div>
       <div className="bps-console-body" ref={bodyRef}>
         {rows.length === 0 ? (
           <div className="bps-console-empty">暂无输出 —— F5/F6 打开运行窗口后，print / 生命周期 / 错误行实时显示在这里。</div>

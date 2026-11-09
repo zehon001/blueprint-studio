@@ -73,10 +73,10 @@ test('v3 项目：新建 → 写蓝图 → 读回 version3/graphs', { skip: serv
   const write = await api('/api/file', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: `${PROJECT}/logic/main.bp.json`, content: v3Bp() }),
+    body: JSON.stringify({ path: `${PROJECT}/blueprint/main.bp.json`, content: v3Bp() }),
   })
   assert.equal(write.json.ok, true)
-  const read = await api(`/api/file?path=${encodeURIComponent(`${PROJECT}/logic/main.bp.json`)}`)
+  const read = await api(`/api/file?path=${encodeURIComponent(`${PROJECT}/blueprint/main.bp.json`)}`)
   assert.equal(read.json.ok, true)
   const asset = JSON.parse(String(read.json.content)) as {
     version: number

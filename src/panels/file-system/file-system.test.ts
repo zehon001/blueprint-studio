@@ -236,10 +236,10 @@ describe('路径工具（posix）', () => {
       layout: Record<string, unknown>
     }
     assert.equal(bp.version, 3)
-    assert.equal(bp.entry, 'bind')
-    assert.deepEqual(Object.keys(bp.graphs), ['bind'])
-    assert.equal(bp.graphs.bind!.nodes[0]?.type, 'event.start', '新蓝图带开始事件')
-    assert.deepEqual(bp.graphs.bind!.edges, [])
+    assert.equal(bp.entry, 'main')
+    assert.deepEqual(Object.keys(bp.graphs), ['main'])
+    assert.equal(bp.graphs.main!.nodes[0]?.type, 'event.start', '新蓝图带开始事件')
+    assert.deepEqual(bp.graphs.main!.edges, [])
     assert.deepEqual(bp.variables, [])
     assert.deepEqual(bp.events, [])
     assert.deepEqual(bp.snippets, [])
@@ -479,8 +479,8 @@ describe('filesystem 命令日志与 undo 映射（T0.7 DoD）', () => {
 
     const bp = contentForCreate({ kind: 'create', label: '', ts: '', path: 'P/logic/a.bp.json', targetKind: 'file', template: 'bp' })
     const bpAsset = JSON.parse(bp) as { entry: string; graphs: Record<string, unknown> }
-    assert.equal(bpAsset.entry, 'bind')
-    assert.deepEqual(Object.keys(bpAsset.graphs), ['bind'])
+    assert.equal(bpAsset.entry, 'a')
+    assert.deepEqual(Object.keys(bpAsset.graphs), ['a'])
 
     const text = redoActionOf({
       kind: 'create',

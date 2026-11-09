@@ -33,8 +33,8 @@ import type { ProjectFile } from '../src/ir/types'
 /** 引擎版本（模板 project.json 的 engineVersion 默认值；与 package.json version 对齐） */
 export const ENGINE_VERSION = '3.0.0'
 
-/** 项目标准子目录（PLAN §4.1）：新建项目时确保全部存在 */
-export const PROJECT_DIRS = ['logic', 'assets', 'plugins', '.history'] as const
+/** 项目标准子目录：新建项目时确保全部存在（蓝图目录使用 blueprint/） */
+export const PROJECT_DIRS = ['blueprint', 'assets', 'plugins', '.history'] as const
 
 /** 目录树 / 监视中隐藏的目录名（.history 为 T7.4 快照目录） */
 const HIDDEN_DIR_NAMES: ReadonlySet<string> = new Set(['.history'])
@@ -1140,7 +1140,7 @@ export interface ImportFolderResult {
  *  - name 缺省时用源文件夹名；目标重名不覆盖，自动 ` (2)` / ` (3)` 后缀；
  *  - 源含 project.json → 整体复制入安全根；
  *  - 源不含 project.json → 复制后按 PLAN §4.1 补脚手架：缺失标准目录补齐 +
- *    最小 project.json（mainBlueprint 探测 logic/*.bp.json 的第一个，没有则新建入门蓝图）。
+ *    最小 project.json（mainBlueprint 探测 blueprint/*.bp.json 的第一个，没有则新建入门蓝图）。
  */
 export function importProjectFolder(root: string, sourcePath: unknown, name?: unknown): ImportFolderResult {
   if (typeof sourcePath !== 'string' || !sourcePath.trim()) {
@@ -1237,7 +1237,7 @@ function scaffoldProject(projectDir: string, name: string): void {
   for (const dir of PROJECT_DIRS) fs.mkdirSync(path.join(projectDir, dir), { recursive: true })
   let mainBlueprint = detectMainBlueprint(projectDir)
   if (!mainBlueprint) {
-    mainBlueprint = 'logic/main.bp.json'
+    mainBlueprint = 'blueprint/main.bp.json'
     fs.mkdirSync(path.dirname(path.join(projectDir, mainBlueprint)), { recursive: true })
     fs.writeFileSync(path.join(projectDir, mainBlueprint), JSON.stringify(STARTER_BLUEPRINT, null, 2), 'utf8')
   }
@@ -1250,12 +1250,12 @@ function scaffoldProject(projectDir: string, name: string): void {
   fs.writeFileSync(path.join(projectDir, 'project.json'), JSON.stringify(pf, null, 2), 'utf8')
 }
 
-/** mainBlueprint 探测：logic/ 目录下第一个 *.bp.json（按 COLLATOR 排序保证确定性），没有则 null */
+/** mainBlueprint 探测：blueprint/ 目录下第一个 *.bp.json（按 COLLATOR 排序保证确定性），没有则 null */
 function detectMainBlueprint(projectDir: string): string | null {
-  const logicDir = path.join(projectDir, 'logic')
+  const blueprintDir = path.join(projectDir, 'blueprint')
   let entries: fs.Dirent[]
   try {
-    entries = fs.readdirSync(logicDir, { withFileTypes: true })
+    entries = fs.readdirSync(blueprintDir, { withFileTypes: true })
   } catch {
     return null
   }
@@ -1263,7 +1263,7 @@ function detectMainBlueprint(projectDir: string): string | null {
     .filter((e) => e.isFile() && e.name.toLowerCase().endsWith('.bp.json'))
     .map((e) => e.name)
     .sort((a, b) => COLLATOR.compare(a, b))
-  return candidates.length > 0 ? `logic/${candidates[0]}` : null
+  return candidates.length > 0 ? `blueprint/${candidates[0]}` : null
 }
 
 /** 补脚手架时新建的入门蓝图（开始 → 打印，纯蓝图工作流的最小可运行资产） */

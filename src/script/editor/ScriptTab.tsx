@@ -131,7 +131,7 @@ function safeParse(text: string): { asset: IRAssetLike | null; diagnostics: Pars
 }
 
 export interface ScriptTabProps {
-  /** 资产路径（项目内相对，如 'logic/parser.ts'） */
+  /** 资产路径（项目内相对，如 'blueprint/parser.ts'） */
   assetPath: string
   /** 脏标记防抖毫秒数（默认 300，DoD 口径；测试可调小） */
   dirtyDebounceMs?: number

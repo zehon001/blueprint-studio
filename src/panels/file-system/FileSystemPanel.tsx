@@ -2,14 +2,19 @@
  * 文件系统面板（T0.7 · PLAN §6.2 左列 / 术语映射 FileSystem Dock → 文件系统面板）
  *
  * 功能：
- *  - 树：根 = 当前项目（workspace-store.currentProject，URL ?project= 初始化），
- *    GET /api/tree 加载；目录折叠展开、文件带扩展名图标字符；未打开项目时空态提示。
+ *  - 树：统一虚拟根（@fs）= assets + internal-library。
+ *    assets 映射当前项目（blueprint/ 蓝图目录、library/ 项目库照常显示；
+ *    根 project.json 作为项目元数据隐藏）；
+ *    内置库来自 /api/library/list，显示为 internal-library/functions。
+ *    目录折叠展开、文件带扩展名图标；未打开项目时空态提示。
  *  - 文件监视：GET /api/watch SSE 订阅，add / unlink 增量合并（change 不刷），防抖 300ms；
- *    无法安全增量合并时整体重载；卸载断开。
+ *    内置库 SSE 触发整体刷新；无法安全增量合并时整体重载。
  *  - 双击：文件 → workspace openAsset（.ui.json→UI / .bp.json→蓝图 / .ts·.py→脚本，
  *    其余提示不支持）；目录 → 折叠切换（不是打开）。
  *  - 右键菜单（通用 Menu 组件）：文件=打开/历史快照…/重命名/复制/删除；
- *    目录=新建文件/新建文件夹/重命名/删除/导入文件到此处；空白=新建文件/新建文件夹/刷新/导入。
+ *    目录=新建文件/新建文件夹/重命名/删除/刷新/导入文件到此处；
+ *    内置库目录=刷新；内置库文件=打开/重命名/刷新/删除；
+ *    空白=新建文件/新建文件夹/刷新/导入。
  *    重命名为行内编辑（Enter 确认 Esc 取消）；删除经 confirm 后 DELETE。
  *  - 历史快照（T7.4）：文件右键「历史快照…」弹列表（新 → 旧）→ 选择版本恢复；
  *    恢复前服务端自动为当前内容留快照（可再恢复撤销）；恢复成功后刷新文件树，
@@ -18,7 +23,8 @@
  *    事件中隐藏，不在面板显示。
  *  - 撤销：全部写操作经 runCommand('filesystem', ...) 入统一命令栈（见 commands.ts），
  *    undo/redo 由模块级同步执行磁盘补偿；本面板订阅通知刷新树 + toast。
- *  - 拖拽移动：文件 / 目录拖到目录行 = 移入该目录；拖到面板空白 = 移入项目根。
+ *  - 拖拽移动：assets 内文件 / 目录拖到目录行 = 移入该目录；拖到面板空白 = 移入 assets 根。
+ *    内置库为虚拟目录 / 独立 API，不参与拖拽移动；项目库随 assets 正常拖拽。
  *    只调整所属目录、不支持排序（无 before/after 落区）；项目根 / 自身 / 自身子树 /
  *    同名冲突拒绝。落定 POST /api/move 并入命令栈「移动…」（Ctrl+Z 移回）。
  *  - 拖入导入：OS 文件拖到目录行或面板空白 → 读文本 → PUT /api/file（二进制提示走右键导入）。
@@ -53,7 +59,7 @@ import { toast } from 'sonner'
 import { Icon } from '@/shell/ui/Icon'
 import { IconButton } from '@/shell/ui/IconButton'
 import { Dialog } from '@/shell/ui/Dialog'
-import { fileIconFor } from '@/shell/ui/icons'
+import { assetIconFor, fileIconFor } from '@/shell/ui/icons'
 import { useWorkspaceStore } from '@/shell/workspace-store'
 import { assetPanelId, openAssetPanel } from '@/shell/dock/assetPanelModel'
 import { useDockStore } from '@/shell/dock/store'
@@ -64,12 +70,22 @@ import {
   applyFsEvents,
   checkFsMove,
   findNode,
-  hideProjectLibrary,
   sortTree,
   type FsChangeEvent,
   type FsMoveCheck,
   type FsNode,
 } from './tree-model'
+import {
+  ASSETS_ROOT,
+  assetPathOfDisplay,
+  buildMergedTree,
+  defaultExpandedPaths,
+  displayToRealPath,
+  internalLibraryEntryName,
+  isLibraryDirectory,
+  projectRelPathOfDisplay,
+  virtualZoneOf,
+} from './virtual-roots'
 import {
   assetKindOf,
   baseName,
@@ -86,6 +102,13 @@ import {
 } from './paths'
 import { mkdirViaPlaceholder, onFsNotice, onFsRefresh, runFsCommand, type FsNoticeKind } from './commands'
 import { cascadeFunctionRename } from '@/panels/library/cascade-fn'
+import {
+  deleteLibraryEntry,
+  listLibraryEntries,
+  renameLibraryEntry,
+  watchLibrary,
+} from '@/panels/library/api'
+import { useLibraryUiStore } from '@/panels/library/ui-store'
 import './menu.css'
 import './styles.css'
 
@@ -165,16 +188,15 @@ export interface NewAssetType {
 
 /** 全部资产类型（纯蓝图工作流：蓝图 / 脚本 / 函数） */
 export const NEW_ASSET_TYPES: readonly NewAssetType[] = [
-  { id: 'blueprint', label: '蓝图（.bp.json）', dir: 'logic', ext: '.bp.json', template: 'bp' },
+  { id: 'blueprint', label: '蓝图（.bp.json）', dir: 'blueprint', ext: '.bp.json', template: 'bp' },
   { id: 'function', label: '函数（.fn.json）', dir: 'library/functions', ext: '.fn.json', template: 'fn' },
-  { id: 'script-ts', label: '脚本（.ts）', dir: 'logic', ext: '.ts', template: 'text' },
-  { id: 'script-py', label: '脚本（.py）', dir: 'logic', ext: '.py', template: 'text' },
+  { id: 'script-ts', label: '脚本（.ts）', dir: 'blueprint', ext: '.ts', template: 'text' },
+  { id: 'script-py', label: '脚本（.py）', dir: 'blueprint', ext: '.py', template: 'text' },
 ]
 
 function NewAssetModal(props: {
   /** 右键目录（仅作提示；实际落盘仍按类型约定目录） */
   fromDir: string
-  projectPath: string
   onCancel: () => void
   onCreate: (type: NewAssetType, fileName: string) => void
 }) {
@@ -187,6 +209,8 @@ function NewAssetModal(props: {
   const fileName = stem ? `${stem}${type.ext}` : ''
   const invalid = stem ? validateFileName(fileName) : null
   const canCreate = stem !== '' && invalid === null
+  const targetPath = joinPosix(ASSETS_ROOT, type.dir)
+  const targetDir = targetPath.replace(/^@fs\//, '')
   return (
     <Dialog
       title="新建资产"
@@ -246,8 +270,8 @@ function NewAssetModal(props: {
         />
       </div>
       <div className="fs-modal-hint">
-        目标：{joinPosix(props.projectPath, type.dir)}/{fileName || `${'{主名}'}${type.ext}`}
-        {props.fromDir !== joinPosix(props.projectPath, type.dir)
+        目标：{targetDir}/{fileName || `${'{主名}'}${type.ext}`}
+        {props.fromDir !== targetPath
           ? '（按类型约定目录，不跟随右键目录）'
           : ''}
       </div>
@@ -397,14 +421,23 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     }
     try {
       const { tree: dto } = await api.readTree(projectPath)
-      const root = hideProjectLibrary(sortTree(dto))
+      let builtinFunctions: Array<{ name: string }> = []
+      try {
+        builtinFunctions = await listLibraryEntries('functions')
+      } catch {
+        /* 内置库不可用：显示空的 internal-library/functions */
+      }
+      const root = buildMergedTree({
+        projectName: project?.name ?? projectPath,
+        projectTree: sortTree(dto),
+        builtinFunctions,
+      })
       setTree(root)
       setLoadError(null)
       if (loadedProjectRef.current !== projectPath) {
         loadedProjectRef.current = projectPath
-        // 默认展开：项目根 + 第一层目录（Godot 内容浏览器习惯）
-        const def = new Set<string>([root.path])
-        for (const c of root.children) if (c.type === 'dir') def.add(c.path)
+        // 默认展开：根 + assets / 内置库 + 内置库 functions 目录
+        const def = new Set<string>(defaultExpandedPaths())
         setExpanded(def)
         setSelected(null)
       }
@@ -412,7 +445,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       setTree(null)
       setLoadError(errorMessage(e))
     }
-  }, [api, projectPath])
+  }, [api, projectPath, project?.name])
 
   useEffect(() => {
     void refresh()
@@ -436,7 +469,8 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
           if (e.type === 'change') continue // change 不需要刷
           // T7.4：.history 快照写入理论上已被服务端 watch 过滤，这里兜底跳过双保险
           if (e.path.split('/').includes('.history')) continue
-          pending.push(e)
+          // 其余项目文件统一挂在 assets 虚拟根下
+          pending.push({ ...e, path: `assets/${e.path}` })
         }
         if (pending.length > 0 && timer === null) {
           timer = window.setTimeout(() => {
@@ -448,7 +482,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
               return
             }
             const next = applyFsEvents(cur, batch)
-            if (next) setTree(hideProjectLibrary(next))
+            if (next) setTree(next)
             else void refresh() // 无法安全增量合并（整目录删除等）→ 整体重载
           }, WATCH_DEBOUNCE_MS)
         }
@@ -462,6 +496,9 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       if (timer !== null) window.clearTimeout(timer)
     }
   }, [api, projectPath, refresh])
+
+  /* —— 内置库变更（新建 / 重命名 / 删除 / 导入）→ 整体刷新 —— */
+  useEffect(() => watchLibrary(() => void refresh()), [refresh])
 
   /* —— undo/redo 磁盘补偿完成 → 刷新树；补偿通知 → toast —— */
   useEffect(() => {
@@ -482,8 +519,8 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   /** 相对项目根的路径（workspace openAsset 的 assetPath 约定，与 SEED_TABS 一致） */
   const relInProject = useCallback(
     (path: string): string => {
-      const prefix = projectPath ? `${projectPath}/` : ''
-      return prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path
+      if (!projectPath) return path
+      return projectRelPathOfDisplay(path) ?? path
     },
     [projectPath],
   )
@@ -515,7 +552,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     setSelected(node.path)
     publishSelection({
       source: 'file',
-      path: node.path,
+      path: assetPathOfDisplay(node.path) ?? node.path,
       name: node.name,
       kind: node.type,
       ext: node.ext,
@@ -528,6 +565,11 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
 
   /** 开始内部拖拽：记录路径 + 写入 dataTransfer（与 OS 文件拖入的 'Files' 区分） */
   function beginInternalDrag(e: ReactDragEvent, node: FsNode): void {
+    if (virtualZoneOf(node.path) !== 'assets') {
+      e.preventDefault()
+      showToast('info', '资源库条目不支持拖拽')
+      return
+    }
     dragPathRef.current = node.path
     setDraggingPath(node.path)
     setDragOver(null)
@@ -562,7 +604,11 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   /** 拖拽落定：移动节点到目标目录；入 filesystem 命令栈（undo = 移回原目录） */
   async function moveNodeTo(from: string, toDir: string): Promise<void> {
     const root = treeRef.current
-    if (!root) return
+    if (!root || !projectPath) return
+    if (virtualZoneOf(from) !== 'assets' || virtualZoneOf(toDir) !== 'assets') {
+      showToast('info', '资源库目录不支持拖拽移动')
+      return
+    }
     const check = checkFsMove(root, from, toDir)
     if (!check.ok || !check.to) {
       if (check.reason) showToast('error', `无法移动：${check.reason}`)
@@ -571,15 +617,22 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     const source = findNode(root, from)
     if (!source) return
     const to = check.to
+    const realFrom = displayToRealPath(projectPath, from)
+    const realTo = displayToRealPath(projectPath, to)
+    if (!realFrom || !realTo) return
     try {
-      const r = await api.move(from, to)
+      const r = await api.move(realFrom, realTo)
       if (!r.moved) return
     } catch (e) {
       showToast('error', `移动失败：${errorMessage(e)}`)
       return
     }
     const destLabel = toDir === root.path ? '项目根' : baseName(toDir)
-    runFsCommand(`移动「${source.name}」到「${destLabel}」`, { kind: 'rename', from, to })
+    runFsCommand(`移动「${source.name}」到「${destLabel}」`, {
+      kind: 'rename',
+      from: realFrom,
+      to: realTo,
+    })
     setExpanded((prev) => remapPathSet(prev, from, to))
     setSelected((cur) => {
       if (cur === null) return cur
@@ -591,9 +644,10 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     if (selected && (selected === from || selected.startsWith(`${from}/`))) {
       const selNode = findNode(root, selected)
       if (selNode) {
+        const movedPath = `${to}${selected.slice(from.length)}`
         publishSelection({
           source: 'file',
-          path: `${to}${selected.slice(from.length)}`,
+          path: assetPathOfDisplay(movedPath) ?? movedPath,
           name: selNode.name,
           kind: selNode.type,
           ext: selNode.ext,
@@ -607,14 +661,15 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
 
   function openFileNode(node: FsNode): void {
     const kind = assetKindOf(node.name)
-    if (!kind) {
+    const assetPath = assetPathOfDisplay(node.path)
+    if (!kind || !assetPath) {
       showToast(
         'info',
         `暂不支持打开「${node.name}」（支持 .fn.json / .bp.json / .ts / .py）`,
       )
       return
     }
-    openAssetPanel(kind, relInProject(node.path))
+    openAssetPanel(kind, assetPath)
   }
 
   function startRename(path: string): void {
@@ -653,12 +708,22 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       return
     }
     const to = joinPosix(parentOf(path), name)
+    const realPath = projectPath ? displayToRealPath(projectPath, path) : null
+    const realTo = projectPath ? displayToRealPath(projectPath, to) : null
+    if (!realPath || !realTo) {
+      showToast('info', '资源库文件请使用右键菜单重命名')
+      return
+    }
     void (async () => {
       try {
-        const r = await api.move(path, to)
+        const r = await api.move(realPath, realTo)
         setRenamingPath(null)
         if (!r.moved) return // 同名 move = no-op（Windows 大小写歧义），不入栈
-        runFsCommand(`重命名「${node.name}」为「${name}」`, { kind: 'rename', from: path, to })
+        runFsCommand(`重命名「${node.name}」为「${name}」`, {
+          kind: 'rename',
+          from: realPath,
+          to: realTo,
+        })
         // 资产改名级联（项目函数）
         if (project && node.type === 'file') {
           const fromLower = name.toLowerCase()
@@ -688,14 +753,20 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       showToast('error', invalid)
       return
     }
+    const realDir = projectPath ? displayToRealPath(projectPath, dirPath) : null
+    if (!realDir) {
+      showToast('info', '资源库目录请使用「编辑 → 资源库 → 新建函数」')
+      return
+    }
     const siblings = (tree ? findNode(tree, dirPath)?.children ?? [] : []).map((c) => c.name)
     const finalName = dedupeName(siblings, name)
     const finalPath = joinPosix(dirPath, finalName)
+    const finalReal = joinPosix(realDir, finalName)
     try {
-      await api.writeFile(finalPath, contentForNewFile(finalName))
+      await api.writeFile(finalReal, contentForNewFile(finalName))
       runFsCommand(`新建文件「${finalName}」`, {
         kind: 'create',
-        path: finalPath,
+        path: finalReal,
         targetKind: 'file',
         template: newFileTemplateOf(finalName),
       })
@@ -712,12 +783,18 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   }
 
   async function createDir(dirPath: string): Promise<void> {
+    const realDir = projectPath ? displayToRealPath(projectPath, dirPath) : null
+    if (!realDir) {
+      showToast('info', '资源库目录不支持新建文件夹')
+      return
+    }
     const siblings = (tree ? findNode(tree, dirPath)?.children ?? [] : []).map((c) => c.name)
     const name = dedupeName(siblings, '新文件夹')
     const path = joinPosix(dirPath, name)
+    const realPath = joinPosix(realDir, name)
     try {
-      await mkdirViaPlaceholder(path, api)
-      runFsCommand(`新建文件夹「${name}」`, { kind: 'create', path, targetKind: 'dir' })
+      await mkdirViaPlaceholder(realPath, api)
+      runFsCommand(`新建文件夹「${name}」`, { kind: 'create', path: realPath, targetKind: 'dir' })
       expandTo(path)
       await refresh()
       setRenameExt('')
@@ -730,16 +807,22 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   }
 
   async function deleteNode(node: FsNode): Promise<void> {
+    if (!projectPath || virtualZoneOf(node.path) !== 'assets') {
+      showToast('info', '资源库文件请使用右键删除')
+      return
+    }
+    const realPath = displayToRealPath(projectPath, node.path)
+    if (!realPath) return
     const isDir = node.type === 'dir'
     const message = isDir
       ? `确定删除文件夹「${node.name}」及其全部内容？\n（.history 快照按文件留存，文件夹删除暂不可撤销）`
       : `确定删除文件「${node.name}」？\n（删除前服务端会自动留存 .history 快照，Ctrl+Z 可撤销删除）`
     if (!window.confirm(message)) return
     try {
-      await api.deletePath(node.path)
+      await api.deletePath(realPath)
       runFsCommand(`删除「${node.name}」`, {
         kind: 'delete',
-        path: node.path,
+        path: realPath,
         wasKind: isDir ? 'dir' : 'file',
       })
       setSelected((cur) => (cur === node.path ? null : cur))
@@ -751,10 +834,17 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
 
   /** 复制（同目录副本）：走服务端 /api/import 本地复制（支持二进制与目录），落盘产物入撤销日志 */
   async function duplicateNode(node: FsNode): Promise<void> {
+    if (!projectPath || virtualZoneOf(node.path) !== 'assets') {
+      showToast('info', '资源库文件不支持复制')
+      return
+    }
     try {
+      const realPath = displayToRealPath(projectPath, node.path)
+      const realParent = displayToRealPath(projectPath, parentOf(node.path))
+      if (!realPath || !realParent) return
       const root = (await api.projectsRoot()).replace(/\/+$/, '')
-      const sourceAbs = `${root}/${node.path}`
-      const r = await api.importFile(parentOf(node.path), sourceAbs)
+      const sourceAbs = `${root}/${realPath}`
+      const r = await api.importFile(realParent, sourceAbs)
       runFsCommand(`复制「${node.name}」`, {
         kind: 'import',
         path: r.target,
@@ -773,8 +863,13 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       showToast('error', '请输入本地文件 / 文件夹的绝对路径')
       return
     }
+    const realTargetDir = projectPath ? displayToRealPath(projectPath, targetDir) : null
+    if (!realTargetDir) {
+      showToast('info', '资源库目录不支持导入文件')
+      return
+    }
     try {
-      const r = await api.importFile(targetDir, sourcePath)
+      const r = await api.importFile(realTargetDir, sourcePath)
       runFsCommand(`导入「${baseName(r.target)}」`, { kind: 'import', path: r.target, sourcePath })
       expandTo(targetDir)
       await refresh()
@@ -789,6 +884,11 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     const files = Array.from(e.dataTransfer?.files ?? [])
     if (files.length === 0) {
       showToast('info', '未检测到拖入的文件')
+      return
+    }
+    const realTargetDir = projectPath ? displayToRealPath(projectPath, targetDir) : null
+    if (!realTargetDir) {
+      showToast('info', '资源库目录不支持拖入导入')
       return
     }
     const names = (tree ? findNode(tree, targetDir)?.children ?? [] : []).map((c) => c.name)
@@ -807,7 +907,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       }
       const name = dedupeName(names, file.name)
       names.push(name)
-      const path = joinPosix(targetDir, name)
+      const path = joinPosix(realTargetDir, name)
       try {
         await api.writeFile(path, text)
         runFsCommand(`导入「${name}」（拖入）`, {
@@ -835,8 +935,13 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
 
   /** 打开某文件的历史快照列表（文件已删除的场景经删除撤销的 restore 磁盘动作处理） */
   async function openHistory(node: FsNode): Promise<void> {
+    const realPath = projectPath ? displayToRealPath(projectPath, node.path) : null
+    if (!realPath) {
+      showToast('info', '资源库文件暂不支持历史快照')
+      return
+    }
     try {
-      const r = await api.listHistory(node.path)
+      const r = await api.listHistory(realPath)
       setHistory({ node, entries: r.entries })
     } catch (e) {
       showToast('error', `读取历史快照失败：${errorMessage(e)}`)
@@ -845,6 +950,8 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
 
   /** 恢复到指定快照：服务端会先为当前内容留快照；成功后刷新树并重载已打开的 tab */
   async function restoreSnapshot(node: FsNode, ts: string): Promise<void> {
+    const realPath = projectPath ? displayToRealPath(projectPath, node.path) : null
+    if (!realPath) return
     const rel = relInProject(node.path)
     // 打开中的同名 tab 有未保存修改时先确认（恢复以磁盘内容为准，编辑器将重新读盘）
     const hasDirty = useWorkspaceStore.getState().openTabs.some((t) => t.assetPath === rel && t.dirty)
@@ -852,7 +959,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       return
     }
     try {
-      const r = await api.restore(node.path, ts)
+      const r = await api.restore(realPath, ts)
       setHistory(null)
       reloadOpenTabs(rel)
       await refresh()
@@ -883,7 +990,51 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     openMenuAtPoint(rect.left, rect.bottom + 2, items)
   }
 
+  async function renameInternalLibraryFile(node: FsNode): Promise<void> {
+    const from = internalLibraryEntryName(node.path)
+    if (!from) return
+    const to = window.prompt(`重命名内置库函数「${from}」为：`, from)?.trim()
+    if (!to || to === from) return
+    try {
+      await renameLibraryEntry('functions', from, to)
+      if (project) await cascadeFunctionRename(project.path, from, to)
+      useLibraryUiStore.getState().bump()
+      await refresh()
+      showToast('success', `已重命名「${from}」为「${to}」`)
+    } catch (e) {
+      showToast('error', `重命名失败：${errorMessage(e)}`)
+    }
+  }
+
+  async function deleteInternalLibraryFile(node: FsNode): Promise<void> {
+    const name = internalLibraryEntryName(node.path)
+    if (!name) return
+    if (!window.confirm(`删除内置库函数「${name}」？服务端会保留 .history 快照。`)) return
+    try {
+      await deleteLibraryEntry('functions', name)
+      useLibraryUiStore.getState().bump()
+      await refresh()
+      showToast('success', `已删除「${name}」`)
+    } catch (e) {
+      showToast('error', `删除失败：${errorMessage(e)}`)
+    }
+  }
+
+  function libraryFileMenu(node: FsNode): MenuItem[] {
+    return [
+      { label: '打开', icon: FolderOpen, onSelect: () => openFileNode(node) },
+      { label: '重命名…', icon: Pencil, onSelect: () => void renameInternalLibraryFile(node) },
+      { label: '刷新', icon: RefreshCw, onSelect: () => void refresh() },
+      { separator: true },
+      { label: '删除', icon: Trash2, danger: true, onSelect: () => void deleteInternalLibraryFile(node) },
+    ]
+  }
+
   function fileMenuItems(node: FsNode): MenuItem[] {
+    const zone = virtualZoneOf(node.path)
+    if (zone === 'internal-library') {
+      return libraryFileMenu(node)
+    }
     return [
       { label: '打开', icon: FolderOpen, disabled: assetKindOf(node.name) === null, onSelect: () => openFileNode(node) },
       { label: '历史快照…', icon: History, onSelect: () => void openHistory(node) },
@@ -895,10 +1046,14 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   }
 
   function dirMenuItems(node: FsNode): MenuItem[] {
+    if (isLibraryDirectory(node)) {
+      return [{ label: '刷新', icon: RefreshCw, onSelect: () => void refresh() }]
+    }
     return [
       { label: '新建资产…', icon: FolderPlus, onSelect: () => setNewAsset({ fromDir: node.path }) },
       { label: '新建文件（自定义扩展名）', icon: FilePlus2, onSelect: () => setPrompt(newFilePrompt(node.path)) },
       { label: '新建文件夹', icon: FolderPlus, onSelect: () => void createDir(node.path) },
+      { label: '刷新', icon: RefreshCw, onSelect: () => void refresh() },
       { label: '重命名', icon: Pencil, onSelect: () => startRename(node.path) },
       { label: '删除', icon: Trash2, danger: true, onSelect: () => void deleteNode(node) },
       { separator: true },
@@ -935,9 +1090,9 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
   /** 新建资产向导：按类型约定目录落盘（复用 createFile 的去重/撤销/行内重命名） */
   async function createAsset(type: NewAssetType, fileName: string): Promise<void> {
     setNewAsset(null)
-    const base = projectPath ?? ''
-    if (!base) return
-    await createFile(joinPosix(base, type.dir), fileName)
+    if (!projectPath) return
+    const dir = joinPosix(ASSETS_ROOT, type.dir)
+    await createFile(dir, fileName)
   }
 
   function importPrompt(dirPath: string): PromptState {
@@ -1090,7 +1245,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
             }
             style={{ paddingLeft: `calc(var(--space-2) + ${depth * 14}px)` }}
             title={node.path}
-            draggable={renamingPath !== node.path}
+            draggable={renamingPath !== node.path && !isLibraryDirectory(node)}
             onClick={() => selectNode(node)}
             onDoubleClick={() => toggleExpand(node.path)}
             onDragStart={(e) => beginInternalDrag(e, node)}
@@ -1102,6 +1257,10 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
               openMenuAt(e, dirMenuItems(node))
             }}
             onDragOver={(e) => {
+              if (isLibraryDirectory(node)) {
+                e.stopPropagation()
+                return
+              }
               if (dragPathRef.current) {
                 // 内部拖拽：只有「移入本目录」一个落点（排序已禁用）
                 e.stopPropagation()
@@ -1129,6 +1288,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
             onDrop={(e) => {
               e.preventDefault()
               e.stopPropagation()
+              if (isLibraryDirectory(node)) return
               const from = dragPathRef.current
               setDragOver(null)
               if (from) {
@@ -1162,7 +1322,14 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         </Fragment>
       )
     }
-    const spec = fileIconFor(node.name)
+    const zone = virtualZoneOf(node.path)
+    const functionSpec = assetIconFor('function')
+    const spec =
+      zone === 'internal-library'
+        ? { icon: functionSpec.icon, color: 'var(--fn-builtin)' }
+        : /\.fn\.json$/i.test(node.name)
+          ? { icon: functionSpec.icon, color: 'var(--fn-project)' }
+          : fileIconFor(node.name)
     const isBp = /\.bp\.json$/i.test(node.name)
     const isUi = /\.ui\.json$/i.test(node.name)
     return (
@@ -1174,7 +1341,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         className={`fs-row${selected === node.path ? ' selected' : ''}${draggingPath === node.path ? ' dragging' : ''}`}
         style={{ paddingLeft: `calc(var(--space-2) + ${depth * 14}px)` }}
         title={node.path}
-        draggable={renamingPath !== node.path}
+        draggable={renamingPath !== node.path && virtualZoneOf(node.path) !== 'internal-library'}
         onClick={() => selectNode(node)}
         onDoubleClick={() => openFileNode(node)}
         onDragStart={(e) => beginInternalDrag(e, node)}
@@ -1219,8 +1386,8 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
     )
   }
 
-  const relSelected = selected ? relInProject(selected) : ''
-  const crumbs = [project.name, ...relSelected.split('/').filter(Boolean)]
+  const displayCrumbs = selected ? selected.split('/').filter(Boolean).slice(1) : []
+  const crumbs = [project.name, ...displayCrumbs]
 
   return (
     <div
@@ -1228,13 +1395,13 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       onContextMenu={(e) => {
         if ((e.target as HTMLElement).closest('.fs-row')) return
         e.preventDefault()
-        openMenuAt(e, blankMenuItems(projectPath ?? ''))
+        openMenuAt(e, blankMenuItems(ASSETS_ROOT))
       }}
       onDragOver={(e) => {
         if (dragPathRef.current) {
           // 空白区 = 项目根（把文件 / 文件夹移出子目录）
           const root = treeRef.current
-          const check = root ? checkFsMove(root, dragPathRef.current, root.path) : null
+          const check = root ? checkFsMove(root, dragPathRef.current, ASSETS_ROOT) : null
           if (!check?.ok) {
             setRootDragOver(false)
             return
@@ -1262,11 +1429,10 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
         setRootDragOver(false)
         if (from) {
           endInternalDrag()
-          const rootPath = treeRef.current?.path
-          if (rootPath) void moveNodeTo(from, rootPath)
+          void moveNodeTo(from, ASSETS_ROOT)
           return
         }
-        void handleDropFiles(e, projectPath ?? '')
+        void handleDropFiles(e, ASSETS_ROOT)
       }}
     >
       <div className="fs-header">
@@ -1308,7 +1474,7 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
                 type="button"
                 className="ui-btn"
                 data-variant="primary"
-                onClick={() => setNewAsset({ fromDir: projectPath ?? '' })}
+                onClick={() => setNewAsset({ fromDir: ASSETS_ROOT })}
               >
                 新建资产
               </button>
@@ -1326,7 +1492,6 @@ export function FileSystemPanel({ api = defaultFsApi }: FileSystemPanelProps) {
       {newAsset ? (
         <NewAssetModal
           fromDir={newAsset.fromDir}
-          projectPath={projectPath ?? ''}
           onCancel={() => setNewAsset(null)}
           onCreate={(type, fileName) => void createAsset(type, fileName)}
         />

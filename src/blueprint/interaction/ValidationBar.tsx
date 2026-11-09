@@ -3,7 +3,8 @@
  *
  * 底部错误列表条：Ctrl+S 校验后显示 错误 / 警告 汇总 + 可展开明细；
  * 点击条目 → 切图 + 选中 + 居中节点（BlueprintEditorPanel 接 jumpToNode）。
- * 有错误时保存被阻止（onSave 不会被调用）；警告不阻止保存。
+ * 有错误时面板层阻止保存；警告不阻止保存。
+ * 保存按钮已移至画布右上角运行/保存操作组；本组件只负责状态与明细。
  * 样式由 BlueprintEditorPanel 统一 import（node:test 环境无法加载 .css）。
  */
 import { useEffect, useState } from 'react';
@@ -20,11 +21,9 @@ export interface ValidationBarProps {
   graphName: string;
   /** 点击条目跳转（仅带 nodeId / edgeId 的条目可点） */
   onJump: (issue: ValidationIssue) => void;
-  /** 保存（Ctrl+S 同一入口；有错误时由面板层阻止） */
-  onSave: () => void;
 }
 
-export function ValidationBar({ issues, dirty, graphName, onJump, onSave }: ValidationBarProps) {
+export function ValidationBar({ issues, dirty, graphName, onJump }: ValidationBarProps) {
   const [expanded, setExpanded] = useState(false);
   const errors = issues?.filter((i) => i.severity === 'error') ?? [];
   const warnings = issues?.filter((i) => i.severity === 'warning') ?? [];
@@ -66,9 +65,6 @@ export function ValidationBar({ issues, dirty, graphName, onJump, onSave }: Vali
             {expanded ? '收起' : '明细'}
           </button>
         ) : null}
-        <button type="button" className="bp-valbar-btn" onClick={onSave} title="校验并保存（Ctrl+S）">
-          保存（Ctrl+S）
-        </button>
       </div>
       {expanded && issues && issues.length > 0 ? (
         <div className="bp-valbar-list" role="list">

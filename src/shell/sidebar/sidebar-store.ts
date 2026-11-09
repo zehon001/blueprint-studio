@@ -1,16 +1,23 @@
 /**
- * 左侧菜单状态（UI 改版：文件系统 / 资源库收纳入侧栏）
+ * 左侧菜单状态（后台式导航：首页 / 蓝图）
  *
  * - open：点击顶栏「Blueprint Studio」区域切换显隐（localStorage 记忆）；
- * - section：侧栏当前节（文件系统 / 资源库）；蓝图编辑页签（GraphTabs）
- *   也按该节区分显示内容（文件系统 → 蓝图文件与局部函数；资源库 → 库函数）。
+ * - section：当前页面（首页 / 蓝图），切换只影响右侧页面显示。
  */
 import { create } from 'zustand'
 
-export type SidebarSection = 'files' | 'library'
+export type SidebarSection = 'home' | 'blueprint'
 
 const OPEN_KEY = 'bps.sidebar.open'
 const SECTION_KEY = 'bps.sidebar.section'
+
+function readSection(): SidebarSection {
+  try {
+    return localStorage.getItem(SECTION_KEY) === 'home' ? 'home' : 'blueprint'
+  } catch {
+    return 'blueprint'
+  }
+}
 
 function readOpen(): boolean {
   try {
@@ -20,18 +27,10 @@ function readOpen(): boolean {
   }
 }
 
-function readSection(): SidebarSection {
-  try {
-    return localStorage.getItem(SECTION_KEY) === 'library' ? 'library' : 'files'
-  } catch {
-    return 'files'
-  }
-}
-
 interface SidebarState {
   /** 侧栏是否可见 */
   open: boolean
-  /** 当前节：文件系统 / 资源库 */
+  /** 当前页（首页 / 蓝图） */
   section: SidebarSection
   /** 显隐切换（顶栏 Logo 点击） */
   toggle: () => void

@@ -62,7 +62,7 @@ export function BlueprintApp() {
           const pfJson = (await pfRes.json()) as { ok?: boolean; content?: string; message?: string }
           if (!pfJson.ok) throw new Error(pfJson.message ?? '读取 project.json 失败')
           const pf = JSON.parse(String(pfJson.content ?? '{}')) as { mainBlueprint?: string }
-          bp = typeof pf.mainBlueprint === 'string' && pf.mainBlueprint ? pf.mainBlueprint : 'logic/main.bp.json'
+          bp = typeof pf.mainBlueprint === 'string' && pf.mainBlueprint ? pf.mainBlueprint : 'blueprint/main.bp.json'
         }
         setTitle(bp)
 

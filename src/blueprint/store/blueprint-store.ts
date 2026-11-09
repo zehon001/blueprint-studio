@@ -126,7 +126,7 @@ export interface BlueprintStore {
   /* ---------------- 状态 ---------------- */
   /** 域状态镜像（打开资产 / 命令执行 / undo-redo 重放后同步；null = 未打开） */
   asset: IRAsset | null;
-  /** 资产路径（如 'logic/main.bp.json'；保存回调透传，本期由受控 prop 提供） */
+  /** 资产路径（如 'blueprint/main.bp.json'；保存回调透传，本期由受控 prop 提供） */
   assetPath: string | null;
   /** 当前图名（主图或函数子图；不进命令栈） */
   graphName: string;

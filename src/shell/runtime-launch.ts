@@ -2,7 +2,7 @@
  * 运行启动链路（纯蓝图工作流）
  *
  * URL 契约：
- *   runtime.html?project=<项目文件夹名>&bp=<蓝图路径,如 logic/main.bp.json>&run=<nonce>&embed=1
+ *   runtime.html?project=<项目文件夹名>&bp=<蓝图路径,如 blueprint/main.bp.json>&run=<nonce>&embed=1
  *   - bp 参数可缺省：运行窗口读 project.json.mainBlueprint；
  *   - embed=1 为内置运行视图（iframe）模式：隐藏运行页顶栏。
  *
@@ -21,7 +21,7 @@ import { showToast } from './windows/toast'
 export interface RuntimeUrlParams {
   /** 项目文件夹名（服务端 FS API 安全根的首段） */
   project: string
-  /** 蓝图资产路径（项目内相对路径，如 'logic/main.bp.json'）；缺省读 project.json.mainBlueprint */
+  /** 蓝图资产路径（项目内相对路径，如 'blueprint/main.bp.json'）；缺省读 project.json.mainBlueprint */
   bp?: string
   /** 内置运行视图（iframe）模式：隐藏运行页顶栏/页内控制台 UI */
   embed?: boolean

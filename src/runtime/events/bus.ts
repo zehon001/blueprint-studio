@@ -69,7 +69,7 @@ export interface BusDebugEvent {
 export interface BusRuntimeRegistration {
   /** 实例 id（总线内唯一；重复注册覆盖） */
   id: string;
-  /** 逻辑资产路径（如 'logic/main.bp.json'；观测用，路由不经它） */
+  /** 逻辑资产路径（如 'blueprint/main.bp.json'；观测用，路由不经它） */
   assetPath: string;
   /** 所属 UI 实例 id（同 UI 的实例组；缺省 'default'。BindingRunner 一个窗口一个 UI） */
   uiId?: string;

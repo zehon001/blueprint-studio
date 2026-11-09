@@ -978,18 +978,14 @@ test('DOM 冒烟：SelectionToolbar 少于 2 个不渲染；分布按钮按节�
 
 /* ---------------- ValidationBar（§8.2 第 8 条 UI） ---------------- */
 
-test('DOM 冒烟：ValidationBar 状态文案 / 错误自动展开 / 点击条目跳转 / 保存回调', async () => {
+test('DOM 冒烟：ValidationBar 状态文案 / 错误自动展开 / 点击条目跳转', async () => {
   dom.document.body.innerHTML = '';
   let jumps = 0;
-  let saves = 0;
   const base = {
     dirty: false,
     graphName: 'main',
     onJump: () => {
       jumps += 1;
-    },
-    onSave: () => {
-      saves += 1;
     },
   };
   const unmount0 = mount(
@@ -1020,12 +1016,7 @@ test('DOM 冒烟：ValidationBar 状态文案 / 错误自动展开 / 点击条�
     });
     assert.equal(jumps, 1, '点击错误条目跳转');
     assert.ok(dom.document.querySelector('.bp-valbar-graph')?.textContent?.includes('aux'), '跨图 issue 显示来源图');
-    act(() => {
-      (dom.document.querySelector('.bp-valbar-btn') as unknown as HTMLButtonElement).dispatchEvent(
-        new dom.MouseEvent('click', { bubbles: true, cancelable: true }) as unknown as Event,
-      );
-    });
-    assert.equal(saves, 1, '保存按钮回调');
+    assert.equal(dom.document.querySelector('.bp-valbar-btn'), null, '保存按钮已移至画布右上角');
   } finally {
     await unmount();
   }

@@ -1,6 +1,6 @@
 {
   "name": "{{PROJECT_NAME}}",
-  "mainBlueprint": "logic/main.bp.json",
+  "mainBlueprint": "blueprint/main.bp.json",
   "engineVersion": "{{ENGINE_VERSION}}",
   "plugins": {}
 }

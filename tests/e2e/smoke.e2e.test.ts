@@ -206,19 +206,19 @@ test('场景① 新建项目（log-analyzer 模板）：目录结构与 project.
     const created = projects.find((p) => p.path === name)
     assert.ok(created, `项目列表应包含 ${name}`)
     assert.equal(created.name, name, '模板变量 {{PROJECT_NAME}} 应已替换')
-    assert.equal(created.mainBlueprint, 'logic/main.bp.json')
+    assert.equal(created.mainBlueprint, 'blueprint/main.bp.json')
 
     // 目录树：模板资产 + 五个标准子目录（.history 隐藏）
     const tree = await api('GET', `/api/tree?path=${encodeURIComponent(name)}`)
     assert.equal(tree.status, 200)
     const root = tree.json.tree as unknown as TreeNodeLike
-    for (const dir of ['logic', 'assets', 'plugins']) {
+    for (const dir of ['blueprint', 'assets', 'plugins']) {
       assert.equal(findChild(root, dir)?.type, 'dir', `标准子目录 ${dir} 应存在`)
     }
     assert.ok(!findChild(root, '.history'), '.history 应在目录树中隐藏')
     assert.equal(findChild(root, 'project.json')?.type, 'file')
     assert.equal(
-      findChild(root, 'logic')?.children?.some((c) => c.name === 'main.bp.json'),
+      findChild(root, 'blueprint')?.children?.some((c) => c.name === 'main.bp.json'),
       true,
       '模板蓝图资产应存在',
     )
@@ -234,7 +234,7 @@ test('场景① 新建项目（log-analyzer 模板）：目录结构与 project.
     assert.equal(pf.json.ok, true)
     const projectJson = JSON.parse(pf.json.content as string) as Record<string, unknown>
     assert.equal(projectJson.name, name)
-    assert.equal(projectJson.mainBlueprint, 'logic/main.bp.json')
+    assert.equal(projectJson.mainBlueprint, 'blueprint/main.bp.json')
     assert.equal(projectJson.engineVersion, '3.0.0')
     assert.deepEqual(projectJson.plugins, {})
   } finally {
@@ -267,25 +267,25 @@ test('场景② 写蓝图资产（PUT /api/file）→ 读回一致', { skip: srv
       null,
       2,
     )
-    const put = await api('PUT', '/api/file', { path: `${name}/logic/main.bp.json`, content: bpJson })
+    const put = await api('PUT', '/api/file', { path: `${name}/blueprint/main.bp.json`, content: bpJson })
     assert.equal(put.status, 200)
     assert.equal(put.json.ok, true, 'PUT 成功响应须带 ok:true（编辑器各保存/新建流程按 json.ok 判定成败）')
-    assert.equal(put.json.path, `${name}/logic/main.bp.json`)
+    assert.equal(put.json.path, `${name}/blueprint/main.bp.json`)
     assert.equal(put.json.size, Buffer.byteLength(bpJson, 'utf8'))
 
     // 读回逐字节一致（utf8 文本不走 base64）
-    const back = await api('GET', `/api/file?path=${encodeURIComponent(`${name}/logic/main.bp.json`)}`)
+    const back = await api('GET', `/api/file?path=${encodeURIComponent(`${name}/blueprint/main.bp.json`)}`)
     assert.equal(back.status, 200)
     assert.equal(back.json.encoding, 'utf8')
     assert.equal(back.json.content, bpJson, '蓝图资产写读应逐字节一致')
 
     // 新子路径写入：父目录不存在时自动创建
     const nested = await api('PUT', '/api/file', {
-      path: `${name}/logic/panels/sub.bp.json`,
+      path: `${name}/blueprint/panels/sub.bp.json`,
       content: '{"version":2,"name":"log-panel"}',
     })
     assert.equal(nested.status, 200)
-    const nestedBack = await api('GET', `/api/file?path=${encodeURIComponent(`${name}/logic/panels/sub.bp.json`)}`)
+    const nestedBack = await api('GET', `/api/file?path=${encodeURIComponent(`${name}/blueprint/panels/sub.bp.json`)}`)
     assert.equal(nestedBack.json.content, '{"version":2,"name":"log-panel"}')
   } finally {
     removeProjectDir(name)
@@ -300,9 +300,9 @@ test('场景③ 写蓝图资产（forLoop 0..2 + print 循环体，ADR-008）→
     const bpJson = JSON.stringify(buildLoopBlueprint(), null, 2)
 
     // 经服务端写盘 + 读回：逐字节一致
-    const put = await api('PUT', '/api/file', { path: `${name}/logic/main.bp.json`, content: bpJson })
+    const put = await api('PUT', '/api/file', { path: `${name}/blueprint/main.bp.json`, content: bpJson })
     assert.equal(put.status, 200)
-    const back = await api('GET', `/api/file?path=${encodeURIComponent(`${name}/logic/main.bp.json`)}`)
+    const back = await api('GET', `/api/file?path=${encodeURIComponent(`${name}/blueprint/main.bp.json`)}`)
     assert.equal(back.json.content, bpJson, '蓝图资产写读应逐字节一致')
 
     // JSON 往返：deserializeIR → serializeIR → deserializeIR 无损
@@ -351,13 +351,13 @@ test('场景④ /api/transpile：合法脚本 ok:true；语法错误返回行列
   try {
     // 合法脚本：ok:true + 产物 js
     const good = 'export function add(a: number, b: number): number {\n  return a + b\n}\n'
-    const ok = await api('POST', '/api/transpile', { path: `${name}/logic/util.ts`, content: good })
+    const ok = await api('POST', '/api/transpile', { path: `${name}/blueprint/util.ts`, content: good })
     assert.equal(ok.status, 200)
     assert.equal(ok.json.ok, true)
     assert.match(ok.json.js as string, /add/)
 
     // 语法错误：ok:false + errors[{line,column,message}]（行列 1 起）
-    const bad = await api('POST', '/api/transpile', { path: `${name}/logic/bad.ts`, content: 'const x: number = = 1\n' })
+    const bad = await api('POST', '/api/transpile', { path: `${name}/blueprint/bad.ts`, content: 'const x: number = = 1\n' })
     assert.equal(bad.status, 200, '语法错误返回 200 + ok:false（非 4xx）')
     assert.equal(bad.json.ok, false)
     const errors = bad.json.errors as Array<{ line?: unknown; column?: unknown; message?: unknown }>
@@ -389,10 +389,10 @@ test('场景⑥ 保存前快照 /api/history（依赖 T7.4，未落地则跳过�
 
   try {
     // 先写一个文件，模拟「保存前快照」读取路径
-    await api('PUT', '/api/file', { path: `${name}/logic/main.bp.json`, content: '{}' })
+    await api('PUT', '/api/file', { path: `${name}/blueprint/main.bp.json`, content: '{}' })
 
     // T7.4 已落地：按服务端统一约定校验（成功 { ok: true }）；细粒度契约随 T7.4 深化
-    const { status, json } = await api('GET', `/api/history?path=${encodeURIComponent(`${name}/logic/main.bp.json`)}`)
+    const { status, json } = await api('GET', `/api/history?path=${encodeURIComponent(`${name}/blueprint/main.bp.json`)}`)
     assert.equal(status, 200)
     assert.equal(json.ok, true)
   } finally {

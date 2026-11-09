@@ -11,8 +11,9 @@ import { DshOrchestratorAdapter } from './dsh'
 describe('DshOrchestratorAdapter（fetch 注入）', () => {
   const calls: Array<{ method: string; url: string; body?: unknown }> = []
 
-  function makeAdapter(): DshOrchestratorAdapter {
+  function makeAdapter(options: { blocked?: boolean } = {}): DshOrchestratorAdapter {
     calls.length = 0
+    let prompted = false
     const impl = (async (input: any, init?: any) => {
       const url = String(input instanceof URL ? input : input)
       const method = init?.method ?? 'GET'
@@ -35,14 +36,64 @@ describe('DshOrchestratorAdapter（fetch 注入）', () => {
         return reply({
           ok: true,
           // 工作区列表不携带 title（与编排器实际行为一致）→ 复用需逐个读状态
-          sessions: [{ sessionId: 'session-old', running: false }, { sessionId: 'session-2', running: false }],
+          sessions: [
+            { sessionId: 'session-old', running: false },
+            { sessionId: 'session-2', running: false },
+            { sessionId: 'session-blocked', running: false },
+          ],
         })
       }
       if (url.endsWith('/sessions')) return reply({ ok: true, sessionId: 'session-1', promptAccepted: true })
-      if (/\/sessions\/session-1$/.test(url)) return reply({ ok: true, title: '自动标题', status: 'idle' })
-      if (/\/sessions\/session-old$/.test(url)) return reply({ ok: true, title: '蓝图连通测试', status: 'idle' })
-      if (/\/sessions\/session-2$/.test(url)) return reply({ ok: true, title: '别的会话', status: 'idle' })
-      if (url.endsWith('/prompt')) return reply({ ok: true, promptAccepted: true })
+      if (/\/sessions\/session-1$/.test(url)) {
+        return reply({
+          ok: true,
+          status: {
+            title: '自动标题',
+            status: 'idle',
+            agentAvailable: true,
+            lastTurn: prompted
+              ? { turn: 2, outcome: options.blocked ? 'blocked' : 'completed', reason: options.blocked ? 'blocked' : 'completed' }
+              : { turn: 1, outcome: 'completed', reason: 'completed' },
+          },
+        })
+      }
+      if (/\/sessions\/session-old$/.test(url)) {
+        return reply({
+          ok: true,
+          status: {
+            title: '蓝图连通测试',
+            status: 'idle',
+            agentAvailable: true,
+            lastTurn: { turn: 3, outcome: 'completed', reason: 'completed' },
+          },
+        })
+      }
+      if (/\/sessions\/session-2$/.test(url)) {
+        return reply({
+          ok: true,
+          status: {
+            title: '别的会话',
+            status: 'idle',
+            agentAvailable: true,
+            lastTurn: { turn: 1, outcome: 'completed', reason: 'completed' },
+          },
+        })
+      }
+      if (/\/sessions\/session-blocked$/.test(url)) {
+        return reply({
+          ok: true,
+          status: {
+            title: '阻塞会话',
+            status: 'idle',
+            agentAvailable: true,
+            lastTurn: { turn: 2, outcome: 'blocked', reason: 'blocked' },
+          },
+        })
+      }
+      if (url.endsWith('/prompt')) {
+        prompted = true
+        return reply({ ok: true, promptAccepted: true })
+      }
       if (url.endsWith('/model')) return reply({ ok: true, sessionId: 'session-1', selected: { provider: 'magpie', model: 'group/glm-5.3' } })
       if (url.endsWith('/wait')) return reply({ ok: true, idle: true, status: 'idle' })
       if (url.endsWith('/result')) return reply({ ok: true, result: '完成。' })
@@ -75,6 +126,17 @@ describe('DshOrchestratorAdapter（fetch 注入）', () => {
       assert.ok(calls.some((c) => c.url.endsWith('/prompt') && (c.body as { text?: string } | undefined)?.text === '你好'))
       assert.ok(calls.some((c) => c.url.endsWith('/wait')))
       assert.ok(calls.some((c) => c.url.endsWith('/result')))
+    })
+  })
+
+  test('sendMessage：回合 blocked → 抛中文错误且不读旧 result', async () => {
+    await withEnv({ BP_DSH_URL: 'http://dsh.test' }, async () => {
+      const adapter = makeAdapter({ blocked: true })
+      await assert.rejects(
+        () => adapter.sendMessage({ sessionId: 'session-1', message: '你好', waitForCompletion: true }),
+        /DSH 回合未完成（blocked）/,
+      )
+      assert.ok(!calls.some((c) => c.url.endsWith('/result')), 'blocked 时不得回读旧结果')
     })
   })
 
@@ -117,6 +179,15 @@ describe('DshOrchestratorAdapter（fetch 注入）', () => {
         excludeSessionIds: ['session-old'],
       })
       assert.equal(created.sessionId, 'session-1', '命中标题但已归档 → 不复用，新建')
+      assert.ok(calls.some((c) => c.url.endsWith('/sessions') && c.method === 'POST'))
+    })
+  })
+
+  test('createSession 复用：最近回合 blocked 的会话跳过 → 新建', async () => {
+    await withEnv({ BP_DSH_URL: 'http://dsh.test' }, async () => {
+      const adapter = makeAdapter()
+      const created = await adapter.createSession({ cwd: '/proj/dir', title: '阻塞会话', reuse: true })
+      assert.equal(created.sessionId, 'session-1', 'blocked 会话不复用 → 新建')
       assert.ok(calls.some((c) => c.url.endsWith('/sessions') && c.method === 'POST'))
     })
   })
