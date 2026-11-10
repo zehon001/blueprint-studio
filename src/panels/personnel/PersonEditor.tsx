@@ -18,8 +18,8 @@ import { toast } from 'sonner'
 import type { PersonDetail, PersonSummary, PersonType } from '@/shared/personnel'
 import { Icon } from '@/shell/ui/Icon'
 import { personnelApi } from './api'
-import { DispatchTaskDialog } from './DispatchTaskDialog'
-import { runStatusMeta } from './format'
+import { AddTaskDialog } from './AddTaskDialog'
+import { queueStatusMeta } from './format'
 import {
   PersonAvatar,
   PpSpinner,
@@ -106,14 +106,14 @@ export function PersonEditor(props: PersonEditorProps) {
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState(person.name)
   const [uploading, setUploading] = useState(false)
-  const [dispatchOpen, setDispatchOpen] = useState(false)
-  const [dispatchInitial, setDispatchInitial] = useState('')
+  const [addOpen, setAddOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const busy = person.run.status === 'running' || person.run.status === 'stopping'
-  const running = person.run.status === 'running'
-  const stopping = person.run.status === 'stopping'
-  const meta = runStatusMeta(person.run.status)
+  const busy = person.queue.status === 'running' || person.queue.status === 'stopping'
+  const running = person.queue.status === 'running'
+  const stopping = person.queue.status === 'stopping'
+  const pendingCount = person.taskCounts.pending
+  const meta = queueStatusMeta(person.queue)
   const typeName = types.find((t) => t.id === person.typeId)?.name ?? '未分类'
   const built = Boolean(detail.config.workspace.builtAt)
 
@@ -187,17 +187,21 @@ export function PersonEditor(props: PersonEditorProps) {
     reader.readAsDataURL(file)
   }
 
-  const toggleRun = async (): Promise<void> => {
+  const toggleQueue = async (): Promise<void> => {
     if (runBusy || stopping) return
+    if (!running && pendingCount === 0) {
+      toast.info('没有待执行的任务，请先在任务看板中发布任务')
+      return
+    }
     setRunBusy(true)
     try {
       if (running) {
         const result = await personnelApi.stop(person.id)
-        if (result.run.error?.startsWith('停止请求失败')) toast.error(result.run.error)
-        else toast.success('已停止 DSH 会话')
+        if (result.queue.error?.startsWith('停止请求失败')) toast.error(result.queue.error)
+        else toast.success('已请求停止任务队列')
       } else {
-        await personnelApi.run(person.id)
-        toast.success('已启动 DSH 会话，开始执行')
+        const result = await personnelApi.run(person.id)
+        toast.success(`任务队列已启动（${result.queue.total} 个待执行任务）`)
       }
       await onRefresh()
     } catch (err) {
@@ -205,12 +209,6 @@ export function PersonEditor(props: PersonEditorProps) {
     } finally {
       setRunBusy(false)
     }
-  }
-
-  const openDispatch = (task?: string): void => {
-    if (busy) return
-    setDispatchInitial(task ?? detail.config.task)
-    setDispatchOpen(true)
   }
 
   const subTabs = group === 'persona' ? NAV_GROUPS[1]!.subs : group === 'settings' ? NAV_GROUPS[2]!.subs : []
@@ -305,7 +303,8 @@ export function PersonEditor(props: PersonEditorProps) {
                 )}
               </div>
               <div className="pp-hero-sub">
-                {typeName} · {person.roleCardCount} 张角色卡 · {person.memoryCount} 条记忆
+                {typeName} · 待执行 {pendingCount} · 已完成 {person.taskCounts.completed} · 失败{' '}
+                {person.taskCounts.failed}
               </div>
               <div className="pp-pills">
                 <span className="pp-pill">
@@ -324,19 +323,24 @@ export function PersonEditor(props: PersonEditorProps) {
                 <button
                   type="button"
                   className="pp-btn pp-dispatch-btn"
-                  disabled={busy}
-                  onClick={() => openDispatch()}
-                  title="编辑任务并立即派发执行"
+                  onClick={() => setAddOpen(true)}
+                  title="发布任务到任务看板"
                 >
                   <Icon icon={Send} size={14} />
-                  派发任务
+                  发布任务
                 </button>
                 <button
                   type="button"
                   className={`pp-run-btn${running ? ' stop' : ''}`}
-                  disabled={runBusy || stopping}
-                  onClick={() => void toggleRun()}
-                  title={running ? '停止 DSH 会话' : '构建工作区并创建 DSH 会话执行当前任务'}
+                  disabled={runBusy || stopping || (!running && pendingCount === 0)}
+                  onClick={() => void toggleQueue()}
+                  title={
+                    running
+                      ? '停止任务队列'
+                      : pendingCount > 0
+                        ? '按顺序执行待执行任务'
+                        : '没有待执行任务'
+                  }
                 >
                   {runBusy || stopping ? (
                     <PpSpinner />
@@ -349,7 +353,11 @@ export function PersonEditor(props: PersonEditorProps) {
                 </button>
               </div>
               <span className="pp-run-hint">
-                {busy ? '执行中会锁定配置' : '构建工作区并开始任务'}
+                {busy
+                  ? '队列执行中会锁定配置'
+                  : pendingCount > 0
+                    ? `待执行 ${pendingCount} 个任务，按列表顺序运行`
+                    : '先在任务看板发布任务'}
               </span>
             </div>
           </header>
@@ -396,7 +404,7 @@ export function PersonEditor(props: PersonEditorProps) {
 
           {busy ? (
             <div className="pp-lock-note">
-              执行中，配置已锁定。点击右上角「停止」结束 DSH 会话后即可继续编辑。
+              当前任务执行中：人员配置暂时锁定；任务看板仍可继续发布、排序或删除未执行任务。
             </div>
           ) : null}
 
@@ -406,9 +414,7 @@ export function PersonEditor(props: PersonEditorProps) {
                 key={person.id}
                 person={person}
                 detail={detail}
-                busy={busy}
                 onRefresh={onRefresh}
-                onDispatch={openDispatch}
               />
             </div>
             <div className="pp-tab-pane" hidden={group !== 'persona' || personaTab !== 'cards'}>
@@ -439,13 +445,12 @@ export function PersonEditor(props: PersonEditorProps) {
           </div>
         </div>
       </div>
-      {dispatchOpen ? (
-        <DispatchTaskDialog
+      {addOpen ? (
+        <AddTaskDialog
           personId={person.id}
           personName={person.name}
-          initialTask={dispatchInitial}
-          onClose={() => setDispatchOpen(false)}
-          onDispatched={onRefresh}
+          onClose={() => setAddOpen(false)}
+          onAdded={onRefresh}
         />
       ) : null}
     </div>

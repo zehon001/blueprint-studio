@@ -138,7 +138,7 @@ export function PersonnelPage({ active }: PersonnelPageProps) {
   useEffect(() => {
     if (!active) return
     const anyRunning = people.some(
-      (p) => p.run.status === 'running' || p.run.status === 'stopping',
+      (p) => p.queue.status === 'running' || p.queue.status === 'stopping',
     )
     if (!anyRunning) return
     const timer = window.setInterval(() => {
@@ -151,10 +151,10 @@ export function PersonnelPage({ active }: PersonnelPageProps) {
           const current = payload.people.find((p) => p.id === currentId)
           const before = currentId ? previous.get(currentId) : undefined
           const wasRunning =
-            before?.run.status === 'running' || before?.run.status === 'stopping'
+            before?.queue.status === 'running' || before?.queue.status === 'stopping'
           const nowRunning =
-            current?.run.status === 'running' || current?.run.status === 'stopping'
-          if (currentId && wasRunning && !nowRunning) await loadDetail(currentId)
+            current?.queue.status === 'running' || current?.queue.status === 'stopping'
+          if (currentId && (wasRunning || nowRunning)) await loadDetail(currentId)
         } catch {
           /* 轮询失败静默：下次继续 */
         }
@@ -168,7 +168,7 @@ export function PersonnelPage({ active }: PersonnelPageProps) {
     [people, selectedId],
   )
   const anyRunning = people.some(
-    (p) => p.run.status === 'running' || p.run.status === 'stopping',
+    (p) => p.queue.status === 'running' || p.queue.status === 'stopping',
   )
 
   const selectPerson = (id: string): void => {

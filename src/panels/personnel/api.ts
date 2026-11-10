@@ -7,7 +7,7 @@ import type {
   PersonDetail,
   PersonMemory,
   PersonModelSettings,
-  PersonRunState,
+  PersonQueueState,
   PersonSummary,
   PersonType,
   PersonWorkspaceSettings,
@@ -71,9 +71,9 @@ export interface WorkspaceBuildPayload {
   builtAt: number
 }
 
-export interface PersonRunPayload {
+export interface PersonQueuePayload {
   ok: true
-  run: PersonRunState
+  queue: PersonQueueState
 }
 
 export interface PersonMemoryPayload {
@@ -127,8 +127,26 @@ export const personnelApi = {
     request<WorkspaceBuildPayload>(idPath(id, '/workspace/build'), { method: 'POST' }),
   resetWorkspace: (id: string) =>
     request<WorkspaceBuildPayload>(idPath(id, '/workspace/reset'), { method: 'POST' }),
-  run: (id: string) => request<PersonRunPayload>(idPath(id, '/run'), { method: 'POST' }),
-  stop: (id: string) => request<PersonRunPayload>(idPath(id, '/stop'), { method: 'POST' }),
+  addTask: (id: string, input: { title?: string; content: string }) =>
+    request<PersonPayload>(idPath(id, '/tasks'), {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  deleteTask: (id: string, taskId: string) =>
+    request<PersonPayload>(idPath(id, `/tasks/${encodeURIComponent(taskId)}`), {
+      method: 'DELETE',
+    }),
+  moveTask: (id: string, taskId: string, direction: 'up' | 'down') =>
+    request<PersonPayload>(idPath(id, `/tasks/${encodeURIComponent(taskId)}/move`), {
+      method: 'POST',
+      body: JSON.stringify({ direction }),
+    }),
+  retryTask: (id: string, taskId: string) =>
+    request<PersonPayload>(idPath(id, `/tasks/${encodeURIComponent(taskId)}/retry`), {
+      method: 'POST',
+    }),
+  run: (id: string) => request<PersonQueuePayload>(idPath(id, '/run'), { method: 'POST' }),
+  stop: (id: string) => request<PersonQueuePayload>(idPath(id, '/stop'), { method: 'POST' }),
   clearMemory: (id: string) =>
     request<PersonMemoryPayload>(idPath(id, '/memory/clear'), { method: 'POST' }),
   capabilities: async (): Promise<PersonCapabilities | null> => {

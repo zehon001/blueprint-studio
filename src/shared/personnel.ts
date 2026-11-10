@@ -63,7 +63,7 @@ export interface PersonConfig {
   avatarFile?: string
   createdAt: number
   updatedAt: number
-  /** 当前任务（写入 TASK.md） */
+  /** 当前执行任务（写入 AGENTS.md / TASK.md） */
   task: string
   model: PersonModelSettings
   workspace: PersonWorkspaceSettings
@@ -77,6 +77,9 @@ export type PersonRunStatus = 'idle' | 'running' | 'stopping' | 'completed' | 'f
 export interface PersonRunState {
   status: PersonRunStatus
   runId?: string
+  /** 当前执行的任务 */
+  taskId?: string
+  taskTitle?: string
   sessionId?: string
   sessionTitle?: string
   startedAt?: number
@@ -86,6 +89,52 @@ export interface PersonRunState {
   /** 失败 / 停止原因 */
   error?: string
   workspaceDir?: string
+}
+
+/** 任务状态 */
+export type PersonTaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stopped'
+
+/** 任务看板中的一条任务 */
+export interface PersonTask {
+  id: string
+  title: string
+  content: string
+  status: PersonTaskStatus
+  createdAt: number
+  startedAt?: number
+  finishedAt?: number
+  result?: string
+  error?: string
+}
+
+/** 队列状态 */
+export type PersonQueueStatus = 'idle' | 'running' | 'stopping' | 'completed' | 'stopped' | 'failed'
+
+/** 任务队列执行状态 */
+export interface PersonQueueState {
+  status: PersonQueueStatus
+  queueId?: string
+  /** 本队列包含的任务 id（执行期间新增的任务也会追加） */
+  taskIds?: string[]
+  currentTaskId?: string
+  /** 当前执行到第几个（1 起） */
+  currentIndex?: number
+  total: number
+  completed: number
+  failed: number
+  startedAt?: number
+  finishedAt?: number
+  error?: string
+}
+
+/** 任务数量统计 */
+export interface PersonTaskCounts {
+  total: number
+  pending: number
+  running: number
+  completed: number
+  failed: number
+  stopped: number
 }
 
 /** 动态记录（.person/activity.jsonl） */
@@ -125,6 +174,8 @@ export interface PersonSummary {
   memoryCount: number
   stats: PersonStats
   run: PersonRunState
+  queue: PersonQueueState
+  taskCounts: PersonTaskCounts
 }
 
 /** 人员详情（编辑页） */
@@ -132,6 +183,7 @@ export interface PersonDetail extends PersonSummary {
   config: PersonConfig
   cards: RoleCard[]
   norms: string
+  tasks: PersonTask[]
   memory: PersonMemory
   activity: PersonActivity[]
 }

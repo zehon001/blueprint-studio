@@ -7,7 +7,7 @@ import type { PersonSummary, PersonType } from '@/shared/personnel'
 import { Icon } from '@/shell/ui/Icon'
 import { IconButton } from '@/shell/ui/IconButton'
 import { PersonAvatar, PpCheckbox } from './primitives'
-import { runStatusMeta } from './format'
+import { queueStatusMeta } from './format'
 
 interface PersonListProps {
   people: PersonSummary[]
@@ -60,7 +60,8 @@ export function PersonList(props: PersonListProps) {
   }, [filtered, props.groupByType, props.types])
 
   const renderRow = (person: PersonSummary) => {
-    const meta = runStatusMeta(person.run.status)
+    const meta = queueStatusMeta(person.queue)
+    const queueBusy = person.queue.status === 'running' || person.queue.status === 'stopping'
     return (
       <div
         key={person.id}
@@ -79,13 +80,19 @@ export function PersonList(props: PersonListProps) {
         <div className="pp-person-info">
           <div className="pp-person-name">
             <span>{person.name}</span>
-            {person.run.status === 'running' || person.run.status === 'stopping' ? (
+            {queueBusy ? (
               <i className={`pp-run-dot ${meta.tone}`} title={meta.label} />
             ) : null}
           </div>
           <div className="pp-person-sub">
             <span>{typeName(person.typeId)}</span>
-            {person.roleCardCount > 0 ? <span>· {person.roleCardCount} 张卡</span> : null}
+            {person.taskCounts.total > 0 ? (
+              <span>
+                · 待执行 {person.taskCounts.pending} / 共 {person.taskCounts.total}
+              </span>
+            ) : person.roleCardCount > 0 ? (
+              <span>· {person.roleCardCount} 张卡</span>
+            ) : null}
           </div>
         </div>
         <IconButton
@@ -93,7 +100,7 @@ export function PersonList(props: PersonListProps) {
           label="删除人员"
           variant="danger"
           className="pp-person-delete"
-          disabled={props.busy || person.run.status === 'running' || person.run.status === 'stopping'}
+          disabled={props.busy || queueBusy}
           onClick={(e) => {
             e.stopPropagation()
             props.onDelete(person)

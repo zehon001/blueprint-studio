@@ -1,5 +1,9 @@
 /** 人员页时间 / 状态格式化（纯函数，便于复用与测试）。 */
-import type { PersonRunStatus } from '@/shared/personnel'
+import type {
+  PersonQueueState,
+  PersonRunStatus,
+  PersonTaskStatus,
+} from '@/shared/personnel'
 
 export function relativeTime(ts?: number): string {
   if (!ts) return ''
@@ -48,6 +52,43 @@ export function runStatusMeta(status: PersonRunStatus): RunStatusMeta {
       return { label: '失败', tone: 'error' }
     case 'stopped':
       return { label: '已停止', tone: 'warning' }
+    default:
+      return { label: '空闲', tone: 'idle' }
+  }
+}
+
+export function taskStatusMeta(status: PersonTaskStatus): RunStatusMeta {
+  switch (status) {
+    case 'running':
+      return { label: '执行中', tone: 'running' }
+    case 'completed':
+      return { label: '已完成', tone: 'success' }
+    case 'failed':
+      return { label: '失败', tone: 'error' }
+    case 'stopped':
+      return { label: '已停止', tone: 'warning' }
+    default:
+      return { label: '待执行', tone: 'idle' }
+  }
+}
+
+export function queueStatusMeta(queue: PersonQueueState): RunStatusMeta {
+  switch (queue.status) {
+    case 'running':
+      return {
+        label: queue.currentIndex
+          ? `执行中 ${queue.currentIndex}/${queue.total}`
+          : '队列执行中',
+        tone: 'running',
+      }
+    case 'stopping':
+      return { label: '停止中', tone: 'warning' }
+    case 'completed':
+      return { label: '队列已完成', tone: 'success' }
+    case 'stopped':
+      return { label: '队列已停止', tone: 'warning' }
+    case 'failed':
+      return { label: '队列失败', tone: 'error' }
     default:
       return { label: '空闲', tone: 'idle' }
   }

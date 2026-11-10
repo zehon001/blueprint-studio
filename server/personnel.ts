@@ -38,9 +38,13 @@ import {
   type PersonMemory,
   type PersonMemoryFile,
   type PersonModelSettings,
+  type PersonQueueState,
   type PersonRunState,
   type PersonStats,
   type PersonSummary,
+  type PersonTask,
+  type PersonTaskCounts,
+  type PersonTaskStatus,
   type PersonType,
   type PersonWorkspaceSettings,
   type RoleCard,
@@ -53,6 +57,9 @@ import {
 const PROFILE_DIR_NAME = '.person'
 const DEFAULT_WORKSPACE_NAME = 'workspace'
 const TYPES_FILE_NAME = 'types.json'
+const TASKS_FILE_NAME = 'tasks.json'
+const TASKS_JSON_NAME = 'TASKS.json'
+const QUEUE_FILE_NAME = 'queue.json'
 const MAX_ACTIVITY = 500
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024
 const MAX_CARD_CONTENT = 50_000
@@ -195,9 +202,9 @@ function defaultNorms(): string {
 }
 
 function defaultTask(name: string): string {
-  return `请根据「${name}」的角色卡与规范，推进当前工作。
+  return `等待添加任务。
 
-如果还没有明确目标，请先梳理现状，在 STATE.md 中列出下一步计划，然后从最重要的一项开始执行。`
+${name} 会在任务看板中接收任务，并按顺序执行。`
 }
 
 function defaultCards(name: string, typeName: string): RoleCard[] {
@@ -377,8 +384,125 @@ function activityPathOf(profileDir: string): string {
   return path.join(profileDir, 'activity.jsonl')
 }
 
+function tasksPathOf(profileDir: string): string {
+  return path.join(profileDir, TASKS_FILE_NAME)
+}
+
+function queuePathOf(personDir: string): string {
+  return path.join(personDir, QUEUE_FILE_NAME)
+}
+
 function saveConfig(loaded: LoadedPerson): void {
   writeJsonAtomic(configPathOf(loaded.profileDir), loaded.config)
+}
+
+function taskTitleFromContent(content: string): string {
+  const firstLine = content
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^#+\s*/, '').trim())
+    .find(Boolean)
+  return (firstLine || '未命名任务').slice(0, 120)
+}
+
+function normalizeTasks(raw: unknown): PersonTask[] {
+  if (!Array.isArray(raw)) return []
+  const allowed = new Set<PersonTaskStatus>([
+    'pending',
+    'running',
+    'completed',
+    'failed',
+    'stopped',
+  ])
+  const seen = new Set<string>()
+  const out: PersonTask[] = []
+  for (const item of raw) {
+    if (item === null || typeof item !== 'object') continue
+    const o = item as Partial<PersonTask>
+    let id = str(o.id).trim()
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || seen.has(id)) id = newRecordId('task')
+    seen.add(id)
+    const content = str(o.content).slice(0, MAX_TASK_LENGTH)
+    const title = str(o.title).trim().slice(0, 120) || taskTitleFromContent(content)
+    const status = str(o.status).trim().toLowerCase() as PersonTaskStatus
+    out.push({
+      id,
+      title,
+      content,
+      status: allowed.has(status) ? status : 'pending',
+      createdAt: num(o.createdAt) || Date.now(),
+      ...(num(o.startedAt) > 0 ? { startedAt: num(o.startedAt) } : {}),
+      ...(num(o.finishedAt) > 0 ? { finishedAt: num(o.finishedAt) } : {}),
+      ...(str(o.result) ? { result: str(o.result).slice(0, 20_000) } : {}),
+      ...(str(o.error) ? { error: str(o.error).slice(0, 2_000) } : {}),
+    })
+  }
+  return out
+}
+
+function readTasks(profileDir: string): PersonTask[] {
+  return normalizeTasks(readJsonFile<unknown>(tasksPathOf(profileDir), []))
+}
+
+function writeTasks(profileDir: string, tasks: PersonTask[]): void {
+  writeJsonAtomic(tasksPathOf(profileDir), tasks)
+}
+
+function emptyQueueState(): PersonQueueState {
+  return { status: 'idle', total: 0, completed: 0, failed: 0 }
+}
+
+function normalizeQueueState(raw: unknown): PersonQueueState {
+  if (raw === null || typeof raw !== 'object') return emptyQueueState()
+  const o = raw as Partial<PersonQueueState>
+  const allowed = new Set<PersonQueueState['status']>([
+    'idle',
+    'running',
+    'stopping',
+    'completed',
+    'stopped',
+    'failed',
+  ])
+  const status = str(o.status) as PersonQueueState['status']
+  return {
+    status: allowed.has(status) ? status : 'idle',
+    ...(str(o.queueId) ? { queueId: str(o.queueId) } : {}),
+    ...(Array.isArray(o.taskIds)
+      ? {
+          taskIds: o.taskIds.filter(
+            (id): id is string => typeof id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(id),
+          ),
+        }
+      : {}),
+    ...(str(o.currentTaskId) ? { currentTaskId: str(o.currentTaskId) } : {}),
+    ...(num(o.currentIndex) > 0 ? { currentIndex: num(o.currentIndex) } : {}),
+    total: num(o.total),
+    completed: num(o.completed),
+    failed: num(o.failed),
+    ...(num(o.startedAt) > 0 ? { startedAt: num(o.startedAt) } : {}),
+    ...(num(o.finishedAt) > 0 ? { finishedAt: num(o.finishedAt) } : {}),
+    ...(str(o.error) ? { error: str(o.error).slice(0, 2_000) } : {}),
+  }
+}
+
+function readQueueStateRaw(loaded: LoadedPerson): PersonQueueState {
+  return normalizeQueueState(readJsonFile<unknown>(queuePathOf(loaded.personDir), null))
+}
+
+function writeQueueState(loaded: LoadedPerson, queue: PersonQueueState): void {
+  writeJsonAtomic(queuePathOf(loaded.personDir), queue)
+}
+
+function taskCountsOf(tasks: PersonTask[]): PersonTaskCounts {
+  const counts: PersonTaskCounts = {
+    total: tasks.length,
+    pending: 0,
+    running: 0,
+    completed: 0,
+    failed: 0,
+    stopped: 0,
+  }
+  for (const task of tasks) counts[task.status] += 1
+  return counts
 }
 
 function sanitizeCards(raw: unknown): RoleCard[] {
@@ -453,8 +577,19 @@ function tryLoadPerson(root: string, id: string): LoadedPerson | null {
 /** 读取人员并确保当前没有执行中的回合（服务重启留下的 running 会先取消并标记停止） */
 function loadPersonIdle(root: string, id: string): LoadedPerson {
   const loaded = loadPerson(root, id)
+  readQueueState(loaded)
   readRunState(loaded)
   assertNotRunning(id)
+  return loaded
+}
+
+/** 任务看板编辑：执行中仍允许增删/排序未执行任务，只禁止操作 running 任务 */
+function loadPersonForTaskEdit(root: string, id: string): LoadedPerson {
+  const loaded = loadPerson(root, id)
+  const queue = readQueueState(loaded)
+  if (queue.status === 'running' || queue.status === 'stopping') {
+    syncTasksFromWorkspace(loaded)
+  }
   return loaded
 }
 
@@ -610,7 +745,13 @@ function moveEntries(sourceDir: string, targetDir: string, skip: ReadonlySet<str
   return result
 }
 
-function agentsMarkdown(config: PersonConfig, cards: RoleCard[], norms: string, types: PersonType[]): string {
+function agentsMarkdown(
+  config: PersonConfig,
+  cards: RoleCard[],
+  norms: string,
+  types: PersonType[],
+  queueTasks?: PersonTask[],
+): string {
   const typeName = typeNameOf(types, config.typeId) || '未分类'
   const cardText = cards.length
     ? cards
@@ -620,10 +761,29 @@ function agentsMarkdown(config: PersonConfig, cards: RoleCard[], norms: string, 
         )
         .join('\n\n')
     : '（暂无角色卡）'
+  const taskSection =
+    queueTasks && queueTasks.length > 0
+      ? `## 任务清单（按顺序执行）
+${queueTasks
+  .map(
+    (task, index) =>
+      `### ${index + 1}. ${task.title}\n- id: ${task.id}\n- 初始状态：pending\n\n${task.content}`,
+  )
+  .join('\n\n')}
+
+## 状态回写
+- 你是任务看板的工作者：每次只从 \`TASKS.json\` 领取一个 status=pending 的任务，不要并行。
+- 领取任务时先把它的 status 改为 running；完成改为 completed，失败改为 failed，停止改为 stopped，并写入 result / error。
+- 每完成一个任务后，重新读取 \`TASKS.json\`，领取下一个 pending 任务；执行期间任务看板可能新增或调整任务，以最新 \`TASKS.json\` 为准。
+- \`status\` 只能是 pending / running / completed / failed / stopped；不要修改任务 id、顺序或内容。
+- 每完成一个任务更新 STATE.md。
+- 全部任务结束后，在 STATE.md 写清最终结果。`
+      : `## 当前任务
+${config.task.trim() || defaultTask(config.name)}`
   return `# ${config.name} · 工作区行为规范
 
 > 本文件由 Blueprint Studio 的人员页面自动生成；修改人员配置后会自动刷新，请不要直接编辑。
-> 会话启动入口：读取本文件，然后完成下方「当前任务」。
+> 会话启动入口：读取本文件，然后完成下方「${queueTasks?.length ? '任务清单' : '当前任务'}」。
 
 ## 身份
 - 名字：${config.name}
@@ -636,8 +796,7 @@ ${cardText}
 ## 规范
 ${norms || '（暂无规范）'}
 
-## 当前任务
-${config.task.trim() || defaultTask(config.name)}
+${taskSection}
 
 ## 工作协议（跨会话）
 1. 每次会话开始，先读 STATE.md；如果存在 memory/MEMORY.md 也一起读。
@@ -666,13 +825,27 @@ function writeContextBundle(
   loaded: LoadedPerson,
   dir: string,
   types: PersonType[],
-  options: { overwriteState?: boolean; overwriteMemory?: boolean } = {},
+  options: {
+    overwriteState?: boolean
+    overwriteMemory?: boolean
+    queueTasks?: PersonTask[]
+  } = {},
 ): void {
   fs.mkdirSync(dir, { recursive: true })
   const config = loaded.config
-  writeTextFile(path.join(dir, 'AGENTS.md'), agentsMarkdown(config, loaded.cards, loaded.norms, types))
+  writeTextFile(
+    path.join(dir, 'AGENTS.md'),
+    agentsMarkdown(config, loaded.cards, loaded.norms, types, options.queueTasks),
+  )
   writeTextFile(path.join(dir, 'PERSON.md'), personMarkdown(config, loaded.cards, types))
-  writeTextFile(path.join(dir, 'TASK.md'), `# 当前任务\n\n${config.task || defaultTask(config.name)}\n`)
+  writeTextFile(
+    path.join(dir, 'TASK.md'),
+    options.queueTasks && options.queueTasks.length > 0
+      ? `# 任务清单\n\n${options.queueTasks
+          .map((task, index) => `${index + 1}. [ ] ${task.title}\n\n${task.content}`)
+          .join('\n\n')}\n`
+      : `# 当前任务\n\n${config.task || defaultTask(config.name)}\n`,
+  )
   const stateFile = path.join(dir, 'STATE.md')
   if (options.overwriteState || !exists(stateFile)) writeTextFile(stateFile, defaultState())
   const memoryDir = path.join(dir, 'memory')
@@ -690,6 +863,7 @@ function writeContextBundle(
 - AGENTS.md：身份、角色卡、规范、当前任务与工作协议（会话启动入口）
 - PERSON.md：人设摘要
 - TASK.md：当前任务记录（执行入口是 AGENTS.md）
+- TASKS.json：任务队列状态回写文件（执行任务队列时生成）
 - STATE.md：跨会话进度（请让执行会话持续更新）
 - memory/：长期记忆
 
@@ -706,7 +880,7 @@ function activeBundleDirs(loaded: LoadedPerson): string[] {
 }
 
 function clearContextFiles(dir: string): void {
-  for (const name of ['AGENTS.md', 'PERSON.md', 'TASK.md', 'STATE.md']) {
+  for (const name of ['AGENTS.md', 'PERSON.md', 'TASK.md', 'STATE.md', TASKS_JSON_NAME]) {
     try {
       fs.rmSync(path.join(dir, name), { force: true })
     } catch {
@@ -718,6 +892,159 @@ function clearContextFiles(dir: string): void {
   } catch {
     /* 忽略 */
   }
+}
+
+/** 生成给 DSH 回写的任务状态文件 */
+function writeQueueTasksFile(dir: string, queueId: string, tasks: PersonTask[]): void {
+  writeJsonAtomic(path.join(dir, TASKS_JSON_NAME), {
+    queueId,
+    updatedAt: new Date().toISOString(),
+    tasks: tasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      content: task.content,
+      status: task.status,
+      result: task.result ?? '',
+      error: task.error ?? '',
+    })),
+  })
+}
+
+/** 任务看板结构变化后，把最新任务快照同步给 DSH 正在执行的 TASKS.json */
+function mirrorTasksToQueueFile(loaded: LoadedPerson): void {
+  const queue = readQueueStateRaw(loaded)
+  if (queue.status !== 'running' && queue.status !== 'stopping') return
+  const tasks = readTasks(loaded.profileDir)
+  const ids = new Set(
+    queue.taskIds ??
+      tasks
+        .filter((task) => task.status === 'pending' || task.status === 'running')
+        .map((task) => task.id),
+  )
+  const queueTasks = tasks.filter((task) => ids.has(task.id))
+  const workspace = resolveActiveWorkspace(loaded.config, loaded.defaultWorkspace)
+  writeQueueTasksFile(workspace, queue.queueId ?? '', queueTasks)
+  queue.taskIds = queueTasks.map((task) => task.id)
+  queue.total = queueTasks.length
+  queue.completed = queueTasks.filter((task) => task.status === 'completed').length
+  queue.failed = queueTasks.filter(
+    (task) => task.status === 'failed' || task.status === 'stopped',
+  ).length
+  writeQueueState(loaded, queue)
+  const run = readRunStateRaw(loaded)
+  if (run.status === 'running' || run.status === 'stopping') {
+    run.taskTitle = `任务队列（${queueTasks.length} 个任务）`
+    writeRunState(loaded, run)
+  }
+}
+
+/** 从工作区 TASKS.json 同步 DSH 自己写入的任务状态 */
+function syncTasksFromWorkspace(loaded: LoadedPerson): PersonTask[] {
+  const workspace = resolveActiveWorkspace(loaded.config, loaded.defaultWorkspace)
+  const file = path.join(workspace, TASKS_JSON_NAME)
+  if (!exists(file)) return readTasks(loaded.profileDir)
+
+  const raw = readJsonFile<unknown>(file, null)
+  const list =
+    Array.isArray(raw)
+      ? raw
+      : raw !== null && typeof raw === 'object' && Array.isArray((raw as { tasks?: unknown }).tasks)
+        ? (raw as { tasks: unknown[] }).tasks
+        : []
+  if (list.length === 0) return readTasks(loaded.profileDir)
+
+  const allowed = new Set<PersonTaskStatus>([
+    'pending',
+    'running',
+    'completed',
+    'failed',
+    'stopped',
+  ])
+  const remote = new Map<
+    string,
+    { status: PersonTaskStatus; result: string; error: string }
+  >()
+  for (const item of list) {
+    if (item === null || typeof item !== 'object') continue
+    const o = item as { id?: unknown; status?: unknown; result?: unknown; error?: unknown }
+    const id = str(o.id)
+    const status = str(o.status) as PersonTaskStatus
+    if (!id || !allowed.has(status)) continue
+    remote.set(id, {
+      status,
+      result: str(o.result).slice(0, 20_000),
+      error: str(o.error).slice(0, 2_000),
+    })
+  }
+  if (remote.size === 0) return readTasks(loaded.profileDir)
+
+  const tasks = readTasks(loaded.profileDir)
+  const now = Date.now()
+  let changed = false
+  for (const task of tasks) {
+    const next = remote.get(task.id)
+    if (!next) continue
+    if (next.status !== task.status) {
+      task.status = next.status
+      changed = true
+      if (next.status === 'running') {
+        task.startedAt = task.startedAt ?? now
+        delete task.finishedAt
+      } else if (next.status === 'pending') {
+        delete task.startedAt
+        delete task.finishedAt
+        delete task.result
+        delete task.error
+      } else {
+        task.startedAt = task.startedAt ?? now
+        task.finishedAt = task.finishedAt ?? now
+      }
+    }
+    if (next.result) {
+      if (task.result !== next.result) {
+        task.result = next.result
+        changed = true
+      }
+    } else if (task.result && next.status === 'pending') {
+      delete task.result
+      changed = true
+    }
+    if (next.error) {
+      if (task.error !== next.error) {
+        task.error = next.error
+        changed = true
+      }
+    } else if (task.error && next.status === 'pending') {
+      delete task.error
+      changed = true
+    }
+  }
+  if (changed) writeTasks(loaded.profileDir, tasks)
+
+  const queue = readQueueStateRaw(loaded)
+  if (queue.status === 'running' || queue.status === 'stopping') {
+    const queueIds = new Set(
+      queue.taskIds && queue.taskIds.length > 0 ? queue.taskIds : [...remote.keys()],
+    )
+    const queueTasks = tasks.filter((task) => queueIds.has(task.id))
+    if (queueTasks.length > 0) {
+      queue.total = queueTasks.length
+      queue.completed = queueTasks.filter((task) => task.status === 'completed').length
+      queue.failed = queueTasks.filter(
+        (task) => task.status === 'failed' || task.status === 'stopped',
+      ).length
+      const running = queueTasks.find((task) => task.status === 'running')
+      if (running) {
+        queue.currentTaskId = running.id
+        queue.currentIndex = queueTasks.indexOf(running) + 1
+      } else {
+        delete queue.currentTaskId
+        delete queue.currentIndex
+      }
+      writeQueueState(loaded, queue)
+    }
+  }
+  return tasks
 }
 
 export interface WorkspaceBuildResult {
@@ -782,6 +1109,7 @@ export async function resetPersonWorkspace(id: string, root: string = resolvePeo
   }
   const idle: PersonRunState = { status: 'idle' }
   writeRunState(loaded, idle)
+  writeQueueState(loaded, emptyQueueState())
   loaded.config.workspace = { ...loaded.config.workspace }
   delete loaded.config.workspace.builtAt
   loaded.config.updatedAt = Date.now()
@@ -1001,6 +1329,8 @@ export function readPersonAvatar(
 
 /** 本进程内正在执行的人员（personId → runId / starting） */
 const activeRuns = new Map<string, string>()
+/** 本进程内正在跑队列的人员（personId → queueId） */
+const activeQueues = new Map<string, string>()
 
 function runStatePathOf(personDir: string): string {
   return path.join(personDir, 'run.json')
@@ -1013,6 +1343,8 @@ function normalizeRunState(raw: unknown): PersonRunState {
   return {
     status: allowed.has(str(o.status)) ? (str(o.status) as PersonRunState['status']) : 'idle',
     ...(str(o.runId) ? { runId: str(o.runId) } : {}),
+    ...(str(o.taskId) ? { taskId: str(o.taskId) } : {}),
+    ...(str(o.taskTitle) ? { taskTitle: str(o.taskTitle) } : {}),
     ...(str(o.sessionId) ? { sessionId: str(o.sessionId) } : {}),
     ...(str(o.sessionTitle) ? { sessionTitle: str(o.sessionTitle) } : {}),
     ...(num(o.startedAt) > 0 ? { startedAt: num(o.startedAt) } : {}),
@@ -1054,8 +1386,43 @@ function readRunState(loaded: LoadedPerson): PersonRunState {
   return run
 }
 
+function readQueueState(loaded: LoadedPerson): PersonQueueState {
+  const queue = readQueueStateRaw(loaded)
+  if (
+    (queue.status === 'running' || queue.status === 'stopping') &&
+    activeQueues.get(loaded.id) !== queue.queueId
+  ) {
+    const now = Date.now()
+    const tasks = readTasks(loaded.profileDir)
+    let interrupted = 0
+    for (const task of tasks) {
+      if (task.status !== 'running') continue
+      task.status = 'failed'
+      task.finishedAt = now
+      task.error = '服务重启，任务中断'
+      interrupted += 1
+    }
+    writeTasks(loaded.profileDir, tasks)
+    const stopped: PersonQueueState = {
+      ...queue,
+      status: 'stopped',
+      failed: queue.failed + interrupted,
+      finishedAt: now,
+      error: '服务重启或队列执行中断',
+    }
+    delete stopped.currentTaskId
+    delete stopped.currentIndex
+    writeQueueState(loaded, stopped)
+    appendActivity(loaded.profileDir, 'queue_stopped', '服务重启，任务队列已中断')
+    return stopped
+  }
+  return queue
+}
+
 function assertNotRunning(id: string): void {
-  if (activeRuns.has(id)) throw new FsError(409, '人员正在执行中，请先停止后再操作')
+  if (activeRuns.has(id) || activeQueues.has(id)) {
+    throw new FsError(409, '人员正在执行中，请先停止后再操作')
+  }
 }
 
 /* ============================================================
@@ -1063,6 +1430,12 @@ function assertNotRunning(id: string): void {
  * ============================================================ */
 
 function toSummary(loaded: LoadedPerson): PersonSummary {
+  const queueBefore = readQueueState(loaded)
+  const tasks =
+    queueBefore.status === 'running' || queueBefore.status === 'stopping'
+      ? syncTasksFromWorkspace(loaded)
+      : readTasks(loaded.profileDir)
+  const queue = readQueueStateRaw(loaded)
   const run = readRunState(loaded)
   const memory = collectMemory(loaded, 0)
   return {
@@ -1078,6 +1451,8 @@ function toSummary(loaded: LoadedPerson): PersonSummary {
     memoryCount: memory.count,
     stats: { ...loaded.config.stats },
     run,
+    queue,
+    taskCounts: taskCountsOf(tasks),
   }
 }
 
@@ -1106,6 +1481,7 @@ export function getPerson(id: string, root: string = resolvePeopleRoot()): Perso
     config: loaded.config,
     cards: loaded.cards,
     norms: loaded.norms,
+    tasks: readTasks(loaded.profileDir),
     memory: collectMemory(loaded, 20_000),
     activity: readActivity(loaded.profileDir),
   }
@@ -1154,6 +1530,8 @@ export function createPerson(root: string, input: CreatePersonInput): PersonDeta
   writeJsonAtomic(configPathOf(profileDir), config)
   writeJsonAtomic(cardsPathOf(profileDir), cards)
   writeTextFile(normsPathOf(profileDir), norms)
+  writeJsonAtomic(tasksPathOf(profileDir), [])
+  writeJsonAtomic(queuePathOf(personDir), emptyQueueState())
   writeJsonAtomic(runStatePathOf(personDir), { status: 'idle' })
   const loaded: LoadedPerson = { id, personDir, defaultWorkspace, profileDir, config, cards, norms }
   writeContextBundle(loaded, defaultWorkspace, types)
@@ -1270,6 +1648,128 @@ export function updatePerson(id: string, root: string, input: UpdatePersonInput)
   return getPerson(id, dir)
 }
 
+export interface AddTaskInput {
+  title?: string
+  content: string
+}
+
+/** 向任务看板添加任务（只入列，不执行） */
+export function addPersonTask(id: string, root: string, input: AddTaskInput): PersonDetail {
+  const dir = ensurePeopleRoot(root)
+  const loaded = loadPersonForTaskEdit(dir, id)
+  const content = str(input.content).trim()
+  if (!content) throw new FsError(400, '任务内容不能为空')
+  const tasks = readTasks(loaded.profileDir)
+  const task: PersonTask = {
+    id: newRecordId('task'),
+    title: str(input.title).trim().slice(0, 120) || taskTitleFromContent(content),
+    content: content.slice(0, MAX_TASK_LENGTH),
+    status: 'pending',
+    createdAt: Date.now(),
+  }
+  tasks.push(task)
+  writeTasks(loaded.profileDir, tasks)
+  const queue = readQueueStateRaw(loaded)
+  if (queue.status === 'running' || queue.status === 'stopping') {
+    if (!queue.taskIds) {
+      queue.taskIds = tasks
+        .filter((item) => item.status === 'pending' || item.status === 'running')
+        .map((item) => item.id)
+    }
+    if (!queue.taskIds.includes(task.id)) queue.taskIds.push(task.id)
+    queue.total = queue.taskIds.length
+    writeQueueState(loaded, queue)
+    mirrorTasksToQueueFile(loaded)
+  }
+  appendActivity(loaded.profileDir, 'task_added', `添加任务「${task.title}」`)
+  return getPerson(id, dir)
+}
+
+/** 删除一条任务（执行中的任务不可删除） */
+export function deletePersonTask(id: string, root: string, taskId: string): PersonDetail {
+  const dir = ensurePeopleRoot(root)
+  const loaded = loadPersonForTaskEdit(dir, id)
+  const tasks = readTasks(loaded.profileDir)
+  const target = tasks.find((task) => task.id === taskId)
+  if (!target) throw new FsError(404, '任务不存在')
+  if (target.status === 'running') throw new FsError(409, '任务正在执行，不能删除')
+  writeTasks(
+    loaded.profileDir,
+    tasks.filter((task) => task.id !== taskId),
+  )
+  const queue = readQueueStateRaw(loaded)
+  if (queue.taskIds) {
+    queue.taskIds = queue.taskIds.filter((item) => item !== taskId)
+    queue.total = queue.taskIds.length
+    writeQueueState(loaded, queue)
+  }
+  mirrorTasksToQueueFile(loaded)
+  appendActivity(loaded.profileDir, 'task_deleted', `删除任务「${target.title}」`)
+  return getPerson(id, dir)
+}
+
+/** 调整待执行任务的顺序（只在 pending 任务之间交换） */
+export function movePersonTask(
+  id: string,
+  root: string,
+  taskId: string,
+  direction: 'up' | 'down',
+): PersonDetail {
+  const dir = ensurePeopleRoot(root)
+  const loaded = loadPersonForTaskEdit(dir, id)
+  const tasks = readTasks(loaded.profileDir)
+  const index = tasks.findIndex((task) => task.id === taskId)
+  if (index < 0) throw new FsError(404, '任务不存在')
+  if (tasks[index]!.status !== 'pending') throw new FsError(400, '只能调整待执行任务的顺序')
+  let swapIndex = -1
+  const step = direction === 'up' ? -1 : 1
+  for (let i = index + step; i >= 0 && i < tasks.length; i += step) {
+    if (tasks[i]!.status === 'pending') {
+      swapIndex = i
+      break
+    }
+  }
+  if (swapIndex >= 0) {
+    const [task] = tasks.splice(index, 1)
+    tasks.splice(swapIndex, 0, task!)
+    writeTasks(loaded.profileDir, tasks)
+    mirrorTasksToQueueFile(loaded)
+  }
+  return getPerson(id, dir)
+}
+
+/** 失败 / 停止的任务重新放回待执行队列 */
+export function retryPersonTask(id: string, root: string, taskId: string): PersonDetail {
+  const dir = ensurePeopleRoot(root)
+  const loaded = loadPersonForTaskEdit(dir, id)
+  const tasks = readTasks(loaded.profileDir)
+  const target = tasks.find((task) => task.id === taskId)
+  if (!target) throw new FsError(404, '任务不存在')
+  if (target.status !== 'failed' && target.status !== 'stopped') {
+    throw new FsError(400, '只有失败或已停止的任务可以重试')
+  }
+  target.status = 'pending'
+  delete target.startedAt
+  delete target.finishedAt
+  delete target.result
+  delete target.error
+  writeTasks(loaded.profileDir, tasks)
+  const queue = readQueueStateRaw(loaded)
+  if (queue.status === 'running' || queue.status === 'stopping') {
+    if (!queue.taskIds) {
+      queue.taskIds = tasks
+        .filter((item) => item.status === 'pending' || item.status === 'running')
+        .map((item) => item.id)
+    }
+    if (!queue.taskIds.includes(target.id)) queue.taskIds.push(target.id)
+    queue.total = queue.taskIds.length
+    writeQueueState(loaded, queue)
+    mirrorTasksToQueueFile(loaded)
+  }
+  appendActivity(loaded.profileDir, 'task_retried', `重新排队任务「${target.title}」`)
+  return getPerson(id, dir)
+}
+
 /** 删除人员（默认工作区随人员目录删除；外部工作区不会删除） */
 export async function deletePerson(id: string, root: string = resolvePeopleRoot()): Promise<void> {
   const dir = ensurePeopleRoot(root)
@@ -1285,23 +1785,61 @@ export async function deletePerson(id: string, root: string = resolvePeopleRoot(
  * 执行 / 停止
  * ============================================================ */
 
-function buildResultForLoaded(loaded: LoadedPerson): WorkspaceBuildResult {
-  return buildWorkspaceInternal(loaded)
-}
-
-/** 开始执行：构建工作区 → 创建 / 复用 DSH 会话 → 发送「读取 AGENTS.md」启动指令 */
-export async function runPerson(id: string, root: string = resolvePeopleRoot()): Promise<PersonRunState> {
+/** 启动任务队列：按任务看板顺序依次执行所有 pending 任务 */
+export async function runPerson(id: string, root: string = resolvePeopleRoot()): Promise<PersonQueueState> {
   const dir = ensurePeopleRoot(root)
   const loaded = loadPerson(dir, id)
+  readQueueState(loaded)
   readRunState(loaded)
   assertNotRunning(id)
-  activeRuns.set(id, 'starting')
+  const tasks = readTasks(loaded.profileDir)
+  const pending = tasks.filter((task) => task.status === 'pending')
+  if (pending.length === 0) throw new FsError(400, '没有待执行的任务，请先在任务看板中发布任务')
+
+  const queue: PersonQueueState = {
+    status: 'running',
+    queueId: newRecordId('queue'),
+    taskIds: pending.map((task) => task.id),
+    total: pending.length,
+    completed: 0,
+    failed: 0,
+    startedAt: Date.now(),
+  }
+  activeQueues.set(id, queue.queueId!)
+  writeQueueState(loaded, queue)
+  appendActivity(loaded.profileDir, 'queue_started', `开始执行任务队列（${pending.length} 个）`)
+  void processQueue(id, dir, queue.queueId!)
+  return queue
+}
+
+/** 队列执行器：一个 DSH 会话执行 AGENTS.md 的整张任务清单，状态由 DSH 回写 TASKS.json */
+async function processQueue(id: string, root: string, queueId: string): Promise<void> {
+  const loaded = loadPerson(root, id)
+  const types = loadTypes(root)
   try {
-    // 先读一次运行状态：若服务重启留下 running 状态，会在这里取消孤儿会话并标记停止
-    const previous = readRunState(loaded)
-    const build = buildResultForLoaded(loaded)
+    const build = buildWorkspaceInternal(loaded)
     const target = build.workspaceDir
+    const queueTasks = readTasks(loaded.profileDir).filter((task) => task.status === 'pending')
+    if (queueTasks.length === 0) {
+      const queue = readQueueStateRaw(loaded)
+      queue.status = 'completed'
+      queue.completed = 0
+      queue.failed = 0
+      queue.finishedAt = Date.now()
+      delete queue.currentTaskId
+      delete queue.currentIndex
+      writeQueueState(loaded, queue)
+      appendActivity(loaded.profileDir, 'queue_completed', '任务队列没有待执行任务')
+      return
+    }
+
+    writeQueueTasksFile(target, queueId, queueTasks)
+    writeContextBundle(loaded, target, types, { queueTasks })
+    writeContextBundle(loaded, loaded.defaultWorkspace, types, { queueTasks })
+
     let sessionId = ''
+    let sessionTitle = ''
+    const previous = readRunState(loaded)
     if (
       loaded.config.workspace.reuseSession &&
       previous.sessionId &&
@@ -1309,15 +1847,15 @@ export async function runPerson(id: string, root: string = resolvePeopleRoot()):
       !isSessionArchived(previous.sessionId)
     ) {
       const status = await agentGateway.sessionStatus('dsh', previous.sessionId).catch(() => null)
-      if (status && !status.running) sessionId = previous.sessionId
+      if (status && !status.running) {
+        sessionId = previous.sessionId
+        sessionTitle = previous.sessionTitle ?? ''
+      }
     }
-    let sessionTitle = previous.sessionTitle ?? ''
     if (!sessionId) {
-      const types = loadTypes(dir)
-      const typeName = typeNameOf(types, loaded.config.typeId)
       const title =
         loaded.config.workspace.sessionTitle.trim() ||
-        `${loaded.config.name} · ${typeName || '执行'}`
+        `${loaded.config.name} · 任务队列（${queueTasks.length} 个任务）`
       const session = await agentGateway.createSession('dsh', personProjectKey(id), {
         title,
         cwd: target,
@@ -1330,11 +1868,12 @@ export async function runPerson(id: string, root: string = resolvePeopleRoot()):
       sessionTitle = session.title
     }
 
-    const runId = newRecordId('run')
     const startedAt = Date.now()
+    const runId = newRecordId('run')
     const run: PersonRunState = {
       status: 'running',
       runId,
+      taskTitle: `任务队列（${queueTasks.length} 个任务）`,
       sessionId,
       sessionTitle,
       startedAt,
@@ -1342,14 +1881,21 @@ export async function runPerson(id: string, root: string = resolvePeopleRoot()):
     }
     activeRuns.set(id, runId)
     writeRunState(loaded, run)
-    loaded.config.stats.runs += 1
+    loaded.config.stats.runs += queueTasks.length
     loaded.config.stats.lastRunAt = startedAt
     loaded.config.updatedAt = startedAt
     saveConfig(loaded)
-    appendActivity(loaded.profileDir, 'run_started', `开始执行（${sessionTitle || sessionId}）`)
+    appendActivity(
+      loaded.profileDir,
+      'run_started',
+      `开始执行任务队列（${queueTasks.length} 个任务）`,
+    )
 
-    void agentGateway
-      .sendMessage({
+    let reply = ''
+    let outcome: 'completed' | 'failed' | 'stopped' = 'failed'
+    let error = ''
+    try {
+      const result = await agentGateway.sendMessage({
         platform: 'dsh',
         project: personProjectKey(id),
         sessionId,
@@ -1360,120 +1906,153 @@ export async function runPerson(id: string, root: string = resolvePeopleRoot()):
         waitForCompletion: true,
         timeoutSec: RUN_TIMEOUT_SEC,
       })
-      .then(({ reply }) => finishRun(id, dir, runId, 'completed', reply, ''))
-      .catch((err: unknown) =>
-        finishRun(id, dir, runId, 'failed', '', err instanceof Error ? err.message : String(err)),
-      )
-      .finally(() => {
-        if (activeRuns.get(id) === runId) activeRuns.delete(id)
-      })
-    return run
-  } catch (err) {
-    activeRuns.delete(id)
-    if (err instanceof FsError) throw err
-    throw new FsError(502, `启动 DSH 会话失败：${err instanceof Error ? err.message : String(err)}`)
-  }
-}
-
-function finishRun(
-  id: string,
-  root: string,
-  runId: string,
-  outcome: 'completed' | 'failed',
-  reply: string,
-  error: string,
-): void {
-  const loaded = tryLoadPerson(root, id)
-  if (!loaded) return
-  const current = readRunStateRaw(loaded)
-  if (current.runId !== runId) return
-  if (current.status === 'stopped') return
-  const finalStatus = current.status === 'stopping' ? 'stopped' : outcome
-  const finishedAt = Date.now()
-  const next: PersonRunState = {
-    ...current,
-    status: finalStatus,
-    finishedAt,
-    ...(reply ? { lastReply: reply.slice(0, 20_000) } : {}),
-    ...(error ? { error } : {}),
-  }
-  writeRunState(loaded, next)
-
-  if (finalStatus === 'completed') {
-    appendStateNote(
-      loaded,
-      next,
-      `- 状态：已完成\n- 会话：${next.sessionTitle || next.sessionId || '—'}\n- 最后回复：${
-        reply.trim().slice(0, 1200) || '（无回复）'
-      }`,
-    )
-    loaded.config.stats.completed += 1
-    appendActivity(loaded.profileDir, 'run_completed', '执行完成')
-  } else if (finalStatus === 'failed') {
-    appendStateNote(
-      loaded,
-      next,
-      `- 状态：失败\n- 错误：${(error || '未知错误').slice(0, 1200)}`,
-    )
-    loaded.config.stats.failed += 1
-    appendActivity(loaded.profileDir, 'run_failed', `执行失败：${error || '未知错误'}`)
-  } else {
-    appendStateNote(loaded, next, `- 状态：已停止\n- 原因：${(error || '手动停止').slice(0, 1200)}`)
-    appendActivity(loaded.profileDir, 'run_stopped', '已停止执行')
-  }
-  loaded.config.updatedAt = finishedAt
-  saveConfig(loaded)
-
-  if (
-    finalStatus !== 'stopped' &&
-    loaded.config.workspace.deleteSessionAfterRun &&
-    next.sessionId
-  ) {
-    const sessionId = next.sessionId
-    next.sessionId = undefined
-    writeRunState(loaded, next)
-    void agentGateway
-      .deleteSession('dsh', sessionId)
-      .then(() => appendActivity(loaded.profileDir, 'session_archived', '已按设置归档本次会话'))
-      .catch(() => undefined)
-  }
-}
-
-/** 停止执行：取消 DSH 会话里的当前回合 */
-export async function stopPerson(id: string, root: string = resolvePeopleRoot()): Promise<PersonRunState> {
-  const dir = ensurePeopleRoot(root)
-  const loaded = loadPerson(dir, id)
-  const run = readRunState(loaded)
-  if (run.status !== 'running' && run.status !== 'stopping') return run
-  const stopping: PersonRunState = { ...run, status: 'stopping' }
-  writeRunState(loaded, stopping)
-  let error = ''
-  if (run.sessionId) {
-    try {
-      await agentGateway.cancelSession('dsh', run.sessionId)
+      reply = result.reply
+      const after = readQueueStateRaw(loaded)
+      if (after.status === 'stopping' || after.status === 'stopped') {
+        outcome = 'stopped'
+      } else {
+        const synced = syncTasksFromWorkspace(loaded)
+        const queueIds = new Set(queueTasks.map((task) => task.id))
+        const queueSynced = synced.filter((task) => queueIds.has(task.id))
+        const unresolved = queueSynced.filter(
+          (task) => task.status === 'pending' || task.status === 'running',
+        )
+        if (unresolved.length > 0) {
+          outcome = 'failed'
+          error = `智能体未完整回写 TASKS.json 任务状态（剩余 ${unresolved.length} 个）`
+        } else {
+          outcome = 'completed'
+        }
+      }
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
+      const after = readQueueStateRaw(loaded)
+      outcome = after.status === 'stopping' || after.status === 'stopped' ? 'stopped' : 'failed'
     }
+
+    let tasks = syncTasksFromWorkspace(loaded)
+    const queueState = readQueueStateRaw(loaded)
+    const queueIds = new Set(
+      queueState.taskIds && queueState.taskIds.length > 0
+        ? queueState.taskIds
+        : queueTasks.map((task) => task.id),
+    )
+    let statusChanged = false
+    for (const task of tasks) {
+      if (!queueIds.has(task.id)) continue
+      if (outcome === 'stopped' && task.status === 'running') {
+        task.status = 'stopped'
+        task.finishedAt = task.finishedAt ?? Date.now()
+        task.error = '已手动停止'
+        statusChanged = true
+      } else if (outcome === 'failed' && task.status === 'running') {
+        task.status = 'failed'
+        task.finishedAt = task.finishedAt ?? Date.now()
+        task.error = error || '任务队列失败'
+        statusChanged = true
+      }
+    }
+    if (statusChanged) writeTasks(loaded.profileDir, tasks)
+
+    const queueSynced = tasks.filter((task) => queueIds.has(task.id))
+    const completed = queueSynced.filter((task) => task.status === 'completed').length
+    const failed = queueSynced.filter(
+      (task) => task.status === 'failed' || task.status === 'stopped',
+    ).length
+    const unresolved = queueSynced.filter(
+      (task) => task.status === 'pending' || task.status === 'running',
+    ).length
+    if (outcome === 'completed' && unresolved > 0) {
+      outcome = 'failed'
+      error = error || `智能体未完整回写 TASKS.json 任务状态（剩余 ${unresolved} 个）`
+    }
+
+    const finishedAt = Date.now()
+    const queue = queueState
+    queue.status = outcome
+    queue.total = queueSynced.length
+    queue.completed = completed
+    queue.failed = failed
+    queue.finishedAt = finishedAt
+    if (outcome === 'stopped') queue.error = '已手动停止'
+    else if (error) queue.error = error
+    else delete queue.error
+    delete queue.currentTaskId
+    delete queue.currentIndex
+    writeQueueState(loaded, queue)
+
+    const runAfter = readRunStateRaw(loaded)
+    if (runAfter.runId === runId) {
+      const nextRun: PersonRunState = {
+        ...runAfter,
+        status: outcome,
+        taskTitle: `任务队列（${queueSynced.length} 个任务）`,
+        finishedAt,
+        ...(reply ? { lastReply: reply.slice(0, 20_000) } : {}),
+        ...(error ? { error } : outcome === 'stopped' ? { error: '已手动停止' } : {}),
+      }
+      writeRunState(loaded, nextRun)
+      appendStateNote(
+        loaded,
+        nextRun,
+        `- 状态：${
+          outcome === 'completed' ? '队列完成' : outcome === 'stopped' ? '队列已停止' : '队列失败'
+        }\n- 任务：${queueSynced.length} 个（成功 ${completed} / 失败 ${failed}）${
+          error ? `\n- 错误：${error.slice(0, 1200)}` : ''
+        }`,
+      )
+    }
+    loaded.config.stats.completed += completed
+    loaded.config.stats.failed += failed
+    loaded.config.updatedAt = finishedAt
+    saveConfig(loaded)
+    appendActivity(
+      loaded.profileDir,
+      outcome === 'completed' ? 'queue_completed' : outcome === 'stopped' ? 'queue_stopped' : 'queue_failed',
+      outcome === 'completed'
+        ? `任务队列完成（成功 ${completed} / 失败 ${failed}）`
+        : outcome === 'stopped'
+          ? '任务队列已停止'
+          : `任务队列失败：${error || '未知错误'}`,
+    )
+    if (outcome !== 'stopped' && loaded.config.workspace.deleteSessionAfterRun && sessionId) {
+      await agentGateway.deleteSession('dsh', sessionId).catch(() => undefined)
+      appendActivity(loaded.profileDir, 'session_archived', '已按设置归档任务队列会话')
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    const current = readQueueStateRaw(loaded)
+    if (current.queueId === queueId) {
+      current.status = 'failed'
+      current.finishedAt = Date.now()
+      current.error = message
+      delete current.currentTaskId
+      delete current.currentIndex
+      writeQueueState(loaded, current)
+      appendActivity(loaded.profileDir, 'queue_failed', `任务队列异常：${message}`)
+    }
+  } finally {
+    if (activeQueues.get(id) === queueId) activeQueues.delete(id)
+    activeRuns.delete(id)
   }
-  const current = readRunStateRaw(loaded)
-  if (current.runId !== run.runId || current.status !== 'stopping') {
-    return current
+}
+
+/** 停止任务队列：取消当前任务，剩余 pending 任务保留 */
+export async function stopPerson(id: string, root: string = resolvePeopleRoot()): Promise<PersonQueueState> {
+  const dir = ensurePeopleRoot(root)
+  const loaded = loadPerson(dir, id)
+  const queue = readQueueState(loaded)
+  if (queue.status !== 'running' && queue.status !== 'stopping') return queue
+  const stopping: PersonQueueState = { ...queue, status: 'stopping' }
+  writeQueueState(loaded, stopping)
+  const run = readRunStateRaw(loaded)
+  if (run.status === 'running') {
+    writeRunState(loaded, { ...run, status: 'stopping' })
   }
-  const stopped: PersonRunState = {
-    ...current,
-    status: 'stopped',
-    finishedAt: Date.now(),
-    error: error ? `停止请求失败：${error}（会话可能仍在运行）` : '已手动停止',
+  if (run.sessionId) {
+    await agentGateway.cancelSession('dsh', run.sessionId).catch(() => undefined)
   }
-  writeRunState(loaded, stopped)
-  appendStateNote(
-    loaded,
-    stopped,
-    `- 状态：已停止\n- 原因：${stopped.error || '手动停止'}`,
-  )
-  appendActivity(loaded.profileDir, 'run_stopped', error ? `停止请求失败：${error}` : '已手动停止执行')
-  activeRuns.delete(id)
-  return stopped
+  return stopping
 }
 
 /* ============================================================
@@ -1569,6 +2148,34 @@ export async function handlePersonnelRequest(deps: PersonnelHttpDeps): Promise<b
   }
 
   const action = segments.slice(1).join('/')
+  if (action === 'tasks' && method === 'POST') {
+    const body = await readJson(req)
+    const person = addPersonTask(id, root, {
+      title: str(body.title),
+      content: str(body.content),
+    })
+    sendJson(res, 201, { ok: true, person })
+    return true
+  }
+  if (segments[1] === 'tasks' && segments.length >= 3) {
+    const taskId = assertSafePersonId(segments[2]!)
+    if (segments.length === 3 && method === 'DELETE') {
+      sendJson(res, 200, { ok: true, person: deletePersonTask(id, root, taskId) })
+      return true
+    }
+    if (segments.length === 4 && segments[3] === 'move' && method === 'POST') {
+      const body = await readJson(req)
+      const direction = str(body.direction) === 'up' ? 'up' : 'down'
+      sendJson(res, 200, { ok: true, person: movePersonTask(id, root, taskId, direction) })
+      return true
+    }
+    if (segments.length === 4 && segments[3] === 'retry' && method === 'POST') {
+      sendJson(res, 200, { ok: true, person: retryPersonTask(id, root, taskId) })
+      return true
+    }
+    sendJson(res, 405, { ok: false, message: 'Method Not Allowed' })
+    return true
+  }
   if (action === 'avatar') {
     if (method === 'GET') {
       sendAvatar(res, id, root)
@@ -1591,11 +2198,11 @@ export async function handlePersonnelRequest(deps: PersonnelHttpDeps): Promise<b
     return true
   }
   if (action === 'run' && method === 'POST') {
-    sendJson(res, 200, { ok: true, run: await runPerson(id, root) })
+    sendJson(res, 200, { ok: true, queue: await runPerson(id, root) })
     return true
   }
   if (action === 'stop' && method === 'POST') {
-    sendJson(res, 200, { ok: true, run: await stopPerson(id, root) })
+    sendJson(res, 200, { ok: true, queue: await stopPerson(id, root) })
     return true
   }
   if (action === 'memory' && method === 'GET') {

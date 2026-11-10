@@ -8,18 +8,23 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
+  addPersonTask,
   buildPersonWorkspace,
   clearPersonMemory,
   createPerson,
+  deletePersonTask,
   deletePerson,
   getPerson,
   getPersonMemory,
   listPeople,
   loadTypes,
+  movePersonTask,
   PERSON_STARTUP_PROMPT,
   readPersonAvatar,
   resetPersonWorkspace,
+  retryPersonTask,
   resolvePeopleRoot,
+  runPerson,
   savePersonAvatar,
   saveTypes,
   updatePerson,
@@ -272,6 +277,56 @@ describe('记忆 / 头像 / 提示词', () => {
       assert.match(agents, /STATE\.md/)
       assert.match(agents, /memory\/MEMORY\.md/)
       assert.equal(PERSON_STARTUP_PROMPT, '读取 AGENTS.md，然后完成里面的事项。')
+    })
+  })
+})
+
+describe('任务看板', () => {
+  test('任务只入列，可调整待执行顺序、删除与重试', () => {
+    withRoot((root) => {
+      const person = createPerson(root, { name: '任务看板测试' })
+      let detail = addPersonTask(person.id, root, { title: '任务 A', content: '执行 A' })
+      detail = addPersonTask(person.id, root, { title: '任务 B', content: '执行 B' })
+      detail = addPersonTask(person.id, root, { title: '任务 C', content: '执行 C' })
+      assert.deepEqual(
+        detail.tasks.map((task) => task.title),
+        ['任务 A', '任务 B', '任务 C'],
+      )
+      assert.ok(detail.tasks.every((task) => task.status === 'pending'))
+
+      detail = movePersonTask(person.id, root, detail.tasks[2]!.id, 'up')
+      assert.deepEqual(
+        detail.tasks.map((task) => task.title),
+        ['任务 A', '任务 C', '任务 B'],
+      )
+
+      detail = deletePersonTask(person.id, root, detail.tasks[1]!.id)
+      assert.deepEqual(
+        detail.tasks.map((task) => task.title),
+        ['任务 A', '任务 B'],
+      )
+
+      const tasksFile = path.join(person.defaultWorkspace, '.person', 'tasks.json')
+      const raw = JSON.parse(fs.readFileSync(tasksFile, 'utf8')) as Array<{
+        id: string
+        status: string
+        error?: string
+      }>
+      raw[0]!.status = 'failed'
+      raw[0]!.error = '模拟失败'
+      fs.writeFileSync(tasksFile, JSON.stringify(raw), 'utf8')
+      detail = retryPersonTask(person.id, root, raw[0]!.id)
+      assert.equal(detail.tasks.find((task) => task.id === raw[0]!.id)?.status, 'pending')
+    })
+  })
+
+  test('没有待执行任务时启动队列会被拒绝', async () => {
+    await withRootAsync(async (root) => {
+      const person = createPerson(root, { name: '空队列测试' })
+      await assert.rejects(
+        () => runPerson(person.id, root),
+        (err: unknown) => err instanceof FsError && err.status === 400,
+      )
     })
   })
 })

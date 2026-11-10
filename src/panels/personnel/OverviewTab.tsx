@@ -1,37 +1,52 @@
 /**
- * 概览：任务执行统计、当前任务、最近一次执行与人员动态。
+ * 概览：任务看板、队列状态、最近一次任务与人员动态。
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Activity,
+  ArrowDown,
+  ArrowUp,
   Archive,
   Brain,
   CheckCircle2,
   CircleX,
+  Clock,
   FolderOpen,
   Image,
+  Layers,
+  ListTodo,
   Play,
+  Plus,
   RotateCcw,
-  Send,
   Settings2,
   Square,
+  Trash2,
   UserPlus,
   XCircle,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
-import type { PersonActivity, PersonDetail, PersonSummary } from '@/shared/personnel'
+import type {
+  PersonActivity,
+  PersonDetail,
+  PersonSummary,
+  PersonTask,
+} from '@/shared/personnel'
 import { Icon } from '@/shell/ui/Icon'
 import { personnelApi } from './api'
-import { formatDateTime, formatDuration, relativeTime, runStatusMeta } from './format'
-import { PpSectionCard, PpSpinner, PpStatus } from './primitives'
+import {
+  formatDateTime,
+  formatDuration,
+  relativeTime,
+  runStatusMeta,
+  taskStatusMeta,
+} from './format'
+import { ConfirmDialog, PpSectionCard, PpStatus } from './primitives'
 
 interface OverviewTabProps {
   person: PersonSummary
   detail: PersonDetail
-  busy: boolean
   onRefresh: () => Promise<void>
-  onDispatch: (task: string) => void
 }
 
 const ACTIVITY_ICONS: Record<string, LucideIcon> = {
@@ -39,6 +54,13 @@ const ACTIVITY_ICONS: Record<string, LucideIcon> = {
   run_completed: CheckCircle2,
   run_failed: XCircle,
   run_stopped: Square,
+  queue_started: ListTodo,
+  queue_completed: CheckCircle2,
+  queue_stopped: Square,
+  queue_failed: XCircle,
+  task_added: Plus,
+  task_deleted: Trash2,
+  task_retried: RotateCcw,
   workspace_built: FolderOpen,
   workspace_reset: RotateCcw,
   memory_cleared: Brain,
@@ -53,46 +75,98 @@ function activityIcon(type: string): LucideIcon {
 }
 
 function toneOfActivity(type: string): string {
-  if (type === 'run_completed') return 'success'
-  if (type === 'run_failed') return 'error'
-  if (type === 'run_started' || type === 'run_stopped') return 'warning'
+  if (type === 'run_completed' || type === 'queue_completed') return 'success'
+  if (type === 'run_failed' || type === 'queue_failed') return 'error'
+  if (
+    type === 'run_started' ||
+    type === 'run_stopped' ||
+    type === 'queue_started' ||
+    type === 'queue_stopped'
+  ) {
+    return 'warning'
+  }
   return ''
 }
 
+/** 看板标题已经显示第一行时，内容区不再重复显示同一行 */
+function taskBodyText(task: PersonTask): string {
+  const content = task.content.trim()
+  if (!content) return ''
+  const lines = content.split(/\r?\n/)
+  const firstLine = (lines[0] ?? '').replace(/^#+\s*/, '').trim()
+  if (firstLine === task.title.trim()) {
+    return lines.slice(1).join('\n').trim()
+  }
+  return content
+}
+
 export function OverviewTab(props: OverviewTabProps) {
-  const task = props.detail.config.task
-  const [taskDraft, setTaskDraft] = useState(task)
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    setTaskDraft(task)
-  }, [task, props.person.id])
-
-  const dirty = taskDraft !== task
-  const run = props.person.run
-  const meta = runStatusMeta(run.status)
-  const stats = props.person.stats
+  const { person, detail, onRefresh } = props
+  const queue = person.queue
+  const tasks = detail.tasks
+  const taskCounts = person.taskCounts
+  const pendingIds = useMemo(
+    () => tasks.filter((task) => task.status === 'pending').map((task) => task.id),
+    [tasks],
+  )
+  const currentTask = queue.currentTaskId
+    ? tasks.find((task) => task.id === queue.currentTaskId)
+    : undefined
+  const done = queue.completed + queue.failed
+  const progress = queue.total > 0 ? Math.min(100, Math.round((done / queue.total) * 100)) : 0
+  const run = person.run
+  const runMeta = runStatusMeta(run.status)
+  const [actionBusy, setActionBusy] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<PersonTask | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const statCards = useMemo(
     () => [
-      { label: '执行次数', value: stats.runs, icon: Play },
-      { label: '完成', value: stats.completed, icon: CheckCircle2 },
-      { label: '失败', value: stats.failed, icon: CircleX },
-      { label: '角色卡', value: props.person.roleCardCount, icon: UserPlus },
+      { label: '待执行', value: taskCounts.pending, icon: ListTodo },
+      { label: '已完成', value: taskCounts.completed, icon: CheckCircle2 },
+      { label: '失败', value: taskCounts.failed, icon: CircleX },
+      { label: '任务总数', value: taskCounts.total, icon: Layers },
     ],
-    [props.person.roleCardCount, stats.completed, stats.failed, stats.runs],
+    [taskCounts.completed, taskCounts.failed, taskCounts.pending, taskCounts.total],
   )
 
-  const saveTask = async (): Promise<void> => {
-    setSaving(true)
+  const moveTask = async (taskId: string, direction: 'up' | 'down'): Promise<void> => {
+    setActionBusy(`move-${taskId}-${direction}`)
     try {
-      await personnelApi.update(props.person.id, { task: taskDraft })
-      toast.success('任务已保存，并写入工作区 AGENTS.md 与 TASK.md')
-      await props.onRefresh()
+      await personnelApi.moveTask(person.id, taskId, direction)
+      await onRefresh()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '保存任务失败')
+      toast.error(err instanceof Error ? err.message : '调整任务顺序失败')
     } finally {
-      setSaving(false)
+      setActionBusy('')
+    }
+  }
+
+  const retryTask = async (taskId: string): Promise<void> => {
+    setActionBusy(`retry-${taskId}`)
+    try {
+      await personnelApi.retryTask(person.id, taskId)
+      toast.success('任务已重新加入待执行队列')
+      await onRefresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '重试任务失败')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
+  const removeTask = async (): Promise<void> => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await personnelApi.deleteTask(person.id, deleteTarget.id)
+      toast.success(`已删除任务「${deleteTarget.title}」`)
+      setDeleteTarget(null)
+      await onRefresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '删除任务失败')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -110,56 +184,144 @@ export function OverviewTab(props: OverviewTabProps) {
         ))}
       </div>
 
+      <PpSectionCard
+        title="任务看板"
+      >
+        {queue.status === 'running' || queue.status === 'stopping' ? (
+          <div className="pp-queue-banner">
+            <div className="pp-queue-banner-head">
+              <span>{queue.status === 'stopping' ? '正在停止当前任务…' : '任务队列执行中'}</span>
+              <span>
+                {done}/{queue.total}
+              </span>
+            </div>
+            <div className="pp-progress">
+              <i style={{ width: `${progress}%` }} />
+            </div>
+            {currentTask ? (
+              <div className="pp-queue-current">
+                当前任务：<b>{currentTask.title}</b>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {tasks.length === 0 ? (
+          <div className="pp-empty">
+            <ListTodo size={30} />
+            <span>任务看板还是空的。点右上角「发布任务」添加任务。</span>
+          </div>
+        ) : (
+          <div className="pp-task-list">
+            {tasks.map((task) => {
+              const taskMeta = taskStatusMeta(task.status)
+              const body = taskBodyText(task)
+              const pendingOrder = pendingIds.indexOf(task.id)
+              const canMoveUp = task.status === 'pending' && pendingOrder > 0
+              const canMoveDown =
+                task.status === 'pending' &&
+                pendingOrder >= 0 &&
+                pendingOrder < pendingIds.length - 1
+              return (
+                <div key={task.id} className={`pp-task-row pp-task-${task.status}`}>
+                  <div className="pp-task-main">
+                    <div className="pp-task-head">
+                      <PpStatus tone={taskMeta.tone} label={taskMeta.label} />
+                      <span className="pp-task-title">{task.title}</span>
+                      {task.status === 'pending' ? (
+                        <span className="pp-task-order">#{pendingOrder + 1}</span>
+                      ) : null}
+                    </div>
+                    {body ? (
+                      <div className="pp-task-content" title={task.content}>
+                        {body}
+                      </div>
+                    ) : null}
+                    <div className="pp-task-meta">
+                      <span>
+                        <Clock size={11} /> {formatDateTime(task.createdAt)}
+                      </span>
+                      {task.startedAt ? <span>开始 {formatDateTime(task.startedAt)}</span> : null}
+                      {task.finishedAt ? (
+                        <span>
+                          结束 {formatDateTime(task.finishedAt)} · 耗时{' '}
+                          {formatDuration(task.startedAt, task.finishedAt)}
+                        </span>
+                      ) : null}
+                    </div>
+                    {task.error ? <div className="pp-task-error">{task.error}</div> : null}
+                    {task.result ? (
+                      <details className="pp-task-result">
+                        <summary>查看执行结果</summary>
+                        <pre>{task.result}</pre>
+                      </details>
+                    ) : null}
+                  </div>
+                  <div className="pp-task-actions">
+                    {task.status === 'pending' ? (
+                      <>
+                        <button
+                          type="button"
+                          className="pp-icon-btn"
+                          title="上移"
+                          aria-label="任务上移"
+                          disabled={!canMoveUp || actionBusy !== ''}
+                          onClick={() => void moveTask(task.id, 'up')}
+                        >
+                          <Icon icon={ArrowUp} size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="pp-icon-btn"
+                          title="下移"
+                          aria-label="任务下移"
+                          disabled={!canMoveDown || actionBusy !== ''}
+                          onClick={() => void moveTask(task.id, 'down')}
+                        >
+                          <Icon icon={ArrowDown} size={13} />
+                        </button>
+                      </>
+                    ) : null}
+                    {task.status === 'failed' || task.status === 'stopped' ? (
+                      <button
+                        type="button"
+                        className="pp-btn sm"
+                        disabled={actionBusy !== ''}
+                        onClick={() => void retryTask(task.id)}
+                      >
+                        <Icon icon={RotateCcw} size={13} />
+                        重试
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="pp-icon-btn danger"
+                      title="删除任务"
+                      aria-label={`删除任务 ${task.title}`}
+                      disabled={task.status === 'running' || actionBusy !== ''}
+                      onClick={() => setDeleteTarget(task)}
+                    >
+                      <Icon icon={Trash2} size={14} />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </PpSectionCard>
+
       <div className="pp-two-col">
         <PpSectionCard
-          title="当前任务"
-          desc="任务会写入 AGENTS.md（执行入口）与 TASK.md（记录）；会话启动只读取 AGENTS.md。"
-          right={
-            <div className="pp-card-right">
-              <button
-                type="button"
-                className="pp-btn sm"
-                onClick={() => void saveTask()}
-                disabled={props.busy || saving || !dirty}
-              >
-                {saving ? <PpSpinner /> : null}
-                {dirty ? '保存任务' : '已保存'}
-              </button>
-              <button
-                type="button"
-                className="pp-btn primary sm"
-                onClick={() => props.onDispatch(taskDraft)}
-                disabled={props.busy || saving || !taskDraft.trim()}
-                title="保存任务并立即构建工作区、启动 DSH 会话"
-              >
-                <Send size={13} />
-                派发并执行
-              </button>
-            </div>
-          }
-        >
-          <textarea
-            className="pp-textarea pp-task-textarea"
-            value={taskDraft}
-            disabled={props.busy}
-            placeholder="写清楚这位人员要做什么、验收标准是什么…"
-            onChange={(e) => setTaskDraft(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
-          />
-          <div className="pp-inline-meta">
-            <span>{taskDraft.length} 字</span>
-            <span>派发后自动构建工作区；会话读取 AGENTS.md</span>
-          </div>
-        </PpSectionCard>
-
-        <PpSectionCard
-          title="最近一次执行"
+          title="最近一次任务"
           desc="会话被删除后重新执行时，会从 STATE.md 与 memory/ 续接。"
-          right={<PpStatus tone={meta.tone} label={meta.label} />}
+          right={<PpStatus tone={runMeta.tone} label={runMeta.label} />}
         >
           {run.startedAt ? (
             <div className="pp-run-info">
               <div className="pp-kv">
+                <span>任务</span>
+                <span>{run.taskTitle || '—'}</span>
                 <span>会话</span>
                 <span>{run.sessionTitle || '未命名会话'}</span>
                 <span>会话 ID</span>
@@ -182,37 +344,41 @@ export function OverviewTab(props: OverviewTabProps) {
           ) : (
             <div className="pp-empty small">
               <Play size={22} />
-              <span>还没有执行记录。点击右上角「执行」开始。</span>
+              <span>还没有执行记录。发布任务后点右上角「执行」开始。</span>
             </div>
           )}
         </PpSectionCard>
+
+        <PpSectionCard
+          title="工作区"
+          desc="构建会把默认工作区里的文件移动到目标工作区；执行时自动构建。"
+        >
+          <div className="pp-kv pp-workspace-kv">
+            <span>当前生效</span>
+            <span className="pp-mono pp-path">{detail.activeWorkspace}</span>
+            <span>默认工作区</span>
+            <span className="pp-mono pp-path">{detail.defaultWorkspace}</span>
+            <span>最近构建</span>
+            <span>
+              {detail.config.workspace.builtAt
+                ? formatDateTime(detail.config.workspace.builtAt)
+                : '尚未构建'}
+            </span>
+            <span>记忆</span>
+            <span>{person.memoryCount} 条</span>
+          </div>
+        </PpSectionCard>
       </div>
 
-      <PpSectionCard
-        title="工作区"
-        desc="构建会把默认工作区里的文件移动到目标工作区；执行时自动构建。"
-      >
-        <div className="pp-kv pp-workspace-kv">
-          <span>当前生效</span>
-          <span className="pp-mono pp-path">{props.detail.activeWorkspace}</span>
-          <span>默认工作区</span>
-          <span className="pp-mono pp-path">{props.detail.defaultWorkspace}</span>
-          <span>最近构建</span>
-          <span>{props.detail.config.workspace.builtAt ? formatDateTime(props.detail.config.workspace.builtAt) : '尚未构建'}</span>
-          <span>记忆</span>
-          <span>{props.person.memoryCount} 条</span>
-        </div>
-      </PpSectionCard>
-
-      <PpSectionCard title="动态" desc="人员创建、构建、执行、停止与配置变更记录。">
+      <PpSectionCard title="动态" desc="任务、队列、构建与配置变更记录。">
         <div className="pp-activity">
-          {props.detail.activity.length === 0 ? (
+          {detail.activity.length === 0 ? (
             <div className="pp-empty small">
               <Activity size={22} />
               <span>还没有动态</span>
             </div>
           ) : (
-            props.detail.activity.slice(0, 40).map((entry: PersonActivity) => (
+            detail.activity.slice(0, 40).map((entry: PersonActivity) => (
               <div key={entry.id} className={`pp-activity-item ${toneOfActivity(entry.type)}`}>
                 <span className="pp-activity-icon">
                   <Icon icon={activityIcon(entry.type)} size={13} />
@@ -224,6 +390,20 @@ export function OverviewTab(props: OverviewTabProps) {
           )}
         </div>
       </PpSectionCard>
+
+      {deleteTarget ? (
+        <ConfirmDialog
+          title="删除任务"
+          message={`确定从任务看板删除「${deleteTarget.title}」吗？${
+            deleteTarget.status === 'completed' ? '已完成的执行结果也会一起删除。' : ''
+          }`}
+          confirmLabel="删除任务"
+          danger
+          busy={deleting}
+          onConfirm={() => void removeTask()}
+          onClose={() => setDeleteTarget(null)}
+        />
+      ) : null}
     </div>
   )
 }
