@@ -111,6 +111,18 @@ export interface AgentSendMessageOptions {
   timeoutSec?: number
 }
 
+/** 会话实时状态（人员页复用 / 概览展示用） */
+export interface AgentSessionStatus {
+  sessionId: string
+  title: string
+  /** 编排器返回的原始状态字符串（idle / running / ...） */
+  status: string
+  /** 是否正在执行回合 */
+  running: boolean
+  /** 最近一个已结束回合 */
+  lastTurn: { turn: number; outcome: string; reason: string } | null
+}
+
 /** 平台适配器（dsh 已实现；codex / claude 预留注册） */
 export interface OrchestratorAdapter {
   readonly platform: AgentPlatform
@@ -124,6 +136,10 @@ export interface OrchestratorAdapter {
   sendMessage(opts: AgentSendMessageOptions): Promise<{ reply: string }>
   /** 归档会话（先取消运行中的回合，best-effort；日志保留） */
   deleteSession(sessionId: string): Promise<void>
+  /** 停止当前回合（不归档，会话仍可复用） */
+  cancelSession(sessionId: string): Promise<void>
+  /** 读取会话状态；不可达 / 不存在返回 null */
+  sessionStatus(sessionId: string): Promise<AgentSessionStatus | null>
   /** 通知回调注册（网关注入；SSE 事件映射后回调） */
   onNotification(cb: (n: AgentNotification) => void): void
   /** 释放连接（进程退出 / 测试隔离用） */

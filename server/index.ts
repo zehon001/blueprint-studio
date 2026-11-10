@@ -31,6 +31,7 @@ import * as libraryApi from './library'
 import * as pluginsApi from './plugins/registry'
 import * as executorApi from './plugins/executor'
 import * as transpileApi from './transpile'
+import { handlePersonnelRequest } from './personnel'
 import { WsDebugHub } from './ws'
 import { agentGateway } from './agents/handler'
 import { AGENT_PLATFORMS, type AgentPlatform } from './agents/types'
@@ -95,7 +96,7 @@ function applyCors(req: IncomingMessage, res: ServerResponse): void {
   if (origin && CORS_ORIGINS.has(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
     res.setHeader('Vary', 'Origin')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
   }
 }
@@ -249,6 +250,16 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       sendJson(res, 200, { ok: true, platforms: all })
       return
     }
+
+    // 人员：列表 / 详情 / 头像 / 角色卡 / 规范 / 记忆 / 工作区构建与 DSH 执行
+    const personnelHandled = await handlePersonnelRequest({
+      req,
+      res,
+      pathname,
+      readJson,
+      sendJson,
+    })
+    if (personnelHandled) return
 
     if (pathname === '/api/projects' && req.method === 'GET') {
       sendJson(res, 200, { ok: true, root: PROJECTS_ROOT, projects: fsApi.listProjects(PROJECTS_ROOT) })

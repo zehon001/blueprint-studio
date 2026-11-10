@@ -1,19 +1,22 @@
 /**
- * 左侧菜单状态（后台式导航：首页 / 蓝图）
+ * 左侧菜单状态（后台式导航：首页 / 蓝图 / 人员）
  *
  * - open：点击顶栏「Blueprint Studio」区域切换显隐（localStorage 记忆）；
  * - section：当前页面（首页 / 蓝图），切换只影响右侧页面显示。
  */
 import { create } from 'zustand'
 
-export type SidebarSection = 'home' | 'blueprint'
+export type SidebarSection = 'home' | 'blueprint' | 'personnel'
 
 const OPEN_KEY = 'bps.sidebar.open'
 const SECTION_KEY = 'bps.sidebar.section'
 
 function readSection(): SidebarSection {
   try {
-    return localStorage.getItem(SECTION_KEY) === 'home' ? 'home' : 'blueprint'
+    const value = localStorage.getItem(SECTION_KEY)
+    if (value === 'home') return 'home'
+    if (value === 'personnel') return 'personnel'
+    return 'blueprint'
   } catch {
     return 'blueprint'
   }
@@ -30,7 +33,7 @@ function readOpen(): boolean {
 interface SidebarState {
   /** 侧栏是否可见 */
   open: boolean
-  /** 当前页（首页 / 蓝图） */
+  /** 当前页（首页 / 蓝图 / 人员） */
   section: SidebarSection
   /** 显隐切换（顶栏 Logo 点击） */
   toggle: () => void

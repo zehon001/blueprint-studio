@@ -57,6 +57,7 @@ import { PopoutPlaceholder } from '@/shell/windows/PopoutApp'
 import { popoutPanel, recallPopout, usePopoutsStore } from '@/shell/windows/popout'
 import { ToastHost } from '@/shell/windows/toast'
 import { SettingsModalHost } from '@/shell/settings'
+import { PersonnelPage } from '@/panels/personnel/PersonnelPage'
 import './dock.css'
 import '@/shell/windows/windows.css'
 
@@ -690,6 +691,12 @@ export default function DockShell() {
             style={{ display: section === 'blueprint' ? undefined : 'none' }}
           >
             <DockRoot />
+          </section>
+          <section
+            className="app-page-personnel"
+            style={{ display: section === 'personnel' ? undefined : 'none' }}
+          >
+            <PersonnelPage active={section === 'personnel'} />
           </section>
         </main>
       </div>

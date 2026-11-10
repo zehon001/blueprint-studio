@@ -1,11 +1,11 @@
 /**
- * 左侧后台式导航（首页 / 蓝图）
+ * 左侧后台式导航（首页 / 蓝图 / 人员）
  *
  * 顶栏「Blueprint Studio」区域点击切换显隐；本组件只负责菜单，
- * 页面内容（首页空白 / 蓝图工作区）由 DockShell 根据 section 渲染。
+ * 页面内容（首页空白 / 蓝图工作区 / 人员）由 DockShell 根据 section 渲染。
  */
 import type { LucideIcon } from 'lucide-react'
-import { Home, Workflow } from 'lucide-react'
+import { Home, Users, Workflow } from 'lucide-react'
 import { Icon } from '@/shell/ui/Icon'
 import { useSidebarStore, type SidebarSection } from './sidebar-store'
 import './sidebar.css'
@@ -20,6 +20,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'home', label: '首页', icon: Home },
   { id: 'blueprint', label: '蓝图', icon: Workflow },
+  { id: 'personnel', label: '人员', icon: Users },
 ]
 
 export function Sidebar() {

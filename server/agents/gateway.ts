@@ -11,6 +11,7 @@ import type {
   AgentCapabilities,
   AgentNotification,
   AgentPlatform,
+  AgentSessionStatus,
   AgentSessionValue,
   OrchestratorAdapter,
 } from './types'
@@ -58,6 +59,14 @@ class ReservedAdapter implements OrchestratorAdapter {
 
   async deleteSession(): Promise<void> {
     throw this.unavailable()
+  }
+
+  async cancelSession(): Promise<void> {
+    throw this.unavailable()
+  }
+
+  async sessionStatus(): Promise<AgentSessionStatus | null> {
+    return null
   }
 
   onNotification(): void {
@@ -154,6 +163,16 @@ export class AgentGateway {
   async deleteSession(platform: AgentPlatform, sessionId: string): Promise<void> {
     await this.adapter(platform).deleteSession(sessionId)
     markSessionArchived(sessionId)
+  }
+
+  /** 停止当前回合（人员页「停止」按钮；会话不归档，可继续复用） */
+  async cancelSession(platform: AgentPlatform, sessionId: string): Promise<void> {
+    await this.adapter(platform).cancelSession(sessionId)
+  }
+
+  /** 读取会话状态（人员页复用判断 / 概览） */
+  async sessionStatus(platform: AgentPlatform, sessionId: string): Promise<AgentSessionStatus | null> {
+    return await this.adapter(platform).sessionStatus(sessionId)
   }
 
   /** 服务端归档台账（删除会话登记；复用搜索据此跳过已归档会话） */

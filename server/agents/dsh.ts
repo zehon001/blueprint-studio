@@ -14,6 +14,7 @@ import type {
   AgentModelOption,
   AgentNotification,
   AgentSendMessageOptions,
+  AgentSessionStatus,
   AgentSessionValue,
   OrchestratorAdapter,
 } from './types'
@@ -396,6 +397,53 @@ export class DshOrchestratorAdapter implements OrchestratorAdapter {
       await this.request('POST', `/sessions/${enc}/archive`)
     } catch (err) {
       throw chineseError('删除 Agent 会话', err)
+    }
+  }
+
+  async cancelSession(sessionId: string): Promise<void> {
+    try {
+      await this.request('POST', `/sessions/${encodeURIComponent(sessionId)}/cancel`)
+    } catch (err) {
+      throw chineseError('停止 Agent 会话', err)
+    }
+  }
+
+  async sessionStatus(sessionId: string): Promise<AgentSessionStatus | null> {
+    try {
+      const body = (await this.request('GET', `/sessions/${encodeURIComponent(sessionId)}`)) as {
+        status?: {
+          title?: unknown
+          status?: unknown
+          running?: unknown
+          lastTurn?: { turn?: unknown; outcome?: unknown; reason?: unknown }
+        }
+        title?: unknown
+      }
+      const status = body?.status
+      const title =
+        typeof status?.title === 'string'
+          ? status.title
+          : typeof body?.title === 'string'
+            ? body.title
+            : ''
+      const rawStatus = typeof status?.status === 'string' ? status.status : ''
+      const last = status?.lastTurn
+      return {
+        sessionId,
+        title,
+        status: rawStatus,
+        running: status?.running === true || rawStatus === 'running' || rawStatus === 'busy',
+        lastTurn:
+          last && typeof last.turn === 'number'
+            ? {
+                turn: last.turn,
+                outcome: typeof last.outcome === 'string' ? last.outcome : 'unknown',
+                reason: typeof last.reason === 'string' ? last.reason : '',
+              }
+            : null,
+      }
+    } catch {
+      return null
     }
   }
 

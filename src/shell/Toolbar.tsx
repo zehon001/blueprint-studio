@@ -19,7 +19,7 @@ export default function Toolbar() {
         <button
           type="button"
           className="toolbar-logo toolbar-logo-btn"
-          title="点击展开 / 收起左侧菜单（首页 · 蓝图）"
+          title="点击展开 / 收起左侧菜单（首页 · 蓝图 · 人员）"
           onClick={() => useSidebarStore.getState().toggle()}
         >
           <Icon icon={Boxes} size={16} />
