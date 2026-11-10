@@ -10,6 +10,7 @@ import { personnelApi } from './api'
 import { formatDateTime, relativeTime } from './format'
 import { ConfirmDialog, PpRow, PpSectionCard, PpSpinner } from './primitives'
 import { SectionEditor } from './SectionEditor'
+import { Markdown } from './Markdown'
 import {
   detectNormsStyle,
   joinBracketSections,
@@ -594,7 +595,7 @@ export function MemoryTab(props: PersonaTabProps) {
                 </div>
               ))}
             </div>
-            <pre className="pp-memory-preview">{memory.text}</pre>
+            <Markdown text={memory.text} className="pp-memory-preview" />
           </>
         )}
         {memory.updatedAt ? (

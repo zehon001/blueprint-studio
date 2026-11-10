@@ -79,7 +79,7 @@ export function GeneralTab(props: SettingsTabProps & {
     <div className="pp-grid">
       <PpSectionCard
         title="人员类型"
-        desc="类型用于列表分组与快速筛选。重命名 / 删除类型请点「编辑类型」。"
+        desc="类型用于列表分组和交付要求；交付目录、产物类型在「编辑类型」里设置。"
         right={
           <button type="button" className="pp-btn sm" onClick={props.onEditTypes} disabled={busy}>
             <Icon icon={SlidersHorizontal} size={13} />

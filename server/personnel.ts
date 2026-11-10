@@ -26,14 +26,18 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { execFile } from 'node:child_process'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { agentGateway } from './agents/handler'
 import { isSessionArchived } from './agents/ledger'
-import { FsError, repoRoot } from './fs'
+import { FsError, isPathWithin, repoRoot } from './fs'
 import {
   PERSON_PLATFORMS,
   type PersonActivity,
+  type PersonArtifact,
+  type PersonArtifactKind,
   type PersonConfig,
+  type PersonDeliveryConfig,
   type PersonDetail,
   type PersonMemory,
   type PersonMemoryFile,
@@ -176,7 +180,13 @@ function sanitizeName(raw: unknown): string {
  * ============================================================ */
 
 function defaultTypes(): PersonType[] {
-  return [{ id: 'general', name: '通用' }]
+  return [
+    {
+      id: 'general',
+      name: '通用',
+      delivery: { dir: '', artifactKinds: [], required: false },
+    },
+  ]
 }
 
 function defaultNorms(): string {
@@ -246,6 +256,40 @@ function typesFileOf(root: string): string {
   return path.join(root, TYPES_FILE_NAME)
 }
 
+const ARTIFACT_KINDS: readonly PersonArtifactKind[] = [
+  'markdown',
+  'json',
+  'csv',
+  'image',
+  'file',
+]
+
+function normalizeDelivery(raw: unknown): PersonDeliveryConfig | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined
+  const o = raw as Partial<PersonDeliveryConfig>
+  const rawDir = str(o.dir).trim().replace(/\\/g, '/')
+  const dir =
+    rawDir &&
+    !path.posix.isAbsolute(rawDir) &&
+    !/^[A-Za-z]:/.test(rawDir) &&
+    !rawDir.split('/').includes('..') &&
+    !/[\u0000-\u001f]/.test(rawDir)
+      ? rawDir.replace(/^\.\/+/, '').replace(/\/+$/, '')
+      : ''
+  const kinds = Array.isArray(o.artifactKinds)
+    ? [...new Set(o.artifactKinds.filter((kind): kind is PersonArtifactKind =>
+        ARTIFACT_KINDS.includes(kind as PersonArtifactKind),
+      ))]
+    : []
+  const required = o.required === true && dir !== '' && kinds.length > 0
+  return {
+    dir,
+    artifactKinds: kinds,
+    required,
+    ...(str(o.naming) ? { naming: str(o.naming).slice(0, 200) } : {}),
+  }
+}
+
 function normalizeTypes(raw: unknown): PersonType[] {
   if (!Array.isArray(raw)) return []
   const seenIds = new Set<string>()
@@ -253,7 +297,7 @@ function normalizeTypes(raw: unknown): PersonType[] {
   const out: PersonType[] = []
   for (const item of raw) {
     if (item === null || typeof item !== 'object') continue
-    const o = item as { id?: unknown; name?: unknown }
+    const o = item as { id?: unknown; name?: unknown; delivery?: unknown }
     const name = str(o.name).replace(/[\u0000-\u001f]/g, '').trim()
     if (!name || name.length > 20) continue
     const key = name.toLowerCase()
@@ -262,7 +306,8 @@ function normalizeTypes(raw: unknown): PersonType[] {
     if (!/^[A-Za-z0-9_-]{1,80}$/.test(id) || seenIds.has(id)) id = newRecordId('type')
     seenNames.add(key)
     seenIds.add(id)
-    out.push({ id, name })
+    const delivery = normalizeDelivery(o.delivery)
+    out.push({ id, name, ...(delivery ? { delivery } : {}) })
   }
   return out
 }
@@ -403,6 +448,36 @@ function taskTitleFromContent(content: string): string {
   return (firstLine || '未命名任务').slice(0, 120)
 }
 
+function normalizeArtifacts(raw: unknown): PersonArtifact[] {
+  if (!Array.isArray(raw)) return []
+  const out: PersonArtifact[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    if (item === null || typeof item !== 'object') continue
+    const o = item as { path?: unknown; kind?: unknown; title?: unknown }
+    const rawPath = str(o.path).trim().replace(/\\/g, '/').replace(/^\.\/+/, '')
+    if (
+      !rawPath ||
+      path.posix.isAbsolute(rawPath) ||
+      /^[A-Za-z]:/.test(rawPath) ||
+      rawPath.split('/').includes('..') ||
+      /[\u0000-\u001f]/.test(rawPath) ||
+      seen.has(rawPath)
+    ) {
+      continue
+    }
+    const kind = str(o.kind) as PersonArtifactKind
+    if (!ARTIFACT_KINDS.includes(kind)) continue
+    seen.add(rawPath)
+    out.push({
+      path: rawPath,
+      kind,
+      ...(str(o.title) ? { title: str(o.title).slice(0, 120) } : {}),
+    })
+  }
+  return out
+}
+
 function normalizeTasks(raw: unknown): PersonTask[] {
   if (!Array.isArray(raw)) return []
   const allowed = new Set<PersonTaskStatus>([
@@ -423,6 +498,7 @@ function normalizeTasks(raw: unknown): PersonTask[] {
     const content = str(o.content).slice(0, MAX_TASK_LENGTH)
     const title = str(o.title).trim().slice(0, 120) || taskTitleFromContent(content)
     const status = str(o.status).trim().toLowerCase() as PersonTaskStatus
+    const artifacts = normalizeArtifacts(o.artifacts)
     out.push({
       id,
       title,
@@ -433,6 +509,7 @@ function normalizeTasks(raw: unknown): PersonTask[] {
       ...(num(o.finishedAt) > 0 ? { finishedAt: num(o.finishedAt) } : {}),
       ...(str(o.result) ? { result: str(o.result).slice(0, 20_000) } : {}),
       ...(str(o.error) ? { error: str(o.error).slice(0, 2_000) } : {}),
+      ...(artifacts.length > 0 ? { artifacts } : {}),
     })
   }
   return out
@@ -813,6 +890,7 @@ function agentsMarkdown(
   queueTasks?: PersonTask[],
 ): string {
   const typeName = typeNameOf(types, config.typeId) || '未分类'
+  const delivery = types.find((type) => type.id === config.typeId)?.delivery
   const activeCard = cards.find((card) => card.id === config.currentCardId) ?? cards[0]
   const cardText = activeCard
     ? `### ${activeCard.name}\n${
@@ -834,10 +912,22 @@ ${queueTasks
 - 领取任务时先把它的 status 改为 running；完成改为 completed，失败改为 failed，停止改为 stopped，并写入 result / error。
 - 每完成一个任务后，重新读取 \`TASKS.json\`，领取下一个 pending 任务；执行期间任务看板可能新增或调整任务，以最新 \`TASKS.json\` 为准。
 - \`status\` 只能是 pending / running / completed / failed / stopped；不要修改任务 id、顺序或内容。
+- 如果本次任务有文件产物，按「交付要求」保存到指定目录，并在 TASKS.json 的 artifacts 中登记；没有产物就不要填 artifacts。
 - 每完成一个任务更新 STATE.md。
 - 全部任务结束后，在 STATE.md 写清最终结果。`
       : `## 当前任务
 ${config.task.trim() || defaultTask(config.name)}`
+  const deliverySection =
+    delivery && delivery.artifactKinds.length > 0
+      ? `## 交付要求
+- 产物目录：${delivery.dir || '（未设置）'}
+- 允许的产物类型：${delivery.artifactKinds.join(' / ')}
+- 是否必需：${delivery.required ? '是' : '否'}
+${delivery.naming ? `- 文件命名：${delivery.naming}\n` : ''}- 产生文件产物后，必须在 TASKS.json 当前任务的 artifacts 数组中登记 \`{ path, kind, title }\`；path 使用相对工作区的路径。
+- 没有文件产物时，不要伪造 artifacts。`
+      : `## 交付要求
+- 本类型没有强制文件产物；任务结果写入 result 即可。
+- 如果确实产生了文件产物，可以在 TASKS.json 的 artifacts 中登记。`
   return `# ${config.name} · 工作区行为规范
 
 > 本文件由 Blueprint Studio 的人员页面自动生成；修改人员配置后会自动刷新，请不要直接编辑。
@@ -853,6 +943,8 @@ ${cardText}
 
 ## 规范
 ${norms || '（暂无规范）'}
+
+${deliverySection}
 
 ${taskSection}
 
@@ -964,6 +1056,7 @@ function writeQueueTasksFile(dir: string, queueId: string, tasks: PersonTask[]):
       status: task.status,
       result: task.result ?? '',
       error: task.error ?? '',
+      artifacts: task.artifacts ?? [],
     })),
   })
 }
@@ -1020,11 +1113,22 @@ function syncTasksFromWorkspace(loaded: LoadedPerson): PersonTask[] {
   ])
   const remote = new Map<
     string,
-    { status: PersonTaskStatus; result: string; error: string }
+    {
+      status: PersonTaskStatus
+      result: string
+      error: string
+      artifacts: PersonArtifact[]
+    }
   >()
   for (const item of list) {
     if (item === null || typeof item !== 'object') continue
-    const o = item as { id?: unknown; status?: unknown; result?: unknown; error?: unknown }
+    const o = item as {
+      id?: unknown
+      status?: unknown
+      result?: unknown
+      error?: unknown
+      artifacts?: unknown
+    }
     const id = str(o.id)
     const status = str(o.status) as PersonTaskStatus
     if (!id || !allowed.has(status)) continue
@@ -1032,6 +1136,7 @@ function syncTasksFromWorkspace(loaded: LoadedPerson): PersonTask[] {
       status,
       result: str(o.result).slice(0, 20_000),
       error: str(o.error).slice(0, 2_000),
+      artifacts: normalizeArtifacts(o.artifacts),
     })
   }
   if (remote.size === 0) return readTasks(loaded.profileDir)
@@ -1074,6 +1179,11 @@ function syncTasksFromWorkspace(loaded: LoadedPerson): PersonTask[] {
       }
     } else if (task.error && next.status === 'pending') {
       delete task.error
+      changed = true
+    }
+    if (JSON.stringify(next.artifacts) !== JSON.stringify(task.artifacts ?? [])) {
+      if (next.artifacts.length > 0) task.artifacts = next.artifacts
+      else delete task.artifacts
       changed = true
     }
   }
@@ -1531,6 +1641,21 @@ export function listPeople(root: string = resolvePeopleRoot()): PersonSummary[] 
 }
 
 /** 人员详情 */
+function filterExistingArtifacts(loaded: LoadedPerson, tasks: PersonTask[]): PersonTask[] {
+  const workspace = resolveActiveWorkspace(loaded.config, loaded.defaultWorkspace)
+  return tasks.map((task) => {
+    if (!task.artifacts || task.artifacts.length === 0) return task
+    const artifacts = task.artifacts.filter((artifact) => {
+      const abs = path.resolve(workspace, artifact.path)
+      return isPathWithin(workspace, abs) && exists(abs) && !isDirectory(abs)
+    })
+    if (artifacts.length > 0) return { ...task, artifacts }
+    const clean = { ...task }
+    delete clean.artifacts
+    return clean
+  })
+}
+
 export function getPerson(id: string, root: string = resolvePeopleRoot()): PersonDetail {
   const dir = ensurePeopleRoot(root)
   const loaded = loadPerson(dir, id)
@@ -1539,7 +1664,7 @@ export function getPerson(id: string, root: string = resolvePeopleRoot()): Perso
     config: loaded.config,
     cards: loaded.cards,
     norms: loaded.norms,
-    tasks: readTasks(loaded.profileDir),
+    tasks: filterExistingArtifacts(loaded, readTasks(loaded.profileDir)),
     memory: collectMemory(loaded, 20_000),
     activity: readActivity(loaded.profileDir),
   }
@@ -1845,6 +1970,37 @@ export function retryPersonTask(id: string, root: string, taskId: string): Perso
   return getPerson(id, dir)
 }
 
+export interface PersonTaskReport {
+  content: string
+  path: string
+  title?: string
+}
+
+/** 读取任务登记的 Markdown 产物；没有产物时不回退到 result */
+export function getPersonTaskReport(
+  id: string,
+  root: string,
+  taskId: string,
+): PersonTaskReport {
+  const loaded = loadPerson(ensurePeopleRoot(root), id)
+  const task = readTasks(loaded.profileDir).find((item) => item.id === taskId)
+  if (!task) throw new FsError(404, '任务不存在')
+  const artifact = (task.artifacts ?? []).find((item) => item.kind === 'markdown')
+  if (!artifact) throw new FsError(404, '该任务没有可查看的 Markdown 产物')
+  const workspace = resolveActiveWorkspace(loaded.config, loaded.defaultWorkspace)
+  const abs = path.resolve(workspace, artifact.path)
+  if (!isPathWithin(workspace, abs) || !exists(abs) || isDirectory(abs)) {
+    throw new FsError(404, `报表文件不存在：${artifact.path}`)
+  }
+  const stat = fs.statSync(abs)
+  if (stat.size > 2 * 1024 * 1024) throw new FsError(413, '报表文件过大（>2MB）')
+  return {
+    content: fs.readFileSync(abs, 'utf8'),
+    path: artifact.path,
+    ...(artifact.title ? { title: artifact.title } : {}),
+  }
+}
+
 /** 删除人员（默认工作区随人员目录删除；外部工作区不会删除） */
 export async function deletePerson(id: string, root: string = resolvePeopleRoot()): Promise<void> {
   const dir = ensurePeopleRoot(root)
@@ -2130,6 +2286,33 @@ export async function stopPerson(id: string, root: string = resolvePeopleRoot())
   return stopping
 }
 
+/** 在系统文件管理器中打开人员当前工作区（macOS 访达 / Windows 资源管理器 / Linux） */
+export async function revealPersonWorkspace(
+  id: string,
+  root: string = resolvePeopleRoot(),
+): Promise<string> {
+  const loaded = loadPerson(ensurePeopleRoot(root), id)
+  readQueueState(loaded)
+  const dir = resolveActiveWorkspace(loaded.config, loaded.defaultWorkspace)
+  if (!isDirectory(dir)) throw new FsError(404, `工作区目录不存在：${dir}`)
+  const command =
+    process.platform === 'darwin'
+      ? 'open'
+      : process.platform === 'win32'
+        ? 'explorer.exe'
+        : 'xdg-open'
+  await new Promise<void>((resolve, reject) => {
+    execFile(command, [dir], { timeout: 10_000 }, (err) => {
+      if (err) {
+        reject(new FsError(500, `打开工作区失败：${err.message}`))
+        return
+      }
+      resolve()
+    })
+  })
+  return dir
+}
+
 function cleanModelText(raw: string): string {
   return raw
     .trim()
@@ -2385,6 +2568,10 @@ export async function handlePersonnelRequest(deps: PersonnelHttpDeps): Promise<b
       sendJson(res, 200, { ok: true, person: retryPersonTask(id, root, taskId) })
       return true
     }
+    if (segments.length === 4 && segments[3] === 'report' && method === 'GET') {
+      sendJson(res, 200, { ok: true, ...getPersonTaskReport(id, root, taskId) })
+      return true
+    }
     sendJson(res, 405, { ok: false, message: 'Method Not Allowed' })
     return true
   }
@@ -2403,6 +2590,10 @@ export async function handlePersonnelRequest(deps: PersonnelHttpDeps): Promise<b
   }
   if (action === 'workspace/build' && method === 'POST') {
     sendJson(res, 200, { ok: true, ...buildPersonWorkspace(id, root) })
+    return true
+  }
+  if (action === 'workspace/reveal' && method === 'POST') {
+    sendJson(res, 200, { ok: true, path: await revealPersonWorkspace(id, root) })
     return true
   }
   if (action === 'workspace/reset' && method === 'POST') {

@@ -126,6 +126,8 @@ export const personnelApi = {
     }),
   buildWorkspace: (id: string) =>
     request<WorkspaceBuildPayload>(idPath(id, '/workspace/build'), { method: 'POST' }),
+  revealWorkspace: (id: string) =>
+    request<{ ok: true; path: string }>(idPath(id, '/workspace/reveal'), { method: 'POST' }),
   resetWorkspace: (id: string) =>
     request<WorkspaceBuildPayload>(idPath(id, '/workspace/reset'), { method: 'POST' }),
   addTask: (id: string, input: { title?: string; content: string }) =>
@@ -146,6 +148,13 @@ export const personnelApi = {
     request<PersonPayload>(idPath(id, `/tasks/${encodeURIComponent(taskId)}/retry`), {
       method: 'POST',
     }),
+  getTaskReport: (id: string, taskId: string) =>
+    request<{
+      ok: true
+      content: string
+      path: string
+      title?: string
+    }>(idPath(id, `/tasks/${encodeURIComponent(taskId)}/report`)),
   polish: (id: string, input: { kind: 'card' | 'norms'; title?: string; text: string; others?: string[] }) =>
     request<{ ok: true; text: string }>(idPath(id, '/polish'), {
       method: 'POST',

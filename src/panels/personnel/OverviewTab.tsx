@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   CircleX,
   Clock,
+  Eye,
   FolderOpen,
   Image,
   Layers,
@@ -33,6 +34,7 @@ import type {
   PersonTask,
 } from '@/shared/personnel'
 import { Icon } from '@/shell/ui/Icon'
+import { Dialog } from '@/shell/ui/Dialog'
 import { personnelApi } from './api'
 import {
   formatDateTime,
@@ -41,7 +43,8 @@ import {
   runStatusMeta,
   taskStatusMeta,
 } from './format'
-import { ConfirmDialog, PpSectionCard, PpStatus } from './primitives'
+import { ConfirmDialog, PpSectionCard, PpSpinner, PpStatus } from './primitives'
+import { Markdown } from './Markdown'
 
 interface OverviewTabProps {
   person: PersonSummary
@@ -119,6 +122,15 @@ export function OverviewTab(props: OverviewTabProps) {
   const [actionBusy, setActionBusy] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<PersonTask | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [revealing, setRevealing] = useState(false)
+  const [allLogsOpen, setAllLogsOpen] = useState(false)
+  const [reportLoadingId, setReportLoadingId] = useState('')
+  const [reportModal, setReportModal] = useState<{
+    title: string
+    artifactTitle?: string
+    content: string
+    path: string
+  } | null>(null)
 
   const statCards = useMemo(
     () => [
@@ -167,6 +179,34 @@ export function OverviewTab(props: OverviewTabProps) {
       toast.error(err instanceof Error ? err.message : '删除任务失败')
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const revealWorkspace = async (): Promise<void> => {
+    setRevealing(true)
+    try {
+      await personnelApi.revealWorkspace(person.id)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '打开工作区失败')
+    } finally {
+      setRevealing(false)
+    }
+  }
+
+  const openReport = async (task: PersonTask): Promise<void> => {
+    setReportLoadingId(task.id)
+    try {
+      const result = await personnelApi.getTaskReport(person.id, task.id)
+      setReportModal({
+        title: task.title,
+        ...(result.title ? { artifactTitle: result.title } : {}),
+        content: result.content,
+        path: result.path,
+      })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '读取任务报表失败')
+    } finally {
+      setReportLoadingId('')
     }
   }
 
@@ -253,7 +293,7 @@ export function OverviewTab(props: OverviewTabProps) {
                     {task.result ? (
                       <details className="pp-task-result">
                         <summary>查看执行结果</summary>
-                        <pre>{task.result}</pre>
+                        <Markdown text={task.result} className="pp-task-result-md" />
                       </details>
                     ) : null}
                   </div>
@@ -291,6 +331,23 @@ export function OverviewTab(props: OverviewTabProps) {
                       >
                         <Icon icon={RotateCcw} size={13} />
                         重试
+                      </button>
+                    ) : null}
+                    {task.status === 'completed' &&
+                    task.artifacts?.some((artifact) => artifact.kind === 'markdown') ? (
+                      <button
+                        type="button"
+                        className="pp-icon-btn"
+                        title="查看报表"
+                        aria-label={`查看任务报表 ${task.title}`}
+                        disabled={reportLoadingId === task.id}
+                        onClick={() => void openReport(task)}
+                      >
+                        {reportLoadingId === task.id ? (
+                          <PpSpinner />
+                        ) : (
+                          <Icon icon={Eye} size={14} />
+                        )}
                       </button>
                     ) : null}
                     <button
@@ -337,7 +394,7 @@ export function OverviewTab(props: OverviewTabProps) {
               {run.lastReply ? (
                 <div className="pp-reply-wrap">
                   <div className="pp-section-label">最后回复</div>
-                  <pre className="pp-reply">{run.lastReply}</pre>
+                  <Markdown text={run.lastReply} className="pp-reply-md" />
                 </div>
               ) : null}
             </div>
@@ -352,6 +409,18 @@ export function OverviewTab(props: OverviewTabProps) {
         <PpSectionCard
           title="工作区"
           desc="构建会把默认工作区里的文件移动到目标工作区；执行时自动构建。"
+          right={
+            <button
+              type="button"
+              className="pp-title-link"
+              title="在访达中打开工作区"
+              disabled={revealing}
+              onClick={() => void revealWorkspace()}
+            >
+              {revealing ? <PpSpinner /> : <Icon icon={FolderOpen} size={12} />}
+              查看
+            </button>
+          }
         >
           <div className="pp-kv pp-workspace-kv">
             <span>当前生效</span>
@@ -370,7 +439,19 @@ export function OverviewTab(props: OverviewTabProps) {
         </PpSectionCard>
       </div>
 
-      <PpSectionCard title="动态" desc="任务、队列、构建与配置变更记录。">
+      <PpSectionCard
+        title="最近动态"
+        desc="任务、队列、构建与配置变更记录。"
+        right={
+          <button
+            type="button"
+            className="pp-title-link"
+            onClick={() => setAllLogsOpen(true)}
+          >
+            全部日志 <span aria-hidden>→</span>
+          </button>
+        }
+      >
         <div className="pp-activity">
           {detail.activity.length === 0 ? (
             <div className="pp-empty small">
@@ -378,7 +459,7 @@ export function OverviewTab(props: OverviewTabProps) {
               <span>还没有动态</span>
             </div>
           ) : (
-            detail.activity.slice(0, 40).map((entry: PersonActivity) => (
+            detail.activity.slice(0, 10).map((entry: PersonActivity) => (
               <div key={entry.id} className={`pp-activity-item ${toneOfActivity(entry.type)}`}>
                 <span className="pp-activity-icon">
                   <Icon icon={activityIcon(entry.type)} size={13} />
@@ -403,6 +484,66 @@ export function OverviewTab(props: OverviewTabProps) {
           onConfirm={() => void removeTask()}
           onClose={() => setDeleteTarget(null)}
         />
+      ) : null}
+
+      {allLogsOpen ? (
+        <Dialog
+          title="全部日志"
+          width={760}
+          onClose={() => setAllLogsOpen(false)}
+          footer={
+            <button
+              type="button"
+              className="pp-btn"
+              onClick={() => setAllLogsOpen(false)}
+            >
+              关闭
+            </button>
+          }
+        >
+          {detail.activity.length === 0 ? (
+            <div className="pp-empty">
+              <Activity size={26} />
+              <span>还没有日志</span>
+            </div>
+          ) : (
+            <div className="pp-log-modal">
+              {detail.activity.map((entry: PersonActivity) => (
+                <div
+                  key={entry.id}
+                  className={`pp-log-row ${toneOfActivity(entry.type)}`}
+                >
+                  <span className="pp-log-time">{formatDateTime(entry.ts)}</span>
+                  <span className="pp-log-icon">
+                    <Icon icon={activityIcon(entry.type)} size={13} />
+                  </span>
+                  <span className="pp-log-text">{entry.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Dialog>
+      ) : null}
+
+      {reportModal ? (
+        <Dialog
+          title={`任务报表 · ${reportModal.title}`}
+          width={900}
+          onClose={() => setReportModal(null)}
+          footer={
+            <button type="button" className="pp-btn" onClick={() => setReportModal(null)}>
+              关闭
+            </button>
+          }
+        >
+          {reportModal.artifactTitle ? (
+            <div className="pp-report-title">{reportModal.artifactTitle}</div>
+          ) : null}
+          <div className="pp-report-meta">报表文件：{reportModal.path}</div>
+          <div className="pp-report-modal">
+            <Markdown text={reportModal.content} />
+          </div>
+        </Dialog>
       ) : null}
     </div>
   )

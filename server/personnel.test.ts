@@ -16,6 +16,7 @@ import {
   deletePerson,
   getPerson,
   getPersonMemory,
+  getPersonTaskReport,
   listPeople,
   loadTypes,
   movePersonTask,
@@ -197,6 +198,56 @@ describe('人员类型', () => {
       assert.equal(types[0]!.name, '研发')
     })
   })
+
+  test('类型交付要求会保存并写入 AGENTS.md', () => {
+    withRoot((root) => {
+      saveTypes(root, [
+        {
+          id: 'obs',
+          name: '观测性助手',
+          delivery: {
+            dir: 'reports',
+            artifactKinds: ['markdown'],
+            required: true,
+            naming: '{date}_{app}_{platform}_{report}.md',
+          },
+        },
+      ])
+      const person = createPerson(root, { name: '报表助手', typeId: 'obs' })
+      const types = loadTypes(root)
+      assert.deepEqual(types[0]?.delivery, {
+        dir: 'reports',
+        artifactKinds: ['markdown'],
+        required: true,
+        naming: '{date}_{app}_{platform}_{report}.md',
+      })
+
+      const agents = fs.readFileSync(path.join(person.defaultWorkspace, 'AGENTS.md'), 'utf8')
+      assert.match(agents, /## 交付要求/)
+      assert.match(agents, /产物目录：reports/)
+      assert.match(agents, /允许的产物类型：markdown/)
+      assert.match(agents, /是否必需：是/)
+      assert.match(agents, /\{date\}_\{app\}_\{platform\}_\{report\}\.md/)
+    })
+  })
+
+  test('交付目录必须是工作区内的相对路径', () => {
+    withRoot((root) => {
+      const types = saveTypes(root, [
+        {
+          id: 'bad',
+          name: '非法交付',
+          delivery: {
+            dir: '../outside',
+            artifactKinds: ['markdown'],
+            required: true,
+          },
+        },
+      ])
+      assert.equal(types[0]?.delivery?.dir, '')
+      assert.equal(types[0]?.delivery?.required, false)
+    })
+  })
 })
 
 describe('构建工作区 / 续接', () => {
@@ -370,6 +421,59 @@ describe('任务看板', () => {
       await assert.rejects(
         () => runPerson(person.id, root),
         (err: unknown) => err instanceof FsError && err.status === 400,
+      )
+    })
+  })
+
+  test('任务产物按相对路径登记，并可读取 Markdown 报表', () => {
+    withRoot((root) => {
+      const person = createPerson(root, { name: '报表测试' })
+      const detail = addPersonTask(person.id, root, {
+        title: '查询错误报表',
+        content: '查询错误报表',
+      })
+      const taskId = detail.tasks[0]!.id
+      const reportRel = 'reports/2026-11-10_测试_Android_错误报表.md'
+      const reportFile = path.join(person.defaultWorkspace, reportRel)
+      fs.mkdirSync(path.dirname(reportFile), { recursive: true })
+      fs.writeFileSync(reportFile, '# 错误报表\n\n- 错误数：9\n', 'utf8')
+
+      const tasksFile = path.join(person.defaultWorkspace, '.person', 'tasks.json')
+      const raw = JSON.parse(fs.readFileSync(tasksFile, 'utf8')) as Array<Record<string, unknown>>
+      raw[0]!.status = 'completed'
+      raw[0]!.result = `报表：${reportRel}`
+      raw[0]!.artifacts = [{ path: reportRel, kind: 'markdown', title: '错误报表' }]
+      fs.writeFileSync(tasksFile, JSON.stringify(raw), 'utf8')
+
+      const task = getPerson(person.id, root).tasks.find((item) => item.id === taskId)
+      assert.deepEqual(task?.artifacts, [
+        { path: reportRel, kind: 'markdown', title: '错误报表' },
+      ])
+      const report = getPersonTaskReport(person.id, root, taskId)
+      assert.equal(report.path, reportRel)
+      assert.equal(report.title, '错误报表')
+      assert.match(report.content, /错误数：9/)
+    })
+  })
+
+  test('任务没有登记产物时不回退读取 result', () => {
+    withRoot((root) => {
+      const person = createPerson(root, { name: '无产物测试' })
+      const detail = addPersonTask(person.id, root, {
+        title: '普通任务',
+        content: '普通任务',
+      })
+      const taskId = detail.tasks[0]!.id
+      const tasksFile = path.join(person.defaultWorkspace, '.person', 'tasks.json')
+      const raw = JSON.parse(fs.readFileSync(tasksFile, 'utf8')) as Array<Record<string, unknown>>
+      raw[0]!.status = 'completed'
+      raw[0]!.result = '完成，但没有报表文件'
+      fs.writeFileSync(tasksFile, JSON.stringify(raw), 'utf8')
+
+      assert.equal(getPerson(person.id, root).tasks[0]?.artifacts, undefined)
+      assert.throws(
+        () => getPersonTaskReport(person.id, root, taskId),
+        (err: unknown) => err instanceof FsError && err.status === 404,
       )
     })
   })

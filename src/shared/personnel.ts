@@ -19,9 +19,20 @@ export interface RoleCard {
 }
 
 /** 人员类型（全局分类，保存在人员根目录 types.json） */
+export type PersonArtifactKind = 'markdown' | 'json' | 'csv' | 'image' | 'file'
+
+/** 类型级交付要求：产物目录、允许的产物类型、是否必须有产物 */
+export interface PersonDeliveryConfig {
+  dir: string
+  artifactKinds: PersonArtifactKind[]
+  required: boolean
+  naming?: string
+}
+
 export interface PersonType {
   id: string
   name: string
+  delivery?: PersonDeliveryConfig
 }
 
 /** 模型设置 */
@@ -97,6 +108,13 @@ export interface PersonRunState {
 export type PersonTaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'stopped'
 
 /** 任务看板中的一条任务 */
+export interface PersonArtifact {
+  /** 相对工作区的路径 */
+  path: string
+  kind: PersonArtifactKind
+  title?: string
+}
+
 export interface PersonTask {
   id: string
   title: string
@@ -107,6 +125,7 @@ export interface PersonTask {
   finishedAt?: number
   result?: string
   error?: string
+  artifacts?: PersonArtifact[]
 }
 
 /** 队列状态 */
