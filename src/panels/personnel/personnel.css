@@ -825,7 +825,7 @@
 
 .pp-row-label b {
   display: block;
-  font-weight: 560;
+  font-weight: 600;
 }
 
 .pp-row-label small {
@@ -843,6 +843,20 @@
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
+}
+
+.pp-card-meta-rows {
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.pp-card-meta-rows .pp-row {
+  padding: 11px 0;
+}
+
+.pp-row-input {
+  width: 340px;
+  max-width: 100%;
 }
 
 .pp-input,
@@ -920,12 +934,6 @@
 .pp-form-field .pp-input,
 .pp-form-field .pp-textarea {
   width: 100%;
-}
-
-.pp-form-cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: var(--space-3);
 }
 
 .pp-card-editor-form {
@@ -1691,8 +1699,23 @@
 }
 
 .pp-card-item-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: var(--font-sm);
   font-weight: 600;
+}
+
+.pp-current-badge {
+  flex: none;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 18px;
 }
 
 .pp-card-item-tags {
@@ -1737,6 +1760,275 @@
 
 .pp-card-editor {
   min-height: 480px;
+}
+
+/* ===== 分节 / 整段 / AI 润色 ===== */
+.pp-mode-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 2px 0 var(--space-3);
+}
+
+.pp-mode-seg {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-input);
+}
+
+.pp-mode-seg button {
+  height: 30px;
+  padding: 0 16px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.pp-mode-seg button:first-child {
+  border-left: 0;
+}
+
+.pp-mode-seg button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.pp-mode-seg button.on {
+  background: var(--pp-tint-strong);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pp-mode-seg button:disabled {
+  opacity: 0.5;
+}
+
+.pp-mode-stats {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+}
+
+.pp-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pp-section {
+  --c: var(--accent);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background:
+    radial-gradient(120% 140% at 0 0, color-mix(in srgb, var(--c) 6%, transparent), transparent 48%),
+    var(--pp-card-bg);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pp-section::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(180deg, var(--c), color-mix(in srgb, var(--c) 18%, transparent));
+}
+
+.pp-section.lead {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+}
+
+.pp-section.cmp {
+  border-color: var(--c);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 10%, transparent);
+}
+
+.pp-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 9px 9px 0 15px;
+  min-width: 0;
+}
+
+.pp-section-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c);
+}
+
+.pp-section-fixed {
+  flex: 1;
+  min-width: 0;
+  color: color-mix(in srgb, var(--c) 62%, var(--text));
+  font-size: var(--font-sm);
+  font-weight: 650;
+}
+
+.pp-section-title {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--c) 52%, var(--text));
+  font-size: var(--font-sm);
+  font-weight: 650;
+}
+
+.pp-section-title::placeholder {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.pp-section-count {
+  flex: none;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.pp-section-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0.5;
+  transition: opacity var(--dur-fast) ease;
+}
+
+.pp-section:hover .pp-section-actions,
+.pp-section:focus-within .pp-section-actions {
+  opacity: 1;
+}
+
+.pp-aibtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+
+.pp-aibtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--c) 12%, transparent);
+  color: color-mix(in srgb, var(--c) 65%, var(--text));
+}
+
+.pp-aibtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pp-section-textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 76px;
+  padding: 6px 14px 12px 27px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  resize: vertical;
+  font: inherit;
+  font-size: var(--font-md);
+  line-height: 1.7;
+}
+
+.pp-section-textarea:read-only {
+  color: var(--text-dim);
+}
+
+.pp-section-compare {
+  margin: 0 12px 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--c) 28%, var(--border));
+  border-radius: 10px;
+  background: var(--pp-tint);
+}
+
+.pp-section-compare-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: var(--font-xs);
+}
+
+.pp-section-compare-head b {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pp-section-compare-head span {
+  color: var(--text-dim);
+}
+
+.pp-section-preview {
+  max-height: 220px;
+  overflow: auto;
+  margin: 8px 0 0;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-sm);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.pp-section-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+  font-size: var(--font-xs);
+}
+
+.pp-section-chip {
+  height: 26px;
+  padding: 0 11px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--font-xs);
+  cursor: pointer;
+}
+
+.pp-section-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--pp-tint);
+  color: var(--accent);
+}
+
+.pp-section-chip.solid {
+  border-style: solid;
+}
+
+.pp-section-chip:disabled {
+  opacity: 0.45;
 }
 
 /* ===== 记忆 ===== */
@@ -2050,8 +2342,8 @@
   .pp-row-label {
     flex: none;
   }
-  .pp-form-cols {
-    grid-template-columns: 1fr;
+  .pp-row-input {
+    width: 100%;
   }
 }
 

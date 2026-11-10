@@ -180,21 +180,19 @@ function defaultTypes(): PersonType[] {
 }
 
 function defaultNorms(): string {
-  return `# 工作规范
-
-## 怎么操作文件
+  return `【怎么操作文件】
 - 所有产出都放在当前工作区里，不要写到工作区之外。
 - 修改文件前先读取原内容，避免凭记忆覆盖。
 - 不要删除与当前任务无关的文件；需要清理时先说明原因。
 - 大文件先搜索再局部读取，不要一次性把整个仓库读进上下文。
 
-## 怎么使用工具
+【怎么使用工具】
 - 优先使用当前环境可用的文件、终端与搜索工具完成任务。
 - 命令失败时先读错误输出，再决定重试或换方案，不要静默忽略失败。
 - 执行有副作用的命令前，先确认目标路径与影响范围。
 - 需要联网或调用外部服务时，先检查配置是否齐全。
 
-## 工作状态
+【工作状态】
 - 每次开始先读 STATE.md，接着上次的进度继续。
 - 每完成一个阶段，就把已完成、进行中、下一步写回 STATE.md。
 - 值得长期记住的事实写进 memory/MEMORY.md。
@@ -213,7 +211,7 @@ function defaultCards(name: string, typeName: string): RoleCard[] {
       id: newRecordId('card'),
       name: `${name}的角色`,
       tags: typeName ? [typeName] : [],
-      content: `你是${name}。\n职责是：按照人员设置完成分配给你的任务。\n\n工作原则：\n- 先理解目标，再动手。\n- 执行过程中持续更新工作区里的 STATE.md。\n- 不确定时先查证，不要编造。`,
+      content: `你是${name}。\n\n【职责】\n按照人员设置完成分配给你的任务。\n\n【工作原则】\n- 先理解目标，再动手。\n- 执行过程中持续更新工作区里的 STATE.md。\n- 不确定时先查证，不要编造。`,
       updatedAt: Date.now(),
     },
   ]
@@ -343,6 +341,7 @@ function normalizeConfig(raw: Partial<PersonConfig> | null, id: string): PersonC
     name,
     typeId: str(raw?.typeId),
     ...(str(raw?.avatarFile) ? { avatarFile: str(raw?.avatarFile) } : {}),
+    ...(str(raw?.currentCardId) ? { currentCardId: str(raw?.currentCardId) } : {}),
     createdAt: num(raw?.createdAt) || now,
     updatedAt: num(raw?.updatedAt) || now,
     task: typeof raw?.task === 'string' ? raw.task : defaultTask(name),
@@ -505,6 +504,47 @@ function taskCountsOf(tasks: PersonTask[]): PersonTaskCounts {
   return counts
 }
 
+/** 把旧的「职责：/工作原则：」角色卡内容迁移成【职责】/【工作原则】两节。 */
+function normalizeCardContent(content: string): string {
+  const text = content.replace(/\r\n/g, '\n').trim()
+  if (!text || /【职责】|【工作原则】/.test(text)) return text
+  const lead: string[] = []
+  const duties: string[] = []
+  const principles: string[] = []
+  let mode: 'lead' | 'duties' | 'principles' = 'lead'
+  let foundDuty = false
+  let foundPrinciple = false
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    const duty = /^职责(?:是)?[：:]\s*(.*)$/.exec(trimmed)
+    const principle = /^工作原则[：:]\s*(.*)$/.exec(trimmed)
+    if (duty && !foundDuty) {
+      foundDuty = true
+      mode = 'duties'
+      if (duty[1]?.trim()) duties.push(duty[1]!.trim())
+      continue
+    }
+    if (principle) {
+      foundPrinciple = true
+      mode = 'principles'
+      if (principle[1]?.trim()) principles.push(principle[1]!.trim())
+      continue
+    }
+    if (mode === 'lead') lead.push(line)
+    else if (mode === 'duties') duties.push(line)
+    else principles.push(line)
+  }
+  if (!foundDuty && !foundPrinciple) return text
+  const clean = (lines: string[]): string =>
+    lines.join('\n').replace(/^\n+/, '').replace(/\s+$/, '').trim()
+  const parts: string[] = []
+  const leadText = clean(lead)
+  if (leadText) parts.push(leadText)
+  if (foundDuty) parts.push(`【职责】\n${clean(duties) || '……'}`)
+  if (foundPrinciple) parts.push(`【工作原则】\n${clean(principles) || '……'}`)
+  return parts.join('\n\n')
+}
+
 function sanitizeCards(raw: unknown): RoleCard[] {
   if (!Array.isArray(raw)) throw new FsError(400, '角色卡必须是数组')
   const seen = new Set<string>()
@@ -526,7 +566,7 @@ function sanitizeCards(raw: unknown): RoleCard[] {
       id,
       name: str(o.name).trim().slice(0, 60) || '未命名角色卡',
       tags,
-      content: str(o.content).slice(0, MAX_CARD_CONTENT),
+      content: normalizeCardContent(str(o.content).slice(0, MAX_CARD_CONTENT)),
       updatedAt: num(o.updatedAt) || Date.now(),
     })
   }
@@ -542,8 +582,28 @@ function loadCards(profileDir: string): RoleCard[] {
   }
 }
 
+/** 规范统一 Aurabot 的【小节】格式；旧的 Markdown 标题自动迁移。 */
+function normalizeNormsToBracket(content: string): string {
+  const lines = content.replace(/\r\n/g, '\n').split('\n')
+  const out: string[] = []
+  for (const line of lines) {
+    if (/^#\s+/.test(line)) continue
+    const heading = /^##\s+(.+?)\s*$/.exec(line)
+    if (heading) {
+      out.push(`【${heading[1]!.trim()}】`)
+    } else {
+      out.push(line)
+    }
+  }
+  const text = out.join('\n').replace(/^\n+/, '').replace(/\s+$/, '')
+  return text ? `${text}\n` : ''
+}
+
 function loadNorms(profileDir: string): string {
-  return readTextFile(normsPathOf(profileDir), defaultNorms())
+  const raw = readTextFile(normsPathOf(profileDir), defaultNorms())
+  const normalized = normalizeNormsToBracket(raw)
+  if (normalized !== raw) writeTextFile(normsPathOf(profileDir), normalized)
+  return normalized
 }
 
 function loadPerson(root: string, id: string): LoadedPerson {
@@ -753,13 +813,11 @@ function agentsMarkdown(
   queueTasks?: PersonTask[],
 ): string {
   const typeName = typeNameOf(types, config.typeId) || '未分类'
-  const cardText = cards.length
-    ? cards
-        .map(
-          (card) =>
-            `### ${card.name}\n${card.tags.length ? `标签：${card.tags.join('、')}\n` : ''}${card.content}`,
-        )
-        .join('\n\n')
+  const activeCard = cards.find((card) => card.id === config.currentCardId) ?? cards[0]
+  const cardText = activeCard
+    ? `### ${activeCard.name}\n${
+        activeCard.tags.length ? `标签：${activeCard.tags.join('、')}\n` : ''
+      }${activeCard.content}`
     : '（暂无角色卡）'
   const taskSection =
     queueTasks && queueTasks.length > 0
@@ -810,11 +868,11 @@ ${taskSection}
 
 function personMarkdown(config: PersonConfig, cards: RoleCard[], types: PersonType[]): string {
   const typeName = typeNameOf(types, config.typeId) || '未分类'
-  const cardNames = cards.map((c) => c.name).join('、') || '暂无'
+  const activeCard = cards.find((card) => card.id === config.currentCardId) ?? cards[0]
   return `# ${config.name}
 
 - 类型：${typeName}
-- 角色卡：${cardNames}
+- 当前角色卡：${activeCard?.name ?? '暂无'}
 - 工作区：${config.workspace.dir || '默认工作区'}
 
 详细角色设定与工作协议见 AGENTS.md。
@@ -1526,6 +1584,7 @@ export function createPerson(root: string, input: CreatePersonInput): PersonDeta
     id,
   )
   const cards = defaultCards(name, typeName)
+  config.currentCardId = cards[0]?.id
   const norms = defaultNorms()
   writeJsonAtomic(configPathOf(profileDir), config)
   writeJsonAtomic(cardsPathOf(profileDir), cards)
@@ -1543,6 +1602,7 @@ export interface UpdatePersonInput {
   name?: string
   typeId?: string
   task?: string
+  currentCardId?: string
   cards?: unknown
   norms?: string
   model?: Partial<PersonModelSettings>
@@ -1584,8 +1644,23 @@ export function updatePerson(id: string, root: string, input: UpdatePersonInput)
     writeJsonAtomic(cardsPathOf(loaded.profileDir), loaded.cards)
     activity.push('更新了角色卡')
   }
+  if (input.currentCardId !== undefined) {
+    const cardId = str(input.currentCardId)
+    if (cardId && !loaded.cards.some((card) => card.id === cardId)) {
+      throw new FsError(400, '当前角色卡不存在')
+    }
+    loaded.config.currentCardId = cardId || loaded.cards[0]?.id
+    activity.push('切换了当前角色卡')
+  }
+  if (
+    loaded.cards.length > 0 &&
+    (!loaded.config.currentCardId ||
+      !loaded.cards.some((card) => card.id === loaded.config.currentCardId))
+  ) {
+    loaded.config.currentCardId = loaded.cards[0]!.id
+  }
   if (input.norms !== undefined) {
-    loaded.norms = str(input.norms).slice(0, MAX_NORMS_LENGTH)
+    loaded.norms = normalizeNormsToBracket(str(input.norms).slice(0, MAX_NORMS_LENGTH))
     writeTextFile(normsPathOf(loaded.profileDir), loaded.norms)
     activity.push('更新了规范')
   }
@@ -2055,6 +2130,143 @@ export async function stopPerson(id: string, root: string = resolvePeopleRoot())
   return stopping
 }
 
+function cleanModelText(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^```[a-zA-Z0-9_-]*\s*\r?\n/, '')
+    .replace(/\r?\n```\s*$/, '')
+    .trim()
+}
+
+/** 用人员当前模型跑一次纯文本任务（不读任务看板、不改工作区） */
+async function runOneOffModel(
+  loaded: LoadedPerson,
+  title: string,
+  prompt: string,
+  timeoutSec = 180,
+): Promise<string> {
+  const workDir = path.join(loaded.profileDir, '.ai-tmp')
+  fs.mkdirSync(workDir, { recursive: true })
+  const session = await agentGateway.createSession('dsh', personProjectKey(loaded.id), {
+    title: `${loaded.config.name} · ${title}`,
+    cwd: workDir,
+    model: loaded.config.model.model,
+    reasoning: loaded.config.model.reasoning,
+    permissions: loaded.config.model.permission,
+    reuse: false,
+  })
+  try {
+    const { reply } = await agentGateway.sendMessage({
+      platform: 'dsh',
+      project: personProjectKey(loaded.id),
+      sessionId: session.sessionId,
+      message: prompt,
+      model: loaded.config.model.model || undefined,
+      reasoning: loaded.config.model.reasoning || undefined,
+      permissions: loaded.config.model.permission || undefined,
+      waitForCompletion: true,
+      timeoutSec,
+    })
+    const text = cleanModelText(reply)
+    if (!text) throw new Error('模型没有返回内容')
+    return text
+  } finally {
+    await agentGateway.deleteSession('dsh', session.sessionId).catch(() => undefined)
+  }
+}
+
+export interface PolishPersonTextInput {
+  kind: 'card' | 'norms'
+  title?: string
+  text: string
+  others?: string[]
+}
+
+/** AI 润色角色卡 / 规范的一节，使用人员当前模型设置 */
+export async function polishPersonText(
+  id: string,
+  root: string,
+  input: PolishPersonTextInput,
+): Promise<string> {
+  const loaded = loadPersonIdle(ensurePeopleRoot(root), id)
+  const kind = input.kind === 'norms' ? '工作规范' : '角色卡'
+  const title = str(input.title).trim()
+  const text = str(input.text).trim()
+  const others = Array.isArray(input.others)
+    ? input.others
+        .filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+        .slice(0, 20)
+        .join('、')
+    : ''
+  const titled = title && title !== '开场' && title !== '前言' ? `「${title}」` : ''
+  const source =
+    text || `（该小节还没有内容，请根据标题${titled || '当前小节'}写一版符合角色与规范的正文）`
+  const prompt = `你是一个人员配置文本润色助手。
+请润色下面的${kind}${titled}。
+
+人员：${loaded.config.name}
+其他小节：${others || '无'}
+
+要求：
+- 保留原意与事实，不要编造不存在的经历、技能或规则。
+- 保持原文人称与叙述视角，不要把「你」改成「我」。
+- 角色卡要更像具体的人设与职责描述；规范要更清晰、可执行。
+- 只输出润色后的正文，不要输出标题、解释、序号或代码块。
+
+${source}`
+  try {
+    return await runOneOffModel(loaded, `${kind}润色`, prompt, 180)
+  } catch (err) {
+    throw new FsError(502, `AI 润色失败：${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+/** 用模型合并、去重并整理长期记忆；旧文件移入 memory/.archive */
+export async function organizePersonMemory(
+  id: string,
+  root: string = resolvePeopleRoot(),
+): Promise<PersonMemory> {
+  const loaded = loadPersonIdle(ensurePeopleRoot(root), id)
+  const memory = collectMemory(loaded, 30_000)
+  if (!memory.text.trim()) throw new FsError(400, '没有可整理的记忆')
+  const prompt = `请整理下面的长期记忆。
+
+人员：${loaded.config.name}
+
+要求：
+- 去重、合并表达同一件事的记忆。
+- 按主题分组，保留重要事实、偏好、决定和未完成事项。
+- 删除明显过时、重复、无价值的内容；不要编造新事实。
+- 输出整理后的 Markdown，只输出正文，不要解释或代码块。
+
+${memory.text}`
+  let text = ''
+  try {
+    text = await runOneOffModel(loaded, '整理记忆', prompt, 240)
+  } catch (err) {
+    throw new FsError(502, `整理记忆失败：${err instanceof Error ? err.message : String(err)}`)
+  }
+  if (!text.trim()) throw new FsError(502, '整理记忆失败：模型没有返回内容')
+
+  for (const workspace of activeBundleDirs(loaded)) {
+    const memoryDir = path.join(workspace, 'memory')
+    fs.mkdirSync(memoryDir, { recursive: true })
+    const archiveDir = path.join(
+      memoryDir,
+      '.archive',
+      new Date().toISOString().replace(/[:.]/g, '-'),
+    )
+    for (const entry of fs.readdirSync(memoryDir, { withFileTypes: true })) {
+      if (entry.name === '.archive') continue
+      fs.mkdirSync(archiveDir, { recursive: true })
+      movePathDeep(path.join(memoryDir, entry.name), path.join(archiveDir, entry.name))
+    }
+    writeTextFile(path.join(memoryDir, 'MEMORY.md'), text.endsWith('\n') ? text : `${text}\n`)
+  }
+  appendActivity(loaded.profileDir, 'memory_organized', '用模型整理了长期记忆')
+  return collectMemory(loaded, 20_000)
+}
+
 /* ============================================================
  * HTTP 路由
  * ============================================================ */
@@ -2205,8 +2417,25 @@ export async function handlePersonnelRequest(deps: PersonnelHttpDeps): Promise<b
     sendJson(res, 200, { ok: true, queue: await stopPerson(id, root) })
     return true
   }
+  if (action === 'polish' && method === 'POST') {
+    const body = await readJson(req)
+    const text = await polishPersonText(id, root, {
+      kind: str(body.kind) === 'norms' ? 'norms' : 'card',
+      title: str(body.title),
+      text: str(body.text),
+      others: Array.isArray(body.others)
+        ? body.others.filter((item): item is string => typeof item === 'string')
+        : [],
+    })
+    sendJson(res, 200, { ok: true, text })
+    return true
+  }
   if (action === 'memory' && method === 'GET') {
     sendJson(res, 200, { ok: true, memory: getPersonMemory(id, root) })
+    return true
+  }
+  if (action === 'memory/organize' && method === 'POST') {
+    sendJson(res, 200, { ok: true, memory: await organizePersonMemory(id, root) })
     return true
   }
   if (action === 'memory/clear' && method === 'POST') {

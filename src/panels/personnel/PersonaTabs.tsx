@@ -1,18 +1,24 @@
 /**
- * 人设：角色卡 / 规范 / 记忆。
+ * 人设：角色卡（单张生效）/ 规范（分节或整段）/ 记忆（整理 & 清理）。
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Brain, FileText, Plus, Trash2 } from 'lucide-react'
+import { Brain, FileText, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { PersonDetail, RoleCard } from '@/shared/personnel'
 import { Icon } from '@/shell/ui/Icon'
 import { personnelApi } from './api'
 import { formatDateTime, relativeTime } from './format'
+import { ConfirmDialog, PpRow, PpSectionCard, PpSpinner } from './primitives'
+import { SectionEditor } from './SectionEditor'
 import {
-  ConfirmDialog,
-  PpSectionCard,
-  PpSpinner,
-} from './primitives'
+  detectNormsStyle,
+  joinBracketSections,
+  joinSections,
+  splitBracketSections,
+  splitSections,
+  type SectionStyle,
+  type TextSection,
+} from './section-model'
 
 interface PersonaTabProps {
   detail: PersonDetail
@@ -20,8 +26,61 @@ interface PersonaTabProps {
   onRefresh: () => Promise<void>
 }
 
+type EditorMode = 'sections' | 'whole'
+
 function cardTagsText(card: RoleCard | undefined): string {
   return card ? card.tags.join('，') : ''
+}
+
+function readMode(kind: string): EditorMode {
+  try {
+    return localStorage.getItem(`bps.personnel.${kind}.mode`) === 'whole' ? 'whole' : 'sections'
+  } catch {
+    return 'sections'
+  }
+}
+
+function storeMode(kind: string, mode: EditorMode): void {
+  try {
+    localStorage.setItem(`bps.personnel.${kind}.mode`, mode)
+  } catch {
+    /* localStorage 不可用 */
+  }
+}
+
+function ModeSwitch(props: {
+  mode: EditorMode
+  onChange: (mode: EditorMode) => void
+  stats: string
+  disabled: boolean
+}) {
+  return (
+    <div className="pp-mode-row">
+      <div className="pp-mode-seg" role="tablist" aria-label="编辑方式">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={props.mode === 'sections'}
+          className={props.mode === 'sections' ? 'on' : ''}
+          disabled={props.disabled}
+          onClick={() => props.onChange('sections')}
+        >
+          分节
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={props.mode === 'whole'}
+          className={props.mode === 'whole' ? 'on' : ''}
+          disabled={props.disabled}
+          onClick={() => props.onChange('whole')}
+        >
+          整段
+        </button>
+      </div>
+      <span className="pp-mode-stats">{props.stats}</span>
+    </div>
+  )
 }
 
 export function RoleCardsTab(props: PersonaTabProps) {
@@ -31,6 +90,14 @@ export function RoleCardsTab(props: PersonaTabProps) {
   const [tagText, setTagText] = useState(cardTagsText(props.detail.cards[0]))
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<RoleCard | null>(null)
+  const [mode, setMode] = useState<EditorMode>(() => readMode('card'))
+  const [sections, setSections] = useState<TextSection[]>(() =>
+    splitBracketSections(props.detail.cards[0]?.content ?? ''),
+  )
+
+  const currentCardId = props.detail.config.currentCardId ?? props.detail.cards[0]?.id ?? ''
+  const selected = cards.find((card) => card.id === selectedId) ?? null
+  const isCurrent = Boolean(selected && selected.id === currentCardId)
 
   useEffect(() => {
     setCards(props.detail.cards)
@@ -41,10 +108,14 @@ export function RoleCardsTab(props: PersonaTabProps) {
     )
   }, [serverCardsSignature, props.detail.id])
 
-  const selected = cards.find((card) => card.id === selectedId) ?? null
   useEffect(() => {
     setTagText(cardTagsText(selected ?? undefined))
   }, [selectedId, serverCardsSignature])
+
+  useEffect(() => {
+    if (!selected || mode !== 'sections') return
+    setSections(splitBracketSections(selected.content))
+  }, [selectedId, mode, serverCardsSignature, props.detail.id])
 
   const dirty = useMemo(
     () => JSON.stringify(cards) !== JSON.stringify(props.detail.cards),
@@ -58,17 +129,31 @@ export function RoleCardsTab(props: PersonaTabProps) {
     )
   }
 
+  const setSectionsAndContent = (nextSections: TextSection[]): void => {
+    setSections(nextSections)
+    patchCard({ content: joinBracketSections(nextSections) })
+  }
+
+  const switchMode = (next: EditorMode): void => {
+    setMode(next)
+    storeMode('card', next)
+    if (next === 'sections' && selected) {
+      setSections(splitBracketSections(selected.content))
+    }
+  }
+
   const addCard = (): void => {
     const card: RoleCard = {
       id: `card_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       name: '新角色卡',
       tags: [],
-      content: '你是……\n职责是：……',
+      content: '你是……\n\n【职责】\n……\n\n【工作原则】\n- ……',
       updatedAt: Date.now(),
     }
     setCards((list) => [...list, card])
     setSelectedId(card.id)
     setTagText('')
+    setSections(splitBracketSections(card.content))
   }
 
   const removeCard = (): void => {
@@ -79,14 +164,35 @@ export function RoleCardsTab(props: PersonaTabProps) {
     setDeleteTarget(null)
   }
 
-  const save = async (): Promise<void> => {
+  const save = async (extra?: { currentCardId?: string }): Promise<void> => {
     setSaving(true)
     try {
-      await personnelApi.update(props.detail.id, { cards })
-      toast.success('角色卡已保存')
+      await personnelApi.update(props.detail.id, {
+        cards,
+        ...(extra?.currentCardId ? { currentCardId: extra.currentCardId } : {}),
+      })
+      toast.success(extra?.currentCardId ? '已切换当前角色卡' : '角色卡已保存')
       await props.onRefresh()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '保存角色卡失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const setCurrent = async (): Promise<void> => {
+    if (!selected || isCurrent) return
+    if (dirty) {
+      await save({ currentCardId: selected.id })
+      return
+    }
+    setSaving(true)
+    try {
+      await personnelApi.update(props.detail.id, { currentCardId: selected.id })
+      toast.success('已切换当前角色卡')
+      await props.onRefresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '切换角色卡失败')
     } finally {
       setSaving(false)
     }
@@ -107,7 +213,10 @@ export function RoleCardsTab(props: PersonaTabProps) {
               className={`pp-card-item${selectedId === card.id ? ' active' : ''}`}
               onClick={() => setSelectedId(card.id)}
             >
-              <span className="pp-card-item-name">{card.name || '未命名角色卡'}</span>
+              <span className="pp-card-item-name">
+                {card.name || '未命名角色卡'}
+                {card.id === currentCardId ? <i className="pp-current-badge">正在用</i> : null}
+              </span>
               <span className="pp-card-item-tags">
                 {card.tags.length ? card.tags.join(' · ') : '未设置标签'}
               </span>
@@ -115,12 +224,7 @@ export function RoleCardsTab(props: PersonaTabProps) {
           ))}
           {cards.length === 0 ? <div className="pp-sub-list-empty">还没有角色卡</div> : null}
         </div>
-        <button
-          type="button"
-          className="pp-sub-add"
-          onClick={addCard}
-          disabled={props.busy}
-        >
+        <button type="button" className="pp-sub-add" onClick={addCard} disabled={props.busy}>
           <Icon icon={Plus} size={13} />
           新增角色卡
         </button>
@@ -132,13 +236,24 @@ export function RoleCardsTab(props: PersonaTabProps) {
             <div className="pp-card-head">
               <div className="pp-card-heading">
                 <h3>编辑角色卡</h3>
-                <p>内容会写入 AGENTS.md；会话启动读取 AGENTS.md 时即包含角色卡。</p>
+                <p>只有当前角色卡会写入 AGENTS.md；多张卡互斥，不会合并。</p>
               </div>
               <div className="pp-card-right">
+                {isCurrent ? null : (
+                  <button
+                    type="button"
+                    className="pp-btn sm"
+                    disabled={props.busy || saving}
+                    onClick={() => void setCurrent()}
+                  >
+                    <Icon icon={Sparkles} size={13} />
+                    设为当前
+                  </button>
+                )}
                 <button
                   type="button"
                   className="pp-btn danger ghost sm"
-                  disabled={props.busy}
+                  disabled={props.busy || saving}
                   onClick={() => setDeleteTarget(selected)}
                 >
                   <Icon icon={Trash2} size={13} />
@@ -156,22 +271,20 @@ export function RoleCardsTab(props: PersonaTabProps) {
               </div>
             </div>
             <div className="pp-form pp-card-editor-form">
-              <div className="pp-form-cols">
-                <label className="pp-form-field">
-                  <span>名字</span>
+              <div className="pp-card-meta-rows">
+                <PpRow label="名字">
                   <input
-                    className="pp-input"
+                    className="pp-input pp-row-input"
                     value={selected.name}
                     maxLength={60}
                     disabled={props.busy}
                     onChange={(e) => patchCard({ name: e.target.value })}
                     onKeyDown={(e) => e.stopPropagation()}
                   />
-                </label>
-                <label className="pp-form-field">
-                  <span>标签</span>
+                </PpRow>
+                <PpRow label="标签" hint="用逗号隔开">
                   <input
-                    className="pp-input"
+                    className="pp-input pp-row-input"
                     value={tagText}
                     placeholder="用逗号分隔，比如：客服，售前"
                     disabled={props.busy}
@@ -188,22 +301,55 @@ export function RoleCardsTab(props: PersonaTabProps) {
                     onBlur={() => setTagText(cardTagsText(selected))}
                     onKeyDown={(e) => e.stopPropagation()}
                   />
-                </label>
+                </PpRow>
               </div>
-              <label className="pp-form-field">
-                <span>具体内容</span>
-                <textarea
-                  className="pp-textarea pp-card-content"
-                  value={selected.content}
+
+              <ModeSwitch
+                mode={mode}
+                onChange={switchMode}
+                stats={
+                  mode === 'sections'
+                    ? `${Math.max(0, sections.length - 1)} 节 · ${selected.content.length} 字`
+                    : `${selected.content.length} 字`
+                }
+                disabled={props.busy}
+              />
+
+              {mode === 'sections' ? (
+                <SectionEditor
+                  key={`${selected.id}-${mode}`}
+                  sections={sections}
+                  onChange={setSectionsAndContent}
                   disabled={props.busy}
-                  placeholder={'你是XXX。\n职责是XXX。'}
-                  onChange={(e) => patchCard({ content: e.target.value })}
-                  onKeyDown={(e) => e.stopPropagation()}
+                  polishKind="card"
+                  leadLabel="开场"
+                  suggestions={['职责', '工作原则', '语气', '边界', '输出格式']}
+                  onPolish={async (section, others) => {
+                    const result = await personnelApi.polish(props.detail.id, {
+                      kind: 'card',
+                      title: section.title || '开场',
+                      text: section.text,
+                      others,
+                    })
+                    return result.text
+                  }}
                 />
-              </label>
+              ) : (
+                <label className="pp-form-field">
+                  <span>具体内容</span>
+                  <textarea
+                    className="pp-textarea pp-card-content"
+                    value={selected.content}
+                    disabled={props.busy}
+                    placeholder={'你是XXX。\n\n【职责】\n……\n\n【工作原则】\n- ……'}
+                    onChange={(e) => patchCard({ content: e.target.value })}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  />
+                </label>
+              )}
               <div className="pp-inline-meta">
                 <span>{selected.content.length} 字</span>
-                <span>每张卡都会按顺序拼进角色设定</span>
+                <span>只有当前角色卡会进入 AGENTS.md</span>
               </div>
             </div>
           </>
@@ -222,7 +368,11 @@ export function RoleCardsTab(props: PersonaTabProps) {
       {deleteTarget ? (
         <ConfirmDialog
           title="删除角色卡"
-          message={`确定删除「${deleteTarget.name || '未命名角色卡'}」吗？保存后才会真正生效。`}
+          message={`确定删除「${deleteTarget.name || '未命名角色卡'}」吗？${
+            deleteTarget.id === currentCardId
+              ? '删除当前卡后会自动切换到下一张。'
+              : '保存后才会真正生效。'
+          }`}
           confirmLabel="删除"
           danger
           onConfirm={removeCard}
@@ -236,12 +386,37 @@ export function RoleCardsTab(props: PersonaTabProps) {
 export function NormsTab(props: PersonaTabProps) {
   const [norms, setNorms] = useState(props.detail.norms)
   const [saving, setSaving] = useState(false)
+  const [mode, setMode] = useState<EditorMode>(() => readMode('norms'))
+  const [style, setStyle] = useState<SectionStyle>(() => detectNormsStyle(props.detail.norms))
+  const [sections, setSections] = useState<TextSection[]>(() =>
+    splitSections(props.detail.norms, detectNormsStyle(props.detail.norms)),
+  )
 
   useEffect(() => {
     setNorms(props.detail.norms)
+    if (mode === 'sections') {
+      const nextStyle = detectNormsStyle(props.detail.norms)
+      setStyle(nextStyle)
+      setSections(splitSections(props.detail.norms, nextStyle))
+    }
   }, [props.detail.norms, props.detail.id])
 
   const dirty = norms !== props.detail.norms
+
+  const setSectionsAndNorms = (nextSections: TextSection[]): void => {
+    setSections(nextSections)
+    setNorms(joinSections(nextSections, style))
+  }
+
+  const switchMode = (next: EditorMode): void => {
+    setMode(next)
+    storeMode('norms', next)
+    if (next === 'sections') {
+      const nextStyle = detectNormsStyle(norms)
+      setStyle(nextStyle)
+      setSections(splitSections(norms, nextStyle))
+    }
+  }
 
   const save = async (): Promise<void> => {
     setSaving(true)
@@ -273,14 +448,45 @@ export function NormsTab(props: PersonaTabProps) {
           </button>
         }
       >
-        <textarea
-          className="pp-textarea pp-norms-textarea"
-          value={norms}
+        <ModeSwitch
+          mode={mode}
+          onChange={switchMode}
+          stats={
+            mode === 'sections'
+              ? `${Math.max(0, sections.length - 1)} 节 · ${norms.length} 字`
+              : `${norms.length} 字`
+          }
           disabled={props.busy}
-          placeholder="# 工作规范&#10;- 修改文件前先读取…&#10;- 命令失败时先读错误输出…"
-          onChange={(e) => setNorms(e.target.value)}
-          onKeyDown={(e) => e.stopPropagation()}
         />
+        {mode === 'sections' ? (
+          <SectionEditor
+            key={`${style}-${mode}`}
+            sections={sections}
+            onChange={setSectionsAndNorms}
+            disabled={props.busy}
+            polishKind="norms"
+            leadLabel="前言"
+            suggestions={['文件操作', '工具使用', '工作状态', '输出规范', '禁止事项']}
+            onPolish={async (section, others) => {
+              const result = await personnelApi.polish(props.detail.id, {
+                kind: 'norms',
+                title: section.title || '前言',
+                text: section.text,
+                others,
+              })
+              return result.text
+            }}
+          />
+        ) : (
+          <textarea
+            className="pp-textarea pp-norms-textarea"
+            value={norms}
+            disabled={props.busy}
+            placeholder="# 工作规范&#10;- 修改文件前先读取…&#10;- 命令失败时先读错误输出…"
+            onChange={(e) => setNorms(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+        )}
         <div className="pp-inline-meta">
           <span>{norms.length} 字</span>
           <span>保存在 .person/norms.md</span>
@@ -302,8 +508,10 @@ export function NormsTab(props: PersonaTabProps) {
 
 export function MemoryTab(props: PersonaTabProps) {
   const [clearing, setClearing] = useState(false)
+  const [organizing, setOrganizing] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const memory = props.detail.memory
+  const empty = memory.count === 0 && memory.files.length === 0
 
   const clear = async (): Promise<void> => {
     setClearing(true)
@@ -319,21 +527,46 @@ export function MemoryTab(props: PersonaTabProps) {
     }
   }
 
+  const organize = async (): Promise<void> => {
+    setOrganizing(true)
+    try {
+      await personnelApi.organizeMemory(props.detail.id)
+      toast.success('记忆已用当前模型整理，旧记忆已归档')
+      await props.onRefresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '整理记忆失败')
+    } finally {
+      setOrganizing(false)
+    }
+  }
+
   return (
     <div className="pp-grid">
       <PpSectionCard
         title="记忆"
-        desc="来自工作区 memory/ 目录；执行时会读入上下文。"
+        desc="来自工作区 memory/ 目录；执行时会读入上下文。整理会调用当前模型合并重复、按主题归类。"
         right={
-          <button
-            type="button"
-            className="pp-btn danger sm"
-            disabled={props.busy || clearing || (memory.count === 0 && memory.files.length === 0)}
-            onClick={() => setConfirmOpen(true)}
-          >
-            {clearing ? <PpSpinner /> : <Icon icon={Trash2} size={13} />}
-            清理记忆
-          </button>
+          <div className="pp-card-right">
+            <button
+              type="button"
+              className="pp-btn sm"
+              disabled={props.busy || organizing || empty}
+              onClick={() => void organize()}
+              title="调用当前模型整理长期记忆"
+            >
+              {organizing ? <PpSpinner /> : <Icon icon={Sparkles} size={13} />}
+              整理记忆
+            </button>
+            <button
+              type="button"
+              className="pp-btn danger sm"
+              disabled={props.busy || clearing || empty}
+              onClick={() => setConfirmOpen(true)}
+            >
+              {clearing ? <PpSpinner /> : <Icon icon={Trash2} size={13} />}
+              清理记忆
+            </button>
+          </div>
         }
       >
         <div className="pp-memory-summary">
@@ -355,7 +588,9 @@ export function MemoryTab(props: PersonaTabProps) {
                 <div key={file.name} className="pp-memory-file">
                   <Icon icon={FileText} size={13} />
                   <span className="pp-memory-file-name">{file.name}</span>
-                  <span className="pp-memory-file-size">{Math.max(1, Math.round(file.size / 1024))} KB</span>
+                  <span className="pp-memory-file-size">
+                    {Math.max(1, Math.round(file.size / 1024))} KB
+                  </span>
                 </div>
               ))}
             </div>
@@ -365,6 +600,7 @@ export function MemoryTab(props: PersonaTabProps) {
         {memory.updatedAt ? (
           <div className="pp-inline-meta">
             <span>最后更新：{formatDateTime(memory.updatedAt)}</span>
+            <span>整理后旧记忆会归档到 memory/.archive</span>
           </div>
         ) : null}
       </PpSectionCard>

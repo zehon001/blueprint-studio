@@ -84,7 +84,8 @@ describe('人员默认工作区', () => {
 
         const agents = fs.readFileSync(path.join(person.defaultWorkspace, 'AGENTS.md'), 'utf8')
         assert.match(agents, /小蓝/)
-        assert.match(agents, /职责是/)
+        assert.match(agents, /【职责】/)
+        assert.match(agents, /【工作原则】/)
         assert.match(agents, /工作协议/)
 
         const list = listPeople(root)
@@ -121,6 +122,49 @@ describe('人员默认工作区', () => {
       assert.match(agents, /memory\/MEMORY\.md/)
       const task = fs.readFileSync(path.join(person.defaultWorkspace, 'TASK.md'), 'utf8')
       assert.match(task, /排查今天的崩溃日志/)
+    })
+  })
+
+  test('多张角色卡只让当前卡进入 AGENTS.md，可以随时切换', () => {
+    withRoot((root) => {
+      const person = createPerson(root, { name: '单卡测试' })
+      let detail = updatePerson(person.id, root, {
+        cards: [
+          { id: 'card-a', name: '客服卡', tags: ['客服'], content: '你是客服。' },
+          { id: 'card-b', name: '日志卡', tags: ['日志'], content: '你是日志助手。' },
+        ],
+        currentCardId: 'card-a',
+      })
+      assert.equal(detail.config.currentCardId, 'card-a')
+      let agents = fs.readFileSync(path.join(person.defaultWorkspace, 'AGENTS.md'), 'utf8')
+      assert.match(agents, /客服卡/)
+      assert.doesNotMatch(agents, /日志卡/)
+
+      detail = updatePerson(person.id, root, { currentCardId: 'card-b' })
+      assert.equal(detail.config.currentCardId, 'card-b')
+      agents = fs.readFileSync(path.join(person.defaultWorkspace, 'AGENTS.md'), 'utf8')
+      assert.match(agents, /日志卡/)
+      assert.doesNotMatch(agents, /客服卡/)
+    })
+  })
+
+  test('旧角色卡的职责 / 工作原则会自动迁移为小节', () => {
+    withRoot((root) => {
+      const person = createPerson(root, { name: '旧卡迁移' })
+      const detail = updatePerson(person.id, root, {
+        cards: [
+          {
+            id: 'card-old',
+            name: '旧卡',
+            tags: [],
+            content: '你是旧卡。\n职责是：完成测试。\n\n工作原则：\n- 认真。',
+          },
+        ],
+      })
+      assert.equal(
+        detail.cards[0]!.content,
+        '你是旧卡。\n\n【职责】\n完成测试。\n\n【工作原则】\n- 认真。',
+      )
     })
   })
 })

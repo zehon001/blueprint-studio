@@ -65,6 +65,8 @@ export interface PersonConfig {
   updatedAt: number
   /** 当前执行任务（写入 AGENTS.md / TASK.md） */
   task: string
+  /** 当前使用的角色卡（多张卡只选一张生效） */
+  currentCardId?: string
   model: PersonModelSettings
   workspace: PersonWorkspaceSettings
   stats: PersonStats

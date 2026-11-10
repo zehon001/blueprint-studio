@@ -85,6 +85,7 @@ export interface PersonUpdatePatch {
   name?: string
   typeId?: string
   task?: string
+  currentCardId?: string
   cards?: RoleCard[]
   norms?: string
   model?: Partial<PersonModelSettings>
@@ -145,10 +146,17 @@ export const personnelApi = {
     request<PersonPayload>(idPath(id, `/tasks/${encodeURIComponent(taskId)}/retry`), {
       method: 'POST',
     }),
+  polish: (id: string, input: { kind: 'card' | 'norms'; title?: string; text: string; others?: string[] }) =>
+    request<{ ok: true; text: string }>(idPath(id, '/polish'), {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
   run: (id: string) => request<PersonQueuePayload>(idPath(id, '/run'), { method: 'POST' }),
   stop: (id: string) => request<PersonQueuePayload>(idPath(id, '/stop'), { method: 'POST' }),
   clearMemory: (id: string) =>
     request<PersonMemoryPayload>(idPath(id, '/memory/clear'), { method: 'POST' }),
+  organizeMemory: (id: string) =>
+    request<PersonMemoryPayload>(idPath(id, '/memory/organize'), { method: 'POST' }),
   capabilities: async (): Promise<PersonCapabilities | null> => {
     try {
       const res = await fetch('/api/agents/capabilities?platform=dsh')
