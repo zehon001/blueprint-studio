@@ -467,6 +467,7 @@ export function NormsTab(props: PersonaTabProps) {
             disabled={props.busy}
             polishKind="norms"
             leadLabel="前言"
+            leadPlaceholder="这一节写规范的总体目标或适用范围；可以留空，下面的分节会直接生效。"
             suggestions={['文件操作', '工具使用', '工作状态', '输出规范', '禁止事项']}
             onPolish={async (section, others) => {
               const result = await personnelApi.polish(props.detail.id, {

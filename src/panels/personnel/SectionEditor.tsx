@@ -12,6 +12,7 @@ interface SectionEditorProps {
   disabled: boolean
   polishKind: 'card' | 'norms'
   leadLabel: string
+  leadPlaceholder?: string
   suggestions: string[]
   onPolish: (section: TextSection, others: string[]) => Promise<string>
 }
@@ -185,7 +186,8 @@ export function SectionEditor(props: SectionEditorProps) {
               readOnly={comparing}
               placeholder={
                 lead
-                  ? '这一节写你是谁、核心职责；可以像说话一样自然。'
+                  ? (props.leadPlaceholder ??
+                    '这一节写你是谁、核心职责；可以像说话一样自然。')
                   : '- 一条一行，写清楚职责、原则或边界。'
               }
               onChange={(e) => updateSection(section.id, { text: e.target.value })}
