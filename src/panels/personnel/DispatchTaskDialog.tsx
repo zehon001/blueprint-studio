@@ -103,8 +103,8 @@ export function DispatchTaskDialog(props: DispatchTaskDialogProps) {
           />
         </label>
         <p className="pp-dialog-desc">
-          派发后会先保存为当前任务（写入 TASK.md），再构建工作区并启动 / 复用 DSH 会话。
-          执行会话会自动读取角色卡、规范、STATE.md 与 memory/；执行中配置会锁定。
+          派发后会保存任务、构建工作区，再启动 / 复用 DSH 会话；会话启动只发送
+          「读取 AGENTS.md，然后完成里面的事项」。
         </p>
         <div className="pp-inline-meta">
           <span>{task.length} 字</span>

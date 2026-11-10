@@ -87,7 +87,7 @@ export function OverviewTab(props: OverviewTabProps) {
     setSaving(true)
     try {
       await personnelApi.update(props.person.id, { task: taskDraft })
-      toast.success('任务已保存，并写入工作区 TASK.md')
+      toast.success('任务已保存，并写入工作区 AGENTS.md 与 TASK.md')
       await props.onRefresh()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '保存任务失败')
@@ -113,7 +113,7 @@ export function OverviewTab(props: OverviewTabProps) {
       <div className="pp-two-col">
         <PpSectionCard
           title="当前任务"
-          desc="任务会写入工作区的 TASK.md，执行会话每次启动都会读取。"
+          desc="任务会写入 AGENTS.md（执行入口）与 TASK.md（记录）；会话启动只读取 AGENTS.md。"
           right={
             <div className="pp-card-right">
               <button
@@ -148,7 +148,7 @@ export function OverviewTab(props: OverviewTabProps) {
           />
           <div className="pp-inline-meta">
             <span>{taskDraft.length} 字</span>
-            <span>派发后自动构建工作区并读取 TASK.md</span>
+            <span>派发后自动构建工作区；会话读取 AGENTS.md</span>
           </div>
         </PpSectionCard>
 

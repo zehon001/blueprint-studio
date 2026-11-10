@@ -1,6 +1,6 @@
 /**
  * 人员模块单测（node:test）：
- * 人员 CRUD、类型重命名/删除、默认工作区、构建移动、STATE 续接、记忆清理、头像与提示词。
+ * 人员 CRUD、类型重命名/删除、默认工作区、构建移动、STATE 续接、记忆清理、头像与启动指令。
  */
 import { after, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -10,13 +10,13 @@ import path from 'node:path'
 import {
   buildPersonWorkspace,
   clearPersonMemory,
-  composeRunPrompt,
   createPerson,
   deletePerson,
   getPerson,
   getPersonMemory,
   listPeople,
   loadTypes,
+  PERSON_STARTUP_PROMPT,
   readPersonAvatar,
   resetPersonWorkspace,
   resolvePeopleRoot,
@@ -110,6 +110,10 @@ describe('人员默认工作区', () => {
       const agents = fs.readFileSync(path.join(person.defaultWorkspace, 'AGENTS.md'), 'utf8')
       assert.match(agents, /排查助手/)
       assert.match(agents, /先读文件再修改/)
+      assert.match(agents, /## 当前任务/)
+      assert.match(agents, /排查今天的崩溃日志/)
+      assert.match(agents, /STATE\.md/)
+      assert.match(agents, /memory\/MEMORY\.md/)
       const task = fs.readFileSync(path.join(person.defaultWorkspace, 'TASK.md'), 'utf8')
       assert.match(task, /排查今天的崩溃日志/)
     })
@@ -246,36 +250,29 @@ describe('记忆 / 头像 / 提示词', () => {
     })
   })
 
-  test('执行提示词包含角色卡、规范、任务、STATE 与记忆', () => {
-    const config = {
-      id: 'p1',
-      name: '小蓝',
-      typeId: '',
-      createdAt: 1,
-      updatedAt: 1,
-      task: '完成日报',
-      model: { platform: 'dsh' as const, model: '', reasoning: '', permission: '' },
-      workspace: {
-        dir: '',
-        sessionTitle: '',
-        deleteSessionAfterRun: false,
-        reuseSession: true,
-      },
-      stats: { runs: 0, completed: 0, failed: 0 },
-    }
-    const prompt = composeRunPrompt(
-      config,
-      [{ id: 'c1', name: '日报助手', tags: ['日报'], content: '你是日报助手。职责是写日报。' }],
-      '- 先读文件再写',
-      '- 已完成：收集数据',
-      '- 主人喜欢简洁',
-    )
-    assert.match(prompt, /日报助手/)
-    assert.match(prompt, /先读文件再写/)
-    assert.match(prompt, /完成日报/)
-    assert.match(prompt, /收集数据/)
-    assert.match(prompt, /主人喜欢简洁/)
-    assert.match(prompt, /STATE\.md/)
+  test('启动指令保持简短，角色卡 / 规范 / 任务 / 续接协议都在 AGENTS.md', () => {
+    withRoot((root) => {
+      const person = createPerson(root, { name: '小蓝' })
+      updatePerson(person.id, root, {
+        task: '完成日报',
+        cards: [
+          {
+            id: 'c1',
+            name: '日报助手',
+            tags: ['日报'],
+            content: '你是日报助手。职责是写日报。',
+          },
+        ],
+        norms: '- 先读文件再写',
+      })
+      const agents = fs.readFileSync(path.join(person.defaultWorkspace, 'AGENTS.md'), 'utf8')
+      assert.match(agents, /日报助手/)
+      assert.match(agents, /先读文件再写/)
+      assert.match(agents, /完成日报/)
+      assert.match(agents, /STATE\.md/)
+      assert.match(agents, /memory\/MEMORY\.md/)
+      assert.equal(PERSON_STARTUP_PROMPT, '读取 AGENTS.md，然后完成里面的事项。')
+    })
   })
 })
 

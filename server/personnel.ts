@@ -13,14 +13,15 @@
  *           norms.md                     规范
  *           activity.jsonl               动态记录
  *           avatar.*                     头像
- *         AGENTS.md                      DSH 会话读取的身份 / 角色卡 / 规范 / 工作协议
+ *         AGENTS.md                      DSH 会话唯一启动入口：身份 / 角色卡 / 规范 / 当前任务 / 工作协议
  *         PERSON.md
  *         TASK.md
  *         STATE.md                     跨会话进度（构建时只在缺失时生成，绝不覆盖）
  *         memory/MEMORY.md             长期记忆
  *
  * 「构建工作区」会把默认工作区里除 .person 外的文件移动到用户设置的工作区；
- * 执行时会先构建，再创建 / 复用 DSH 会话并把角色卡、规范、任务与 STATE.md 读入上下文。
+ * 执行时会先构建，再创建 / 复用 DSH 会话并只发送一句启动指令：
+ * 「读取 AGENTS.md，然后完成里面的事项。」完整上下文都在 AGENTS.md 中。
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -57,9 +58,10 @@ const MAX_AVATAR_BYTES = 5 * 1024 * 1024
 const MAX_CARD_CONTENT = 50_000
 const MAX_TASK_LENGTH = 30_000
 const MAX_NORMS_LENGTH = 50_000
-const MAX_PROMPT_STATE = 12_000
-const MAX_PROMPT_MEMORY = 6_000
 const RUN_TIMEOUT_SEC = 7_200
+
+/** DSH 会话启动指令：完整上下文由工作区 AGENTS.md 提供 */
+export const PERSON_STARTUP_PROMPT = '读取 AGENTS.md，然后完成里面的事项。'
 
 /** 人员在 DSH 通知路由里的项目键（与蓝图项目隔离） */
 function personProjectKey(id: string): string {
@@ -186,20 +188,16 @@ function defaultNorms(): string {
 - 需要联网或调用外部服务时，先检查配置是否齐全。
 
 ## 工作状态
-- 每次开始先读 TASK.md 和 STATE.md，接着上次的进度继续。
+- 每次开始先读 STATE.md，接着上次的进度继续。
 - 每完成一个阶段，就把已完成、进行中、下一步写回 STATE.md。
 - 值得长期记住的事实写进 memory/MEMORY.md。
 `
 }
 
 function defaultTask(name: string): string {
-  return `请履行「${name}」的职责，推进当前工作。
+  return `请根据「${name}」的角色卡与规范，推进当前工作。
 
-步骤：
-1. 阅读 AGENTS.md、PERSON.md，确认角色与规范。
-2. 阅读 TASK.md 和 STATE.md，确认要做什么、已经做到哪一步。
-3. 继续推进未完成的工作，不要从头重复已经完成的内容。
-4. 每完成一个阶段更新 STATE.md，任务完成后写清最终结果。`
+如果还没有明确目标，请先梳理现状，在 STATE.md 中列出下一步计划，然后从最重要的一项开始执行。`
 }
 
 function defaultCards(name: string, typeName: string): RoleCard[] {
@@ -624,7 +622,8 @@ function agentsMarkdown(config: PersonConfig, cards: RoleCard[], norms: string, 
     : '（暂无角色卡）'
   return `# ${config.name} · 工作区行为规范
 
-> 本文件由 Blueprint Studio 的人员页面自动生成；修改人员配置后会自动刷新。
+> 本文件由 Blueprint Studio 的人员页面自动生成；修改人员配置后会自动刷新，请不要直接编辑。
+> 会话启动入口：读取本文件，然后完成下方「当前任务」。
 
 ## 身份
 - 名字：${config.name}
@@ -637,8 +636,11 @@ ${cardText}
 ## 规范
 ${norms || '（暂无规范）'}
 
+## 当前任务
+${config.task.trim() || defaultTask(config.name)}
+
 ## 工作协议（跨会话）
-1. 每次会话开始，先读本文件、PERSON.md、TASK.md、STATE.md；如果存在 memory/MEMORY.md 也一起读。
+1. 每次会话开始，先读 STATE.md；如果存在 memory/MEMORY.md 也一起读。
 2. STATE.md 是跨会话、跨重建的唯一进度真源。不要重复 STATE.md 里已经写明的已完成工作。
 3. 每完成一个阶段，立即更新 STATE.md：已完成、进行中、下一步、关键文件。
 4. 值得长期保留的事实、决定和偏好追加到 memory/MEMORY.md。
@@ -685,9 +687,9 @@ function writeContextBundle(
 
 这个目录由 Blueprint Studio 的人员模块创建。
 
-- AGENTS.md：身份、角色卡、规范与工作协议
+- AGENTS.md：身份、角色卡、规范、当前任务与工作协议（会话启动入口）
 - PERSON.md：人设摘要
-- TASK.md：当前任务
+- TASK.md：当前任务记录（执行入口是 AGENTS.md）
 - STATE.md：跨会话进度（请让执行会话持续更新）
 - memory/：长期记忆
 
@@ -876,10 +878,6 @@ function collectMemory(loaded: LoadedPerson, textLimit: number): PersonMemory {
     count,
     ...(updatedAt > 0 ? { updatedAt } : {}),
   }
-}
-
-function memoryPromptText(loaded: LoadedPerson): string {
-  return collectMemory(loaded, MAX_PROMPT_MEMORY).text
 }
 
 /** 清理工作区里的长期记忆 */
@@ -1287,56 +1285,11 @@ export async function deletePerson(id: string, root: string = resolvePeopleRoot(
  * 执行 / 停止
  * ============================================================ */
 
-function formatCardsForPrompt(cards: RoleCard[]): string {
-  if (cards.length === 0) return '（暂无角色卡）'
-  return cards
-    .map(
-      (card) =>
-        `## ${card.name}\n${card.tags.length ? `标签：${card.tags.join('、')}\n` : ''}${card.content}`,
-    )
-    .join('\n\n')
-}
-
-/** 构造执行提示词：角色卡、规范、任务、STATE 与记忆都进入上下文 */
-export function composeRunPrompt(
-  config: PersonConfig,
-  cards: RoleCard[],
-  norms: string,
-  stateText: string,
-  memoryText: string,
-): string {
-  const state = stateText.trim() || '（还没有 STATE.md，请从任务开始并创建进度记录）'
-  const memory = memoryText.trim() || '（暂无长期记忆）'
-  return `你是「${config.name}」。
-
-## 你的角色卡
-${formatCardsForPrompt(cards)}
-
-## 你的工作规范
-${norms.trim() || '（暂无规范）'}
-
-## 当前任务
-${config.task.trim() || defaultTask(config.name)}
-
-## 当前进度（STATE.md）
-${state}
-
-## 长期记忆
-${memory}
-
-## 开工要求
-1. 先读取当前工作区的 AGENTS.md、PERSON.md、TASK.md、STATE.md；存在 memory/MEMORY.md 时也读取。
-2. 会话可能已经被删除并重建。不要从头重做 STATE.md 中已经完成的内容，接着上次的进度继续。
-3. 每完成一个阶段，立即更新 STATE.md（已完成、进行中、下一步、关键文件）。
-4. 值得长期保留的事实追加到 memory/MEMORY.md。
-5. 完成任务后，在 STATE.md 写清最终结果，并给出简短总结。`
-}
-
 function buildResultForLoaded(loaded: LoadedPerson): WorkspaceBuildResult {
   return buildWorkspaceInternal(loaded)
 }
 
-/** 开始执行：构建工作区 → 创建 / 复用 DSH 会话 → 发送任务 */
+/** 开始执行：构建工作区 → 创建 / 复用 DSH 会话 → 发送「读取 AGENTS.md」启动指令 */
 export async function runPerson(id: string, root: string = resolvePeopleRoot()): Promise<PersonRunState> {
   const dir = ensurePeopleRoot(root)
   const loaded = loadPerson(dir, id)
@@ -1377,14 +1330,6 @@ export async function runPerson(id: string, root: string = resolvePeopleRoot()):
       sessionTitle = session.title
     }
 
-    const stateText = readTextFile(path.join(target, 'STATE.md')).slice(-MAX_PROMPT_STATE)
-    const prompt = composeRunPrompt(
-      loaded.config,
-      loaded.cards,
-      loaded.norms,
-      stateText,
-      memoryPromptText(loaded),
-    )
     const runId = newRecordId('run')
     const startedAt = Date.now()
     const run: PersonRunState = {
@@ -1408,7 +1353,7 @@ export async function runPerson(id: string, root: string = resolvePeopleRoot()):
         platform: 'dsh',
         project: personProjectKey(id),
         sessionId,
-        message: prompt,
+        message: PERSON_STARTUP_PROMPT,
         model: loaded.config.model.model || undefined,
         reasoning: loaded.config.model.reasoning || undefined,
         permissions: loaded.config.model.permission || undefined,

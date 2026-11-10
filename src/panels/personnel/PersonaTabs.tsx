@@ -132,7 +132,7 @@ export function RoleCardsTab(props: PersonaTabProps) {
             <div className="pp-card-head">
               <div className="pp-card-heading">
                 <h3>编辑角色卡</h3>
-                <p>内容会写入 AGENTS.md，并在每次会话启动时进入上下文。</p>
+                <p>内容会写入 AGENTS.md；会话启动读取 AGENTS.md 时即包含角色卡。</p>
               </div>
               <div className="pp-card-right">
                 <button
@@ -260,7 +260,7 @@ export function NormsTab(props: PersonaTabProps) {
     <div className="pp-grid">
       <PpSectionCard
         title="工作规范"
-        desc="说明怎么操作文件、怎么使用工具、失败后怎么处理。每次会话启动都会读取。"
+        desc="说明怎么操作文件、怎么使用工具、失败后怎么处理。会写入 AGENTS.md，由会话启动时读取。"
         right={
           <button
             type="button"
