@@ -103,10 +103,173 @@ function taskBodyText(task: PersonTask): string {
   return content
 }
 
+/** 概览任务看板只展示最近 3 条，完整列表进入全部任务弹窗 */
+const TASK_PREVIEW_LIMIT = 3
+
+interface TaskRowProps {
+  task: PersonTask
+  pendingOrder: number
+  canMoveUp: boolean
+  canMoveDown: boolean
+  actionBusy: string
+  queueActive: boolean
+  stopping: boolean
+  reportLoading: boolean
+  onMove: (taskId: string, direction: 'up' | 'down') => void
+  onRetry: (taskId: string) => void
+  onStop: (taskId: string) => void
+  onReport: (task: PersonTask) => void
+  onDelete: (task: PersonTask) => void
+}
+
+function TaskRow(props: TaskRowProps) {
+  const {
+    task,
+    pendingOrder,
+    canMoveUp,
+    canMoveDown,
+    actionBusy,
+    queueActive,
+    stopping,
+    reportLoading,
+    onMove,
+    onRetry,
+    onStop,
+    onReport,
+    onDelete,
+  } = props
+  const taskMeta = taskStatusMeta(task.status)
+  const body = taskBodyText(task)
+  const busy = actionBusy !== ''
+  return (
+    <div className={`pp-task-row pp-task-${task.status}`}>
+      <div className="pp-task-main">
+        <div className="pp-task-head">
+          <PpStatus tone={taskMeta.tone} label={taskMeta.label} />
+          <span className="pp-task-title">{task.title}</span>
+          {task.source?.kind === 'blueprint' ? (
+            <span
+              className="pp-task-source"
+              title={`来源蓝图：${task.source.project ?? ''}/${task.source.assetPath ?? ''}${
+                task.source.nodeId ? ` · 节点 ${task.source.nodeId}` : ''
+              }`}
+            >
+              蓝图
+            </span>
+          ) : null}
+          {task.status === 'pending' ? (
+            <span className="pp-task-order">#{pendingOrder + 1}</span>
+          ) : null}
+        </div>
+        {body ? (
+          <div className="pp-task-content" title={task.content}>
+            {body}
+          </div>
+        ) : null}
+        <div className="pp-task-meta">
+          <span>
+            <Clock size={11} /> {formatDateTime(task.createdAt)}
+          </span>
+          {task.startedAt ? <span>开始 {formatDateTime(task.startedAt)}</span> : null}
+          {task.finishedAt ? (
+            <span>
+              结束 {formatDateTime(task.finishedAt)} · 耗时{' '}
+              {formatDuration(task.startedAt, task.finishedAt)}
+            </span>
+          ) : null}
+        </div>
+        {task.error ? <div className="pp-task-error">{task.error}</div> : null}
+        {task.result ? (
+          <details className="pp-task-result">
+            <summary>查看执行结果</summary>
+            <Markdown text={task.result} className="pp-task-result-md" />
+          </details>
+        ) : null}
+      </div>
+      <div className="pp-task-actions">
+        {task.status === 'pending' ? (
+          <>
+            <button
+              type="button"
+              className="pp-icon-btn"
+              title="上移"
+              aria-label="任务上移"
+              disabled={!canMoveUp || busy}
+              onClick={() => onMove(task.id, 'up')}
+            >
+              <Icon icon={ArrowUp} size={13} />
+            </button>
+            <button
+              type="button"
+              className="pp-icon-btn"
+              title="下移"
+              aria-label="任务下移"
+              disabled={!canMoveDown || busy}
+              onClick={() => onMove(task.id, 'down')}
+            >
+              <Icon icon={ArrowDown} size={13} />
+            </button>
+          </>
+        ) : null}
+        {task.status === 'failed' || task.status === 'stopped' ? (
+          <button
+            type="button"
+            className="pp-btn sm"
+            disabled={busy}
+            onClick={() => onRetry(task.id)}
+          >
+            <Icon icon={RotateCcw} size={13} />
+            重试
+          </button>
+        ) : null}
+        {task.status === 'running' && queueActive ? (
+          <button
+            type="button"
+            className="pp-btn sm danger"
+            disabled={busy || stopping}
+            onClick={() => onStop(task.id)}
+          >
+            {actionBusy === `stop-${task.id}` || stopping ? (
+              <PpSpinner />
+            ) : (
+              <Icon icon={Square} size={13} />
+            )}
+            {stopping ? '停止中' : '停止'}
+          </button>
+        ) : null}
+        {task.status === 'completed' &&
+        task.artifacts?.some((artifact) => artifact.kind === 'markdown') ? (
+          <button
+            type="button"
+            className="pp-icon-btn"
+            title="查看报表"
+            aria-label={`查看任务报表 ${task.title}`}
+            disabled={reportLoading}
+            onClick={() => onReport(task)}
+          >
+            {reportLoading ? <PpSpinner /> : <Icon icon={Eye} size={14} />}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="pp-icon-btn danger"
+          title="删除任务"
+          aria-label={`删除任务 ${task.title}`}
+          disabled={task.status === 'running' || busy}
+          onClick={() => onDelete(task)}
+        >
+          <Icon icon={Trash2} size={14} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function OverviewTab(props: OverviewTabProps) {
   const { person, detail, onRefresh } = props
   const queue = person.queue
   const tasks = detail.tasks
+  const previewTasks = tasks.slice(0, TASK_PREVIEW_LIMIT)
   const taskCounts = person.taskCounts
   const pendingIds = useMemo(
     () => tasks.filter((task) => task.status === 'pending').map((task) => task.id),
@@ -125,6 +288,7 @@ export function OverviewTab(props: OverviewTabProps) {
   const [deleting, setDeleting] = useState(false)
   const [revealing, setRevealing] = useState(false)
   const [allLogsOpen, setAllLogsOpen] = useState(false)
+  const [allTasksOpen, setAllTasksOpen] = useState(false)
   const [reportLoadingId, setReportLoadingId] = useState('')
   const [reportModal, setReportModal] = useState<{
     title: string
@@ -234,6 +398,32 @@ export function OverviewTab(props: OverviewTabProps) {
     }
   }
 
+  const renderTaskRow = (task: PersonTask) => {
+    const pendingOrder = pendingIds.indexOf(task.id)
+    return (
+      <TaskRow
+        key={task.id}
+        task={task}
+        pendingOrder={pendingOrder}
+        canMoveUp={task.status === 'pending' && pendingOrder > 0}
+        canMoveDown={
+          task.status === 'pending' &&
+          pendingOrder >= 0 &&
+          pendingOrder < pendingIds.length - 1
+        }
+        actionBusy={actionBusy}
+        queueActive={queue.status === 'running' || queue.status === 'stopping'}
+        stopping={stoppingTaskIds.includes(task.id)}
+        reportLoading={reportLoadingId === task.id}
+        onMove={(taskId, direction) => void moveTask(taskId, direction)}
+        onRetry={(taskId) => void retryTask(taskId)}
+        onStop={(taskId) => void stopTask(taskId)}
+        onReport={(nextTask) => void openReport(nextTask)}
+        onDelete={setDeleteTarget}
+      />
+    )
+  }
+
   return (
     <div className="pp-grid">
       <div className="pp-stats">
@@ -250,6 +440,15 @@ export function OverviewTab(props: OverviewTabProps) {
 
       <PpSectionCard
         title="任务看板"
+        right={
+          <button
+            type="button"
+            className="pp-title-link"
+            onClick={() => setAllTasksOpen(true)}
+          >
+            查看全部任务 <span aria-hidden>→</span>
+          </button>
+        }
       >
         {queue.status === 'running' || queue.status === 'stopping' ? (
           <div className="pp-queue-banner">
@@ -277,144 +476,7 @@ export function OverviewTab(props: OverviewTabProps) {
           </div>
         ) : (
           <div className="pp-task-list">
-            {tasks.map((task) => {
-              const taskMeta = taskStatusMeta(task.status)
-              const body = taskBodyText(task)
-              const pendingOrder = pendingIds.indexOf(task.id)
-              const canMoveUp = task.status === 'pending' && pendingOrder > 0
-              const canMoveDown =
-                task.status === 'pending' &&
-                pendingOrder >= 0 &&
-                pendingOrder < pendingIds.length - 1
-              return (
-                <div key={task.id} className={`pp-task-row pp-task-${task.status}`}>
-                  <div className="pp-task-main">
-                    <div className="pp-task-head">
-                      <PpStatus tone={taskMeta.tone} label={taskMeta.label} />
-                      <span className="pp-task-title">{task.title}</span>
-                      {task.source?.kind === 'blueprint' ? (
-                        <span
-                          className="pp-task-source"
-                          title={`来源蓝图：${task.source.project ?? ''}/${task.source.assetPath ?? ''}${
-                            task.source.nodeId ? ` · 节点 ${task.source.nodeId}` : ''
-                          }`}
-                        >
-                          蓝图
-                        </span>
-                      ) : null}
-                      {task.status === 'pending' ? (
-                        <span className="pp-task-order">#{pendingOrder + 1}</span>
-                      ) : null}
-                    </div>
-                    {body ? (
-                      <div className="pp-task-content" title={task.content}>
-                        {body}
-                      </div>
-                    ) : null}
-                    <div className="pp-task-meta">
-                      <span>
-                        <Clock size={11} /> {formatDateTime(task.createdAt)}
-                      </span>
-                      {task.startedAt ? <span>开始 {formatDateTime(task.startedAt)}</span> : null}
-                      {task.finishedAt ? (
-                        <span>
-                          结束 {formatDateTime(task.finishedAt)} · 耗时{' '}
-                          {formatDuration(task.startedAt, task.finishedAt)}
-                        </span>
-                      ) : null}
-                    </div>
-                    {task.error ? <div className="pp-task-error">{task.error}</div> : null}
-                    {task.result ? (
-                      <details className="pp-task-result">
-                        <summary>查看执行结果</summary>
-                        <Markdown text={task.result} className="pp-task-result-md" />
-                      </details>
-                    ) : null}
-                  </div>
-                  <div className="pp-task-actions">
-                    {task.status === 'pending' ? (
-                      <>
-                        <button
-                          type="button"
-                          className="pp-icon-btn"
-                          title="上移"
-                          aria-label="任务上移"
-                          disabled={!canMoveUp || actionBusy !== ''}
-                          onClick={() => void moveTask(task.id, 'up')}
-                        >
-                          <Icon icon={ArrowUp} size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          className="pp-icon-btn"
-                          title="下移"
-                          aria-label="任务下移"
-                          disabled={!canMoveDown || actionBusy !== ''}
-                          onClick={() => void moveTask(task.id, 'down')}
-                        >
-                          <Icon icon={ArrowDown} size={13} />
-                        </button>
-                      </>
-                    ) : null}
-                    {task.status === 'failed' || task.status === 'stopped' ? (
-                      <button
-                        type="button"
-                        className="pp-btn sm"
-                        disabled={actionBusy !== ''}
-                        onClick={() => void retryTask(task.id)}
-                      >
-                        <Icon icon={RotateCcw} size={13} />
-                        重试
-                      </button>
-                    ) : null}
-                    {task.status === 'running' &&
-                    (queue.status === 'running' || queue.status === 'stopping') ? (
-                      <button
-                        type="button"
-                        className="pp-btn sm danger"
-                        disabled={actionBusy !== '' || stoppingTaskIds.includes(task.id)}
-                        onClick={() => void stopTask(task.id)}
-                      >
-                        {actionBusy === `stop-${task.id}` ||
-                        stoppingTaskIds.includes(task.id) ? (
-                          <PpSpinner />
-                        ) : (
-                          <Icon icon={Square} size={13} />
-                        )}
-                        {stoppingTaskIds.includes(task.id) ? '停止中' : '停止'}
-                      </button>
-                    ) : null}
-                    {task.status === 'completed' &&
-                    task.artifacts?.some((artifact) => artifact.kind === 'markdown') ? (
-                      <button
-                        type="button"
-                        className="pp-icon-btn"
-                        title="查看报表"
-                        aria-label={`查看任务报表 ${task.title}`}
-                        disabled={reportLoadingId === task.id}
-                        onClick={() => void openReport(task)}
-                      >
-                        {reportLoadingId === task.id ? (
-                          <PpSpinner />
-                        ) : (
-                          <Icon icon={Eye} size={14} />
-                        )}
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="pp-icon-btn danger"
-                      title="删除任务"
-                      aria-label={`删除任务 ${task.title}`}
-                      disabled={task.status === 'running' || actionBusy !== ''}
-                      onClick={() => setDeleteTarget(task)}
-                    >
-                      <Icon icon={Trash2} size={14} />
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
+            {previewTasks.map(renderTaskRow)}
           </div>
         )}
       </PpSectionCard>
@@ -535,6 +597,34 @@ export function OverviewTab(props: OverviewTabProps) {
           onConfirm={() => void removeTask()}
           onClose={() => setDeleteTarget(null)}
         />
+      ) : null}
+
+      {allTasksOpen ? (
+        <Dialog
+          title={`全部任务（${tasks.length}）`}
+          width={900}
+          onClose={() => setAllTasksOpen(false)}
+          footer={
+            <button
+              type="button"
+              className="pp-btn"
+              onClick={() => setAllTasksOpen(false)}
+            >
+              关闭
+            </button>
+          }
+        >
+          {tasks.length === 0 ? (
+            <div className="pp-empty">
+              <ListTodo size={26} />
+              <span>任务看板还是空的</span>
+            </div>
+          ) : (
+            <div className="pp-task-modal">
+              <div className="pp-task-list">{tasks.map(renderTaskRow)}</div>
+            </div>
+          )}
+        </Dialog>
       ) : null}
 
       {allLogsOpen ? (
