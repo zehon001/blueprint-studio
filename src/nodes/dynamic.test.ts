@@ -18,12 +18,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { IRAsset, NodeRunContext, NodeRunResult, NodeSpec, PinSpec, PluginManifest } from "../ir/types";
 import {
+  applyPersonnelOptions,
   clearPluginSpecsCache,
   configurePluginInvoke,
   invokePluginNode,
   invokePluginMethod,
+  loadPersonnelOptions,
   loadPluginSpecs,
   mergePluginSpecs,
+  migratePersonnelDispatchContentToPin,
   needsPluginSpecs,
   pluginNodePrefix,
   pluginSpecsFromManifest,
@@ -99,6 +102,12 @@ function loadRealManifest(overrides?: Partial<PluginManifest>): PluginManifest {
   const file = path.join(process.cwd(), 'plugins-registry', 'phone-log.json');
   const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as PluginManifest;
   return { ...raw, ...overrides };
+}
+
+/** 读取真实人员插件清单 */
+function loadPersonnelManifest(): PluginManifest {
+  const file = path.join(process.cwd(), 'plugins-registry', 'personnel.json');
+  return JSON.parse(fs.readFileSync(file, 'utf8')) as PluginManifest;
 }
 
 /** 找 spec 输入 / 输出引脚 */
@@ -207,6 +216,114 @@ describe('pluginSpecsFromManifest：phone-log 真实清单 → NodeSpec[]', () =
     const attach = pinOf(spec.inputs, 'attach');
     assert.equal(attach.type, 'string');
     assert.equal(attach.label, '文件路径');
+  });
+});
+
+/* ============================================================
+ * 1.1 人员派发节点：人员列表下拉
+ * ============================================================ */
+
+describe('人员派发节点：人员列表 → 下拉选项', () => {
+  test('inspectorOnly 参数即使被清单误写为输入，也不会暴露成画布引脚', () => {
+    const manifest = loadPersonnelManifest();
+    const dispatch = manifest.nodes.find((node) => node.id === 'personnel.dispatch')!;
+    dispatch.inputs = [
+      ...dispatch.inputs,
+      { id: 'title', type: 'string', label: '任务标题' },
+    ];
+
+    const spec = pluginSpecsFromManifest(manifest).find((node) => node.id === 'personnel.dispatch')!;
+    assert.deepEqual(
+      spec.inputs.map((pin) => pin.id),
+      ['exec', 'personId', 'content'],
+      '内部设置参数不能出现在输入引脚中',
+    );
+  });
+
+  test('旧资产：params.content 迁移为 content 引脚默认值，且不修改入参', () => {
+    const asset = sampleAsset();
+    asset.graphs.main!.nodes.push({
+      id: 'dispatch1',
+      type: 'personnel.dispatch',
+      params: { content: '查询昨天错误报表', sourceLabel: 'legacy' },
+      pinDefaults: { personId: 'p1' },
+      position: { x: 0, y: 0 },
+    });
+
+    const migrated = migratePersonnelDispatchContentToPin(asset);
+    const node = migrated.graphs.main!.nodes[0]!;
+    assert.equal(node.params?.content, undefined, '旧内部设置内容已移除');
+    assert.equal(node.pinDefaults?.content, '查询昨天错误报表', '旧内容进入引脚默认值');
+    assert.equal(node.params?.sourceLabel, 'legacy', '其他内部设置保持不变');
+    assert.equal(node.pinDefaults?.personId, 'p1', '已有引脚默认值保持不变');
+    assert.equal(asset.graphs.main!.nodes[0]!.params?.content, '查询昨天错误报表', '不修改入参');
+    assert.equal(
+      migratePersonnelDispatchContentToPin(migrated),
+      migrated,
+      '迁移幂等：已是新结构时原样返回',
+    );
+  });
+
+  test('loadPersonnelOptions：GET /api/personnel → id / 名字选项，去重且补名字兜底', async () => {
+    const { impl, calls } = mockFetch(() => ({
+      ok: true,
+      people: [
+        { id: 'p1', name: '张三' },
+        { id: 'p2', name: '' },
+        { id: 'p1', name: '重复项' },
+        { id: '', name: '无 id' },
+        null,
+      ],
+    }));
+    const options = await loadPersonnelOptions(impl);
+    assert.equal(calls[0]?.url, '/api/personnel');
+    assert.deepEqual(options, [
+      { value: 'p1', label: '张三' },
+      { value: 'p2', label: 'p2' },
+    ]);
+  });
+
+  test('loadPersonnelOptions：接口失败 / 空列表 → 空数组（文本框兜底）', async () => {
+    const failedImpl = (async () => {
+      throw new TypeError('offline');
+    }) as unknown as typeof fetch;
+    assert.deepEqual(await loadPersonnelOptions(failedImpl), []);
+
+    const { impl } = mockFetch(() => ({ ok: true, people: [] }));
+    assert.deepEqual(await loadPersonnelOptions(impl), []);
+  });
+
+  test('applyPersonnelOptions：只改 personnel.dispatch.personId；空选项时移除下拉', () => {
+    const specs = pluginSpecsFromManifest(loadPersonnelManifest());
+    const applied = applyPersonnelOptions(specs, [{ value: 'p1', label: '张三' }]);
+    const dispatch = applied.find((spec) => spec.id === 'personnel.dispatch')!;
+    assert.deepEqual(pinOf(dispatch.inputs, 'personId').options, [
+      { value: 'p1', label: '张三' },
+    ]);
+    assert.deepEqual(
+      dispatch.inputs.filter((pin) => pin.type !== 'exec').map((pin) => pin.id),
+      ['personId', 'content'],
+      '数据输入暴露人员与任务内容',
+    );
+    assert.equal(pinOf(dispatch.inputs, 'content').label, '任务内容');
+    assert.equal(pinOf(dispatch.inputs, 'content').multiLine, true);
+    const params = new Map((dispatch.params ?? []).map((param) => [param.id, param]));
+    assert.equal(params.get('title')?.placeholder, '留空时取任务内容第一行');
+    assert.equal(params.has('content'), false, '任务内容不再作为内部设置');
+    assert.equal(params.get('autoRun')?.default, true);
+    assert.equal(params.get('waitForCompletion')?.default, true);
+    assert.deepEqual(
+      dispatch.outputs.map((pin) => pin.id),
+      ['exec', 'ok', 'message'],
+      '不再暴露任务 / 人员 ID 出脚',
+    );
+    const event = applied.find((spec) => spec.id === 'personnel.taskEvent')!;
+    assert.equal(event.inputs.length, 0, '事件节点不受影响');
+
+    const fallback = applyPersonnelOptions(applied, []);
+    const noOptions = fallback.find((spec) => spec.id === 'personnel.dispatch')!;
+    assert.equal(pinOf(noOptions.inputs, 'personId').options, undefined);
+    assert.equal(pinOf(noOptions.inputs, 'personId').type, 'string');
   });
 });
 
@@ -763,6 +880,65 @@ describe('store 接线：openAsset 异步并入插件 specs → 右键搜索命�
       // 内置库保持纯净（合并在 store/runtime 层）
       assert.equal(builtinSpecMap.size, builtinSizeBefore);
       assert.equal(builtinSpecMap.has('phoneLog.read'), false);
+    } finally {
+      globalThis.fetch = realFetch;
+      resetEditorStore();
+    }
+  });
+
+  test('人员插件：openAsset 注入人员下拉；再次刷新可更新人员列表', async () => {
+    clearPluginSpecsCache();
+    resetPluginInvokeConfig();
+    resetEditorStore();
+    const realFetch = globalThis.fetch;
+    const people = [{ id: 'p1', name: '张三' }];
+    const { impl, calls } = mockFetch((url) => {
+      if (String(url).startsWith('/api/plugins') && !String(url).includes('/invoke')) {
+        return {
+          ok: true,
+          manifests: [loadPersonnelManifest()],
+          warnings: [],
+        };
+      }
+      if (String(url) === '/api/personnel') {
+        return { ok: true, people };
+      }
+      return { ok: false, message: `意外请求：${String(url)}` };
+    });
+    globalThis.fetch = impl;
+    try {
+      useBlueprintStore.getState().openAsset(sampleAsset(), 'logic/main.bp.json');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      let dispatch = useBlueprintStore.getState().specs.get('personnel.dispatch');
+      assert.ok(dispatch, '人员插件节点已并入 store.specs');
+      assert.deepEqual(pinOf(dispatch.inputs, 'personId').options, [
+        { value: 'p1', label: '张三' },
+      ]);
+      assert.equal(pinOf(dispatch.inputs, 'personId').label, '人员');
+      assert.equal(
+        dispatch.inputs.some((pin) => pin.id === 'dedupeKey'),
+        false,
+        '不再暴露去重键输入',
+      );
+      assert.equal(
+        dispatch.outputs.some((pin) => pin.id === 'taskId' || pin.id === 'personId' || pin.id === 'personName'),
+        false,
+        '不再暴露任务 / 人员 ID 出脚',
+      );
+
+      people.push({ id: 'p2', name: '李四' });
+      useBlueprintStore.getState().refreshPluginSpecs();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      dispatch = useBlueprintStore.getState().specs.get('personnel.dispatch');
+      assert.deepEqual(pinOf(dispatch!.inputs, 'personId').options, [
+        { value: 'p1', label: '张三' },
+        { value: 'p2', label: '李四' },
+      ]);
+      assert.ok(
+        calls.filter((call) => call.url === '/api/personnel').length >= 2,
+        '激活刷新时重新拉取人员列表',
+      );
     } finally {
       globalThis.fetch = realFetch;
       resetEditorStore();

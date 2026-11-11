@@ -7,7 +7,12 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { builtinSpecMap } from '@/nodes'
-import { mergePluginSpecs, loadPluginSpecs } from '@/nodes/dynamic'
+import {
+  configurePluginInvoke,
+  loadPluginSpecs,
+  mergePluginSpecs,
+  migratePersonnelDispatchContentToPin,
+} from '@/nodes/dynamic'
 import { resolveExternalFunctions } from './functions'
 import { createEventBus } from './events/bus'
 import { createRuntime, type RuntimeHandle } from './interpreter'
@@ -69,10 +74,16 @@ export function BlueprintApp() {
         const res = await fetch(`/api/file?path=${encodeURIComponent(`${project}/${bp}`)}`)
         const json = (await res.json()) as { ok?: boolean; content?: string; message?: string }
         if (!json.ok) throw new Error(json.message ?? `HTTP ${res.status}`)
-        const asset = deserializeIR(String(json.content ?? ''))
+        const asset = migratePersonnelDispatchContentToPin(deserializeIR(String(json.content ?? '')))
 
         const resolved = await resolveExternalFunctions(asset, { project, onPrint: print })
         for (const err of resolved.errors) print(`[函数] ${err}`)
+
+        // 本次运行的唯一 id（每次运行窗口 / 重跑都新建；停止后不复用）
+        const blueprintRunId =
+          globalThis.crypto?.randomUUID?.() ??
+          `run-${Date.now()}-${Math.random().toString(36).slice(2)}`
+        configurePluginInvoke({ projectName: project, runId: blueprintRunId, assetPath: bp })
 
         // 插件节点 specs（含 Agent 会话节点）；基线 = 内置节点库
         const plugin = await loadPluginSpecs(project)
@@ -117,6 +128,13 @@ export function BlueprintApp() {
               kind?: unknown
               content?: unknown
               raw?: unknown
+              personId?: unknown
+              taskId?: unknown
+              status?: unknown
+              result?: unknown
+              error?: unknown
+              artifacts?: unknown
+              source?: unknown
             }
             if (m.type === 'plugin.push' && typeof m.plugin === 'string') {
               bus.pushPlugin(m.plugin, 'line', { line: String(m.line ?? ''), streamId: m.streamId }, { uiId: 'default' })
@@ -131,6 +149,36 @@ export function BlueprintApp() {
                   kind: String(m.kind ?? ''),
                   content: String(m.content ?? ''),
                   ...(typeof m.raw === 'string' ? { raw: m.raw } : {}),
+                },
+                { uiId: 'default' },
+              )
+            } else if (m.type === 'personnel.taskEvent') {
+              // 运行边界：只消费本次蓝图运行派发的任务事件；无 runId 的旧任务 / 手动任务放行
+              let eventSource: { runId?: unknown } = {}
+              try {
+                eventSource =
+                  typeof m.source === 'string'
+                    ? (JSON.parse(m.source) as { runId?: unknown })
+                    : ((m.source ?? {}) as { runId?: unknown })
+              } catch {
+                eventSource = {}
+              }
+              const sourceRunId =
+                typeof eventSource.runId === 'string' ? eventSource.runId : ''
+              if (sourceRunId && sourceRunId !== blueprintRunId) return
+              bus.pushPlugin(
+                'personnel',
+                'personnel.taskEvent',
+                {
+                  personId: String(m.personId ?? ''),
+                  taskId: String(m.taskId ?? ''),
+                  status: String(m.status ?? ''),
+                  result: String(m.result ?? ''),
+                  error: String(m.error ?? ''),
+                  artifacts:
+                    typeof m.artifacts === 'string' ? m.artifacts : JSON.stringify(m.artifacts ?? []),
+                  source:
+                    typeof m.source === 'string' ? m.source : JSON.stringify(m.source ?? {}),
                 },
                 { uiId: 'default' },
               )

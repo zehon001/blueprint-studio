@@ -1,7 +1,7 @@
 /**
  * 概览：任务看板、队列状态、最近一次任务与人员动态。
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
   ArrowDown,
@@ -120,6 +120,7 @@ export function OverviewTab(props: OverviewTabProps) {
   const run = person.run
   const runMeta = runStatusMeta(run.status)
   const [actionBusy, setActionBusy] = useState('')
+  const [stoppingTaskIds, setStoppingTaskIds] = useState<string[]>([])
   const [deleteTarget, setDeleteTarget] = useState<PersonTask | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [revealing, setRevealing] = useState(false)
@@ -131,6 +132,13 @@ export function OverviewTab(props: OverviewTabProps) {
     content: string
     path: string
   } | null>(null)
+
+  useEffect(() => {
+    const runningIds = new Set(
+      tasks.filter((task) => task.status === 'running').map((task) => task.id),
+    )
+    setStoppingTaskIds((previous) => previous.filter((id) => runningIds.has(id)))
+  }, [tasks])
 
   const statCards = useMemo(
     () => [
@@ -162,6 +170,22 @@ export function OverviewTab(props: OverviewTabProps) {
       await onRefresh()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '重试任务失败')
+    } finally {
+      setActionBusy('')
+    }
+  }
+
+  const stopTask = async (taskId: string): Promise<void> => {
+    setActionBusy(`stop-${taskId}`)
+    try {
+      await personnelApi.stop(person.id, taskId)
+      setStoppingTaskIds((previous) =>
+        previous.includes(taskId) ? previous : [...previous, taskId],
+      )
+      toast.success('已请求停止该任务，等待会话确认')
+      await onRefresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '停止任务失败')
     } finally {
       setActionBusy('')
     }
@@ -268,6 +292,16 @@ export function OverviewTab(props: OverviewTabProps) {
                     <div className="pp-task-head">
                       <PpStatus tone={taskMeta.tone} label={taskMeta.label} />
                       <span className="pp-task-title">{task.title}</span>
+                      {task.source?.kind === 'blueprint' ? (
+                        <span
+                          className="pp-task-source"
+                          title={`来源蓝图：${task.source.project ?? ''}/${task.source.assetPath ?? ''}${
+                            task.source.nodeId ? ` · 节点 ${task.source.nodeId}` : ''
+                          }`}
+                        >
+                          蓝图
+                        </span>
+                      ) : null}
                       {task.status === 'pending' ? (
                         <span className="pp-task-order">#{pendingOrder + 1}</span>
                       ) : null}
@@ -331,6 +365,23 @@ export function OverviewTab(props: OverviewTabProps) {
                       >
                         <Icon icon={RotateCcw} size={13} />
                         重试
+                      </button>
+                    ) : null}
+                    {task.status === 'running' &&
+                    (queue.status === 'running' || queue.status === 'stopping') ? (
+                      <button
+                        type="button"
+                        className="pp-btn sm danger"
+                        disabled={actionBusy !== '' || stoppingTaskIds.includes(task.id)}
+                        onClick={() => void stopTask(task.id)}
+                      >
+                        {actionBusy === `stop-${task.id}` ||
+                        stoppingTaskIds.includes(task.id) ? (
+                          <PpSpinner />
+                        ) : (
+                          <Icon icon={Square} size={13} />
+                        )}
+                        {stoppingTaskIds.includes(task.id) ? '停止中' : '停止'}
                       </button>
                     ) : null}
                     {task.status === 'completed' &&

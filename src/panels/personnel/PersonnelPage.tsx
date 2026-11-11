@@ -1,15 +1,19 @@
 /**
  * 「人员」页面：左侧人员列表 + 右侧人员编辑。
  *
- * 页面常驻挂载（侧栏切换只改 display），仅在可见时轮询执行状态；
- * 执行状态从人员列表接口读取，避免轮询详情覆盖正在编辑的角色卡 / 规范草稿。
+ * 页面常驻挂载（侧栏切换只改 display），可见时订阅看板变化并轮询执行状态；
+ * 执行状态从人员列表接口读取，详情只合并任务 / 队列等动态字段，
+ * 避免后台刷新覆盖正在编辑的角色卡 / 规范 / 设置草稿。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { UserRound, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import type { PersonDetail, PersonSummary, PersonType } from '@/shared/personnel'
+import { sharedDebugWs } from '@/shell/debug/debug-ws'
 import { Icon } from '@/shell/ui/Icon'
+import { useWorkspaceStore } from '@/shell/workspace-store'
 import { PersonnelApiError, personnelApi } from './api'
+import { mergePersonBoardSnapshot } from './board-sync'
 import { PersonCreateDialog } from './PersonCreateDialog'
 import { PersonEditor } from './PersonEditor'
 import { PersonList } from './PersonList'
@@ -56,6 +60,9 @@ export function PersonnelPage({ active }: PersonnelPageProps) {
   const selectedRef = useRef<string | null>(selectedId)
   const peopleRef = useRef<PersonSummary[]>([])
   const detailRequest = useRef(0)
+  const boardRefreshTimer = useRef<number | null>(null)
+  const wasActiveRef = useRef(active)
+  const project = useWorkspaceStore((s) => s.currentProject?.name ?? null)
 
   useEffect(() => {
     selectedRef.current = selectedId
@@ -71,12 +78,22 @@ export function PersonnelPage({ active }: PersonnelPageProps) {
     peopleRef.current = people
   }, [people])
 
-  const loadDetail = useCallback(async (id: string): Promise<void> => {
+  const loadDetail = useCallback(async (
+    id: string,
+    opts: { preserveEditors?: boolean } = {},
+  ): Promise<void> => {
     const seq = ++detailRequest.current
     setDetailLoading(true)
     try {
       const payload = await personnelApi.get(id)
-      if (detailRequest.current === seq) setDetail(payload.person)
+      if (detailRequest.current === seq) {
+        const person = payload.person
+        setDetail((prev) =>
+          opts.preserveEditors && prev && prev.id === person.id
+            ? mergePersonBoardSnapshot(prev, person)
+            : person,
+        )
+      }
     } catch (err) {
       if (detailRequest.current === seq) {
         setDetail(null)
@@ -121,9 +138,66 @@ export function PersonnelPage({ active }: PersonnelPageProps) {
     }
   }, [applyList, loadDetail])
 
+  /** 看板事件刷新：更新列表 + 仅替换详情中的动态字段，不覆盖编辑草稿 */
+  const refreshBoard = useCallback(async (): Promise<void> => {
+    try {
+      const payload = await personnelApi.list()
+      const next = applyList(payload.people, payload.types)
+      if (next) await loadDetail(next, { preserveEditors: true })
+      else setDetail(null)
+    } catch {
+      /* 后台刷新失败静默：下次事件或切回人员页继续 */
+    }
+  }, [applyList, loadDetail])
+
+  const scheduleBoardRefresh = useCallback((): void => {
+    if (boardRefreshTimer.current !== null) return
+    boardRefreshTimer.current = window.setTimeout(() => {
+      boardRefreshTimer.current = null
+      void refreshBoard()
+    }, 120)
+  }, [refreshBoard])
+
   useEffect(() => {
     void refreshAll()
   }, [refreshAll])
+
+  /* 从其它页面切回人员页：立即同步一次看板（保留未保存编辑） */
+  useEffect(() => {
+    const becameActive = active && !wasActiveRef.current
+    wasActiveRef.current = active
+    if (becameActive) void refreshBoard()
+  }, [active, refreshBoard])
+
+  /* 实时看板：订阅当前项目的 plugin 频道，蓝图派发 / 队列状态变化即时刷新 */
+  useEffect(() => {
+    if (!active || !project) return
+    const ws = sharedDebugWs()
+    const subscribe = (): void => {
+      ws.send({ type: 'plugin.subscribe', project })
+    }
+    const unsubscribeWs = ws.addListener({
+      onOpen: subscribe,
+      onMessage: (msg) => {
+        if (msg.type !== 'personnel.boardChanged') return
+        scheduleBoardRefresh()
+      },
+    })
+    subscribe()
+    return () => {
+      unsubscribeWs()
+      ws.send({ type: 'plugin.unsubscribe', project })
+    }
+  }, [active, project, scheduleBoardRefresh])
+
+  useEffect(() => {
+    return () => {
+      if (boardRefreshTimer.current !== null) {
+        window.clearTimeout(boardRefreshTimer.current)
+        boardRefreshTimer.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (loading) return
@@ -154,7 +228,9 @@ export function PersonnelPage({ active }: PersonnelPageProps) {
             before?.queue.status === 'running' || before?.queue.status === 'stopping'
           const nowRunning =
             current?.queue.status === 'running' || current?.queue.status === 'stopping'
-          if (currentId && (wasRunning || nowRunning)) await loadDetail(currentId)
+          if (currentId && (wasRunning || nowRunning)) {
+            await loadDetail(currentId, { preserveEditors: true })
+          }
         } catch {
           /* 轮询失败静默：下次继续 */
         }

@@ -1504,6 +1504,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+.pp-task-source {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid rgba(124, 108, 255, 0.45);
+  border-radius: 999px;
+  background: rgba(124, 108, 255, 0.14);
+  color: #b9b0ff;
+  font-size: var(--font-xs);
+}
+
 .pp-task-content {
   display: -webkit-box;
   margin-top: 5px;

@@ -158,6 +158,66 @@ test('exec 链按序执行', async () => {
   rt.stop();
 });
 
+test('exec 出脚多连线：全部下游按边序执行（不再只跑第一条）', async () => {
+  const a = asset({
+    main: g(
+      [
+        n('c1', 'event.custom', { eventName: 'go' }),
+        n('a', 't.mark', { tag: 'A' }),
+        n('b', 't.mark', { tag: 'B' }),
+        n('c', 't.mark', { tag: 'C' }),
+        n('d', 't.mark', { tag: 'D' }),
+      ],
+      [
+        e('e1', 'c1', 'exec', 'a', 'exec'),
+        e('e2', 'c1', 'exec', 'b', 'exec'),
+        e('e3', 'b', 'exec', 'c', 'exec'),
+        e('e4', 'c1', 'exec', 'd', 'exec'),
+      ],
+    ),
+  });
+  const { rt, rec } = harness(a, baseSpecs);
+  rt.start();
+  rt.emit('go');
+  await tick(60);
+  assert.deepEqual(tags(rec), ['A', 'B', 'C', 'D']);
+  rt.stop();
+});
+
+test('exec 多分叉：单分支抛错不影响其余分支，错误只上报一次', async () => {
+  const boom: NodeSpec = {
+    id: 't.boom', title: '抛错', category: '流程',
+    inputs: [execIn], outputs: [execOut],
+    run: () => {
+      throw new Error('分支失败');
+    },
+  };
+  const specs = mapOf([...baseSpecs.values(), boom]);
+  const a = asset({
+    main: g(
+      [
+        n('c1', 'event.custom', { eventName: 'go' }),
+        n('a', 't.mark', { tag: 'A' }),
+        n('x', 't.boom'),
+        n('b', 't.mark', { tag: 'B' }),
+      ],
+      [
+        e('e1', 'c1', 'exec', 'a', 'exec'),
+        e('e2', 'c1', 'exec', 'x', 'exec'),
+        e('e3', 'c1', 'exec', 'b', 'exec'),
+      ],
+    ),
+  });
+  const { rt, rec } = harness(a, specs);
+  rt.start();
+  rt.emit('go');
+  await tick(60);
+  assert.deepEqual(tags(rec), ['A', 'B']);
+  assert.equal(rec.errors.length, 1);
+  assert.match(rec.errors[0]!.err.message, /分支失败/);
+  rt.stop();
+});
+
 /* ============================================================
  * 2. branch 分支走向
  * ============================================================ */

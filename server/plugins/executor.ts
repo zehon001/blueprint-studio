@@ -798,6 +798,8 @@ export interface InvokeDeps {
   invokeTimeoutMs?: number
   /** phone-log 读取超时（缺省 30s；测试用小值） */
   readTimeoutMs?: number
+  /** 客户端断连信号（长等待节点在蓝图停止 / 页面关闭时中止） */
+  signal?: AbortSignal
 }
 
 /** 修整任意值为非空字符串（trim 后为空 → ''） */
@@ -906,6 +908,13 @@ export async function handleInvoke(
   if (plugin === 'agent' && isPluginNodeId(plugin, node)) {
     const { invokeAgentNode } = await import('../agents/handler')
     const payload = await invokeAgentNode(node, args, { project })
+    return { status: 200, payload }
+  }
+
+  // ⓪' personnel 插件（人员任务：派发 / 事件回显；见 server/personnel-handler.ts）
+  if (plugin === 'personnel' && isPluginNodeId(plugin, node)) {
+    const { invokePersonnelNode } = await import('../personnel-handler')
+    const payload = await invokePersonnelNode(node, args, { project, signal: deps.signal })
     return { status: 200, payload }
   }
 
@@ -1062,8 +1071,21 @@ export async function handleExecutorRequest(ctx: ExecutorRouteContext): Promise<
       return true
     }
     const body = await ctx.readJson(req) // FsError 由 index.ts 统一 catch 转 JSON
-    const result = await handleInvoke(body, { projectsRoot: ctx.projectsRoot, ...ctx.invoke })
-    ctx.sendJson(res, result.status, result.payload)
+    const abort = new AbortController()
+    const onClose = (): void => {
+      if (!res.writableEnded) abort.abort()
+    }
+    res.once('close', onClose)
+    try {
+      const result = await handleInvoke(body, {
+        projectsRoot: ctx.projectsRoot,
+        ...ctx.invoke,
+        signal: abort.signal,
+      })
+      if (!res.writableEnded && !res.destroyed) ctx.sendJson(res, result.status, result.payload)
+    } finally {
+      res.off('close', onClose)
+    }
     return true
   }
 

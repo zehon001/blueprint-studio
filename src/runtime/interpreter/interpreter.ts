@@ -665,15 +665,42 @@ class BlueprintRuntime implements RuntimeHandle {
         this.debug({ kind: 'pinValue', graph: frame.graphName, nodeId: node.id, pinId, value });
       }
       this.debug({ kind: 'nodeExit', graph: frame.graphName, nodeId: node.id });
-      current = nextPin === undefined ? undefined : this.followExec(frame, node, nextPin);
+      const following = nextPin === undefined ? [] : this.followExecAll(frame, node, nextPin);
+      if (following.length === 1) {
+        current = following[0];
+      } else {
+        if (following.length > 1) await this.runFanout(frame, following, chainSignal, depth);
+        current = undefined;
+      }
     }
   }
 
-  /** 沿 exec 边找下一节点（无连线 / 出口无边 = 链自然结束；目标合法性由链头校验） */
-  private followExec(frame: Frame, node: IRNode, pin: string): string | undefined {
+  /**
+   * 沿 exec 边找全部下游节点（无连线 / 出口无边 = 链自然结束）。
+   * 同一 exec 出脚允许多条连线（编辑器已允许），运行时按边序逐条执行——
+   * 单条时沿用原链式推进；多条时由 runFanout 分支执行，避免只执行第一条。
+   */
+  private followExecAll(frame: Frame, node: IRNode, pin: string): string[] {
     const edges = frame.graph.edgesBySource.get(`${node.id}:${pin}`) ?? [];
-    const execEdge = edges.find((e) => e.kind === 'exec');
-    return execEdge ? execEdge.to.node : undefined;
+    return edges.filter((e) => e.kind === 'exec').map((e) => e.to.node);
+  }
+
+  /** exec 多分叉：按边序逐条执行下游链；单分支失败不影响其余分支（错误在分支边界收口） */
+  private async runFanout(
+    frame: Frame,
+    targets: readonly string[],
+    chainSignal: AbortSignal,
+    depth: number,
+  ): Promise<void> {
+    for (const target of targets) {
+      if (chainSignal.aborted) return;
+      try {
+        await this.runChain(frame, target, undefined, depth);
+      } catch (err) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        this.reportError(e, errGraph(e) ?? frame.graphName, errNodeId(e) ?? target);
+      }
+    }
   }
 
   /**
@@ -715,8 +742,12 @@ class BlueprintRuntime implements RuntimeHandle {
           this.debug({ kind: 'pinValue', graph: frame.graphName, nodeId: node.id, pinId, value });
         }
         const nextPin = pickNext(spec, node, step.value);
-        const downstream = nextPin === undefined ? undefined : this.followExec(frame, node, nextPin);
-        if (downstream) await this.runChain(frame, downstream, undefined, depth);
+        const downstream = nextPin === undefined ? [] : this.followExecAll(frame, node, nextPin);
+        if (downstream.length === 1) {
+          await this.runChain(frame, downstream[0]!, undefined, depth);
+        } else if (downstream.length > 1) {
+          await this.runFanout(frame, downstream, chainSignal, depth);
+        }
         // ADR-010：unlimitedFires 节点（timer/whileLoop）的 yield 边界 = 让出点，
         // 出脚子链完整执行后、下次计时/迭代前，把队列积压事件派发掉（顶层一次）
         if (spec.unlimitedFires) await this.coopDrainPending();

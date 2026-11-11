@@ -7,8 +7,9 @@
  *  1. 探针批量（运行窗口侧）：150ms 窗口合并（计时器一次性冲刷）、
  *     500 条上限合并策略（同主体保最新 + 保留最新段 + dropped 计数）、
  *     mute 停发 / unmute 恢复、stop 一键关闭；
- *  2. 叠加层纯函数（编辑器侧）：事件批 → highlight/pinValues/flowing 状态增量 +
- *     惰性衰减（2s 高亮 / 0.8s 流动 / 5s 端口值）、受控视图映射（引用稳定性）；
+ *  2. 叠加层纯函数（编辑器侧）：事件批 → running/highlight/pinValues/flowing 状态增量 +
+ *     惰性衰减（2s 高亮 / 0.8s 流动 / 5s 端口值；running 不衰减）、
+ *     受控视图映射（引用稳定性）；
  *  3. 观察开关持久化（localStorage 替身 + 缺省开 + 异常降级）；
  *  4. 端口值格式化 / 徽标层数据规则 / 编辑器批处理通道过滤。
  */
@@ -210,9 +211,35 @@ describe('T5.4 叠加层状态（事件批折叠 + 惰性衰减）', () => {
       { now: 200 },
     )
     assert.equal(s1.nodeHighlight.get('a'), 100)
+    assert.ok(s1.runningNodes.has('a'), 'nodeEnter 进入运行态')
     assert.equal(s1.nodeErrors.get('b'), 102)
     assert.equal(s1.lastBatchAt, 200)
     assert.ok(isOverlayEmpty(s0), '入参未改（纯函数）')
+  })
+
+  test('runningNodes：nodeEnter 常驻（不随时间衰减），nodeExit / nodeError 移除', () => {
+    const s1 = applyDebugEvents(
+      emptyOverlayState(),
+      [ev('nodeEnter', 'a', { ts: 100 }), ev('nodeEnter', 'b', { ts: 110 })],
+      { now: 200 },
+    )
+    assert.deepEqual([...s1.runningNodes], ['a', 'b'])
+    assert.ok(!isOverlayEmpty(s1), '运行态不算空叠加')
+
+    const s2 = applyDebugEvents(s1, [ev('nodeExit', 'a', { ts: 300 })], { now: 300 })
+    assert.ok(!s2.runningNodes.has('a'), 'nodeExit 移出运行态')
+    assert.ok(s2.runningNodes.has('b'))
+
+    const s3 = applyDebugEvents(s2, [ev('nodeError', 'b', { ts: 400 })], { now: 400 })
+    assert.ok(!s3.runningNodes.has('b'), 'nodeError 也移出运行态')
+
+    const waiting = applyDebugEvents(
+      emptyOverlayState(),
+      [ev('nodeEnter', 'waiting', { ts: 0 })],
+      { now: 0 },
+    )
+    const longWait = decayOverlay(waiting, 10 * 60 * 1000)
+    assert.ok(longWait.runningNodes.has('waiting'), '长任务等待 10 分钟仍保持运行态')
   })
 
   test('applyDebugEvents：pinValue 键 nodeId:pinId，每引脚只留最新值', () => {
@@ -279,6 +306,7 @@ describe('T5.4 叠加层状态（事件批折叠 + 惰性衰减）', () => {
     const d3 = decayOverlay(d2, 5100) // 端口值（0+5000）过期；b 高亮（2700）也过期
     assert.equal(d3.pinValues.size, 0)
     assert.ok(!d3.nodeHighlight.has('b'))
+    assert.ok(d3.runningNodes.has('a') && d3.runningNodes.has('b'), '运行态不参与时间衰减')
     assert.equal(HIGHLIGHT_TTL_MS, 2000)
     assert.equal(FLOW_TTL_MS, 800)
     assert.equal(PIN_TTL_MS, 5000)
@@ -286,23 +314,33 @@ describe('T5.4 叠加层状态（事件批折叠 + 惰性衰减）', () => {
 })
 
 describe('T5.4 受控视图映射（data 注入 + 引用稳定）', () => {
-  test('applyNodeOverlay：新鲜高亮写 data.debugHighlight；过期回落 undefined；无关节点保持原引用', () => {
+  test('applyNodeOverlay：运行态常亮、退出后脉冲、过期回落；无关节点保持原引用', () => {
     const nodes: TestNode[] = [
       { id: 'a', position: { x: 0, y: 0 }, data: {} },
       { id: 'b', position: { x: 10, y: 0 }, data: {} },
+      { id: 'c', position: { x: 20, y: 0 }, data: {} },
     ]
     const state = applyDebugEvents(
       emptyOverlayState(),
-      [ev('nodeEnter', 'a', { ts: 0 }), ev('nodeError', 'b', { ts: 0 })],
+      [ev('nodeEnter', 'a', { ts: 0 }), ev('nodeEnter', 'b', { ts: 0 }), ev('nodeError', 'b', { ts: 0 })],
       { now: 100 },
     )
     const out = applyNodeOverlay(nodes as never, state, 500) as unknown as TestNode[]
-    assert.equal(out[0]!.data.debugHighlight, 'active')
+    assert.equal(out[0]!.data.debugHighlight, 'running')
     assert.equal(out[1]!.data.debugHighlight, 'error')
-    // 过期（>2s）：回落无 class；error 5s 内仍红
-    const out2 = applyNodeOverlay(nodes as never, state, 2600) as unknown as TestNode[]
-    assert.equal(out2[0]!.data.debugHighlight, undefined)
-    assert.equal(out2[1]!.data.debugHighlight, 'error')
+    assert.equal(out[2], nodes[2], '无关节点保持原引用')
+    // 长时间等待：running 仍常亮；error 5s 后回落
+    const outLong = applyNodeOverlay(nodes as never, state, 10_000) as unknown as TestNode[]
+    assert.equal(outLong[0]!.data.debugHighlight, 'running')
+    assert.equal(outLong[1]!.data.debugHighlight, undefined)
+    assert.equal(outLong[2], nodes[2])
+    // nodeExit：移出 running → 转为 2s 脉冲
+    const exited = applyDebugEvents(state, [ev('nodeExit', 'a', { ts: 10_100 })], { now: 10_100 })
+    const outExit = applyNodeOverlay(nodes as never, exited, 10_100) as unknown as TestNode[]
+    assert.equal(outExit[0]!.data.debugHighlight, 'active')
+    // 脉冲过期：回落无 class，整批返回原数组引用
+    const outExpired = applyNodeOverlay(nodes as never, exited, 12_200)
+    assert.equal(outExpired, nodes)
     // 空状态：原数组引用（零开销跳过重渲染）
     assert.equal(applyNodeOverlay(nodes as never, emptyOverlayState(), 0), nodes)
   })

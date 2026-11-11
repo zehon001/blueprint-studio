@@ -1,0 +1,159 @@
+{
+  "id": "personnel",
+  "name": "人员任务",
+  "kind": "custom",
+  "description": "把蓝图编排与人员执行连接起来：向一位人员派发一份任务（写入五目录任务看板），并监听任务状态变化事件。人员负责执行与交付，蓝图只负责任务编排与结果接收。",
+  "nodes": [
+    {
+      "id": "personnel.dispatch",
+      "title": "派发人员任务",
+      "kind": "action",
+      "keywords": [
+        "personnel",
+        "person",
+        "人员",
+        "任务",
+        "派发",
+        "派活",
+        "dispatch",
+        "看板"
+      ],
+      "doc": "向一位人员派发一份任务，写入其 TASKBOARD/pending/。输入暴露「人员」和「任务内容」，任务内容可连线或直接在引脚上填写；任务标题、立即执行、等待完成通知、来源备注在检视器「内部设置」中配置。任务标题留空时自动取任务内容第一行。勾选「等待完成通知」（默认勾选）时，节点会阻塞到该任务完成 / 失败 / 被中断后再继续，结果写入「结果说明」；停止蓝图会中止等待。需要多人 / 多任务时，在蓝图里用多个派发节点、exec 分叉或循环编排，每个节点只负责一个人和一份内容。同一轮运行里，同一个节点向同一个人重复派发相同标题和内容时，会复用已有任务，避免重复建单；标题或内容变化则视为新任务。",
+      "inputs": [
+        {
+          "id": "exec",
+          "type": "exec"
+        },
+        {
+          "id": "personId",
+          "type": "string",
+          "label": "人员"
+        },
+        {
+          "id": "content",
+          "type": "string",
+          "label": "任务内容",
+          "multiLine": true
+        }
+      ],
+      "outputs": [
+        {
+          "id": "exec",
+          "type": "exec"
+        },
+        {
+          "id": "ok",
+          "type": "bool",
+          "label": "已派发"
+        },
+        {
+          "id": "message",
+          "type": "string",
+          "label": "结果说明"
+        }
+      ],
+      "params": [
+        {
+          "id": "title",
+          "label": "任务标题",
+          "type": "string",
+          "default": "",
+          "placeholder": "留空时取任务内容第一行",
+          "group": "任务",
+          "inspectorOnly": true
+        },
+        {
+          "id": "autoRun",
+          "label": "立即执行",
+          "type": "bool",
+          "default": true,
+          "group": "执行",
+          "inspectorOnly": true
+        },
+        {
+          "id": "waitForCompletion",
+          "label": "等待完成通知",
+          "type": "bool",
+          "default": true,
+          "group": "执行",
+          "inspectorOnly": true
+        },
+        {
+          "id": "sourceLabel",
+          "label": "来源备注",
+          "type": "string",
+          "default": "",
+          "group": "说明",
+          "inspectorOnly": true
+        }
+      ]
+    },
+    {
+      "id": "personnel.taskEvent",
+      "title": "人员任务事件",
+      "kind": "event",
+      "keywords": [
+        "personnel",
+        "person",
+        "人员",
+        "任务",
+        "事件",
+        "完成",
+        "失败",
+        "taskEvent"
+      ],
+      "doc": "监听人员任务状态变化（服务端 WS 推送）：任务完成 / 失败 / 被中断时触发。出脚包含人员、任务、状态、结果、错误与产物 JSON；可按人员 / 任务分支处理。",
+      "params": [
+        {
+          "id": "eventName",
+          "label": "事件名",
+          "type": "string",
+          "default": "personnel.taskEvent",
+          "group": "监听"
+        }
+      ],
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "exec",
+          "type": "exec"
+        },
+        {
+          "id": "personId",
+          "type": "string",
+          "label": "人员ID"
+        },
+        {
+          "id": "taskId",
+          "type": "string",
+          "label": "任务ID"
+        },
+        {
+          "id": "status",
+          "type": "string",
+          "label": "状态"
+        },
+        {
+          "id": "result",
+          "type": "string",
+          "label": "结果"
+        },
+        {
+          "id": "error",
+          "type": "string",
+          "label": "错误"
+        },
+        {
+          "id": "artifacts",
+          "type": "string",
+          "label": "产物(JSON)"
+        },
+        {
+          "id": "source",
+          "type": "string",
+          "label": "来源(JSON)"
+        }
+      ]
+    }
+  ]
+}

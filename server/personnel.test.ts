@@ -371,12 +371,48 @@ describe('记忆 / 头像 / 提示词', () => {
       assert.match(agents, /完成日报/)
       assert.match(agents, /STATE\.md/)
       assert.match(agents, /memory\/MEMORY\.md/)
+      assert.match(agents, /## 任务看板（目录即状态，唯一真源）/)
+      assert.match(agents, /TASKBOARD/)
+      assert.match(agents, /## 并行规则/)
+      assert.match(agents, /主会话是唯一看板写者/)
       assert.equal(PERSON_STARTUP_PROMPT, '读取 AGENTS.md，然后完成里面的事项。')
     })
   })
 })
 
 describe('任务看板', () => {
+  const BOARD_STATUSES = ['pending', 'running', 'completed', 'failed', 'stopped'] as const
+
+  /** 看板中按 taskId 找任务文件（文件名 = <seq>_<taskId>.md） */
+  function boardTaskFile(workspace: string, taskId: string): { status: string; file: string } {
+    for (const status of BOARD_STATUSES) {
+      const dir = path.join(workspace, 'TASKBOARD', status)
+      if (!fs.existsSync(dir)) continue
+      const entry = fs
+        .readdirSync(dir)
+        .find((name) => name.endsWith(`_${taskId}.md`) && !name.endsWith('.result.md'))
+      if (entry) return { status, file: path.join(dir, entry) }
+    }
+    throw new Error(`看板中找不到任务：${taskId}`)
+  }
+
+  function settleTask(
+    workspace: string,
+    taskId: string,
+    status: 'completed' | 'failed' | 'stopped',
+    patch: { result?: string; error?: string; artifacts?: unknown[] } = {},
+  ): void {
+    const found = boardTaskFile(workspace, taskId)
+    const target = path.join(workspace, 'TASKBOARD', status, path.basename(found.file))
+    fs.renameSync(found.file, target)
+    const base = target.slice(0, -3)
+    if (patch.result) fs.writeFileSync(`${base}.result.md`, `${patch.result}\n`, 'utf8')
+    if (patch.error) fs.writeFileSync(`${base}.error.txt`, `${patch.error}\n`, 'utf8')
+    if (patch.artifacts) {
+      fs.writeFileSync(`${base}.artifacts.json`, JSON.stringify(patch.artifacts, null, 2), 'utf8')
+    }
+  }
+
   test('任务只入列，可调整待执行顺序、删除与重试', () => {
     withRoot((root) => {
       const person = createPerson(root, { name: '任务看板测试' })
@@ -401,17 +437,10 @@ describe('任务看板', () => {
         ['任务 A', '任务 B'],
       )
 
-      const tasksFile = path.join(person.defaultWorkspace, '.person', 'tasks.json')
-      const raw = JSON.parse(fs.readFileSync(tasksFile, 'utf8')) as Array<{
-        id: string
-        status: string
-        error?: string
-      }>
-      raw[0]!.status = 'failed'
-      raw[0]!.error = '模拟失败'
-      fs.writeFileSync(tasksFile, JSON.stringify(raw), 'utf8')
-      detail = retryPersonTask(person.id, root, raw[0]!.id)
-      assert.equal(detail.tasks.find((task) => task.id === raw[0]!.id)?.status, 'pending')
+      const taskA = detail.tasks.find((task) => task.title === '任务 A')!
+      settleTask(person.defaultWorkspace, taskA.id, 'failed', { error: '模拟失败' })
+      detail = retryPersonTask(person.id, root, taskA.id)
+      assert.equal(detail.tasks.find((task) => task.id === taskA.id)?.status, 'pending')
     })
   })
 
@@ -438,12 +467,10 @@ describe('任务看板', () => {
       fs.mkdirSync(path.dirname(reportFile), { recursive: true })
       fs.writeFileSync(reportFile, '# 错误报表\n\n- 错误数：9\n', 'utf8')
 
-      const tasksFile = path.join(person.defaultWorkspace, '.person', 'tasks.json')
-      const raw = JSON.parse(fs.readFileSync(tasksFile, 'utf8')) as Array<Record<string, unknown>>
-      raw[0]!.status = 'completed'
-      raw[0]!.result = `报表：${reportRel}`
-      raw[0]!.artifacts = [{ path: reportRel, kind: 'markdown', title: '错误报表' }]
-      fs.writeFileSync(tasksFile, JSON.stringify(raw), 'utf8')
+      settleTask(person.defaultWorkspace, taskId, 'completed', {
+        result: `报表：${reportRel}`,
+        artifacts: [{ path: reportRel, kind: 'markdown', title: '错误报表' }],
+      })
 
       const task = getPerson(person.id, root).tasks.find((item) => item.id === taskId)
       assert.deepEqual(task?.artifacts, [
@@ -464,17 +491,138 @@ describe('任务看板', () => {
         content: '普通任务',
       })
       const taskId = detail.tasks[0]!.id
-      const tasksFile = path.join(person.defaultWorkspace, '.person', 'tasks.json')
-      const raw = JSON.parse(fs.readFileSync(tasksFile, 'utf8')) as Array<Record<string, unknown>>
-      raw[0]!.status = 'completed'
-      raw[0]!.result = '完成，但没有报表文件'
-      fs.writeFileSync(tasksFile, JSON.stringify(raw), 'utf8')
+      settleTask(person.defaultWorkspace, taskId, 'completed', { result: '完成，但没有报表文件' })
 
       assert.equal(getPerson(person.id, root).tasks[0]?.artifacts, undefined)
       assert.throws(
         () => getPersonTaskReport(person.id, root, taskId),
         (err: unknown) => err instanceof FsError && err.status === 404,
       )
+    })
+  })
+
+  test('看板目录即状态：外部 mv / sidecar 写入后详情立即反映', () => {
+    withRoot((root) => {
+      const person = createPerson(root, { name: '看板状态测试' })
+      const detail = addPersonTask(person.id, root, { title: '执行中任务', content: '干活' })
+      const taskId = detail.tasks[0]!.id
+      const found = boardTaskFile(person.defaultWorkspace, taskId)
+      const running = path.join(person.defaultWorkspace, 'TASKBOARD', 'running', path.basename(found.file))
+      fs.renameSync(found.file, running)
+
+      let task = getPerson(person.id, root).tasks.find((item) => item.id === taskId)
+      assert.equal(task?.status, 'running')
+
+      const base = running.slice(0, -3)
+      fs.writeFileSync(`${base}.result.md`, '执行完成\n', 'utf8')
+      const completed = path.join(person.defaultWorkspace, 'TASKBOARD', 'completed', path.basename(running))
+      fs.renameSync(running, completed)
+      task = getPerson(person.id, root).tasks.find((item) => item.id === taskId)
+      assert.equal(task?.status, 'completed')
+      assert.equal(task?.result, '执行完成')
+    })
+  })
+
+  test('旧 tasks.json + TASKS.json 在首次读取时迁移为看板', () => {
+    withRoot((root) => {
+      const person = createPerson(root, { name: '迁移测试' })
+      fs.rmSync(path.join(person.defaultWorkspace, 'TASKBOARD'), { recursive: true, force: true })
+
+      const tasksFile = path.join(person.defaultWorkspace, '.person', 'tasks.json')
+      fs.writeFileSync(
+        tasksFile,
+        JSON.stringify(
+          [
+            {
+              id: 'task_legacy_1',
+              title: '旧任务一',
+              content: '旧任务一内容',
+              status: 'pending',
+              createdAt: 1000,
+            },
+            {
+              id: 'task_legacy_2',
+              title: '旧任务二',
+              content: '旧任务二内容',
+              status: 'pending',
+              createdAt: 2000,
+            },
+          ],
+          null,
+          2,
+        ),
+        'utf8',
+      )
+      fs.writeFileSync(
+        path.join(person.defaultWorkspace, 'TASKS.json'),
+        JSON.stringify({
+          queueId: 'queue_legacy',
+          tasks: [
+            {
+              id: 'task_legacy_1',
+              status: 'completed',
+              result: '镜像里的完成结果',
+              artifacts: [],
+            },
+          ],
+        }),
+        'utf8',
+      )
+
+      const detail = getPerson(person.id, root)
+      const first = detail.tasks.find((task) => task.id === 'task_legacy_1')
+      const second = detail.tasks.find((task) => task.id === 'task_legacy_2')
+      assert.equal(first?.status, 'completed')
+      assert.equal(first?.result, '镜像里的完成结果')
+      assert.equal(second?.status, 'pending')
+      assert.ok(fs.existsSync(path.join(person.defaultWorkspace, 'TASKBOARD', 'completed')))
+      assert.ok(fs.existsSync(path.join(person.defaultWorkspace, 'TASKBOARD', 'pending')))
+      assert.equal(fs.existsSync(tasksFile), false, '旧 tasks.json 已改名为 .migrated')
+      assert.ok(fs.existsSync(`${tasksFile}.migrated`))
+      assert.equal(fs.existsSync(path.join(person.defaultWorkspace, 'TASKS.json')), false)
+    })
+  })
+
+  test('看板目录已存在但为空时，旧 tasks.json 仍会迁移', () => {
+    withRoot((root) => {
+      const person = createPerson(root, { name: '空看板迁移测试' })
+      // 模拟旧版本人员：看板目录已建但从未迁移过，且没有迁移标记
+      fs.rmSync(path.join(person.defaultWorkspace, '.person', 'board-migrated.json'), {
+        force: true,
+      })
+      const tasksFile = path.join(person.defaultWorkspace, '.person', 'tasks.json')
+      fs.writeFileSync(
+        tasksFile,
+        JSON.stringify([
+          {
+            id: 'task_empty_board',
+            title: '空看板旧任务',
+            content: '看板目录已存在也要迁移',
+            status: 'pending',
+            createdAt: 1000,
+          },
+        ]),
+        'utf8',
+      )
+
+      const detail = getPerson(person.id, root)
+      const task = detail.tasks.find((item) => item.id === 'task_empty_board')
+      assert.equal(task?.status, 'pending')
+      assert.equal(fs.existsSync(tasksFile), false)
+      assert.ok(fs.existsSync(`${tasksFile}.migrated`))
+      const pending = fs.readdirSync(
+        path.join(person.defaultWorkspace, 'TASKBOARD', 'pending'),
+      )
+      assert.ok(pending.some((name) => name.endsWith('.md')))
+    })
+  })
+
+  test('并行数钳制在 1..8', () => {
+    withRoot((root) => {
+      const person = createPerson(root, { name: '并行数测试' })
+      assert.equal(person.config.parallelism, 1)
+      assert.equal(updatePerson(person.id, root, { parallelism: 99 }).config.parallelism, 8)
+      assert.equal(updatePerson(person.id, root, { parallelism: 0 }).config.parallelism, 1)
     })
   })
 })

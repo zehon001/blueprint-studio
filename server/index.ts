@@ -106,6 +106,7 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(body),
+    'Cache-Control': 'no-store',
   })
   res.end(body)
 }
@@ -665,7 +666,20 @@ function serveStatic(pathname: string, res: ServerResponse): void {
   }
   const stat = fs.statSync(file)
   const mime = MIME[path.extname(file).slice(1).toLowerCase()] ?? 'application/octet-stream'
-  res.writeHead(200, { 'Content-Type': mime, 'Content-Length': stat.size })
+  const ext = path.extname(file).toLowerCase()
+  // 入口 HTML 必须每次重新验证，否则构建后仍可能加载旧 bundle；
+  // /assets 下文件名带内容哈希，可长期缓存。
+  const cacheControl =
+    ext === '.html'
+      ? 'no-store, must-revalidate'
+      : rel.replace(/^\/+/, '').startsWith('assets/')
+        ? 'public, max-age=31536000, immutable'
+        : 'no-cache'
+  res.writeHead(200, {
+    'Content-Type': mime,
+    'Content-Length': stat.size,
+    'Cache-Control': cacheControl,
+  })
   const stream = fs.createReadStream(file)
   stream.on('error', () => res.destroy())
   stream.pipe(res)

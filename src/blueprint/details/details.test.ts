@@ -491,6 +491,42 @@ test('DOM 冒烟：Details 多选混合态（「—」+ 批量应用）', async 
   }
 });
 
+test('DOM 冒烟：ParamSpec 支持多行文本与占位提示', async () => {
+  dom.document.body.innerHTML = '';
+  const asset = sampleAsset();
+  asset.graphs.main!.nodes.push(irNode('dispatch1', 'test.dispatch', { x: 240, y: 0 }));
+  open(asset);
+  const specs = new Map(builtinSpecMap);
+  specs.set('test.dispatch', {
+    id: 'test.dispatch',
+    title: '派发任务',
+    category: '插件',
+    inputs: [],
+    outputs: [],
+    params: [
+      {
+        id: 'title',
+        label: '任务标题',
+        type: 'string',
+        placeholder: '留空时取任务内容第一行',
+      },
+      { id: 'content', label: '任务内容', type: 'string', multiLine: true },
+    ],
+  });
+  useBlueprintStore.getState().setSpecs(specs);
+  useBlueprintStore.getState().setSelection({ nodeIds: ['dispatch1'], edgeIds: [] });
+  const unmount = mount(createElement(Details, {}));
+  try {
+    const title = dom.document.querySelector('input.bp-det-input') as unknown as HTMLInputElement;
+    assert.ok(title, '任务标题渲染为单行输入框');
+    assert.equal(title.placeholder, '留空时取任务内容第一行');
+    const content = dom.document.querySelector('textarea.bp-det-input') as unknown as HTMLTextAreaElement;
+    assert.ok(content, '任务内容渲染为多行输入框');
+  } finally {
+    await unmount();
+  }
+});
+
 test('DOM 冒烟：Details 无选中 → 主图设置 / 函数图接口编辑', async () => {
   dom.document.body.innerHTML = '';
   open(detailsAsset());

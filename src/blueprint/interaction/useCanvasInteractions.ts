@@ -116,7 +116,8 @@ export interface CanvasInteractionApis {
 /**
  * 画布交互钩子（T2.2）。Ctrl+S 保存经 keymap 重绑定（BlueprintEditorPanel 负责）。
  */
-export function useCanvasInteractions(): CanvasInteractionApis {
+export function useCanvasInteractions(options: { active?: boolean } = {}): CanvasInteractionApis {
+  const active = options.active !== false;
   const rf = useReactFlow<FlowNode, FlowEdge>();
   const rfStore = useStoreApi();
   const [nodes, setNodes] = useState<FlowNode[]>([]);
@@ -400,6 +401,7 @@ export function useCanvasInteractions(): CanvasInteractionApis {
   /* ---------------- 键盘（Tab 搜索 / 删除 / 复制粘贴 / 复制 / 全选） ---------------- */
 
   useEffect(() => {
+    if (!active) return;
     const onKey = (e: KeyboardEvent): void => {
       if (e.defaultPrevented || isTextTarget(e.target)) return;
       const st = useBlueprintStore.getState();
@@ -462,7 +464,7 @@ export function useCanvasInteractions(): CanvasInteractionApis {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rf]);
+  }, [active, rf]);
 
   /* ---------------- Alt+点击引脚断开（事件委托，不改 BPNode） ---------------- */
 

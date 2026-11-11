@@ -26,6 +26,8 @@ import { attachKeyboard, resetShortcuts } from '@/shell/keymap/registry'
 import { resetEditorStore } from '@/shell/commands'
 import { useWorkspaceStore, tabIdOf } from '@/shell/workspace-store'
 import { useBlueprintStore } from '@/blueprint/store/blueprint-store'
+import { useDockStore } from '@/shell/dock/store'
+import type { IRAsset } from '@/ir/types'
 import {
   blueprintDirtyPending,
   initSyncState,
@@ -588,5 +590,158 @@ test('DOM：脚本保存失败（PUT !ok）→ toast + 草稿保留 + 仍标脏�
     await unmount()
     mock.restore()
     useWorkspaceStore.getState().clearDirty(SCRIPT_TAB)
+  }
+})
+
+/* CSS shim 已安装后再加载真实蓝图面板 / 页签宿主 */
+const { BlueprintEditorPanel } = await import('@/blueprint/interaction/BlueprintEditorPanel')
+const { BlueprintTab } = await import('@/shell/workspace/BlueprintTab')
+
+test('DOM：蓝图面板回传最新内存快照（页签切回不以首次读盘快照覆盖节点）', async () => {
+  dom.document.body.innerHTML = ''
+  resetEditorStore()
+  useBlueprintStore.setState({ asset: null, assetPath: null, dirty: false })
+  const initial: IRAsset = {
+    version: 3,
+    name: 'snapshot-test',
+    entry: 'main',
+    graphs: {
+      main: {
+        nodes: [
+          {
+            id: 'n_start',
+            type: 'event.start',
+            params: {},
+            pinDefaults: {},
+            position: { x: 120, y: 120 },
+          },
+        ],
+        edges: [],
+      },
+    },
+    variables: [],
+    events: [],
+    snippets: [],
+    layout: {},
+  }
+  const snapshots: IRAsset[] = []
+  const unmount = mount(
+    createElement(BlueprintEditorPanel, {
+      asset: initial,
+      assetPath: 'logic/snapshot.bp.json',
+      onAssetChange: (next: IRAsset) => snapshots.push(next),
+    }),
+  )
+  try {
+    assert.ok(await waitFor(() => dom.document.querySelector('.react-flow') !== null), '画布渲染')
+    assert.ok(
+      await waitFor(
+        () => useBlueprintStore.getState().assetPath === 'logic/snapshot.bp.json',
+      ),
+      '面板已把资产写入 store',
+    )
+    act(() => {
+      useBlueprintStore.getState().addNode('system.print', { x: 320, y: 180 })
+    })
+    assert.ok(
+      await waitFor(() => snapshots.at(-1)?.graphs.main?.nodes.length === 2),
+      '宿主快照应同步到新增节点后的 2 节点版本',
+    )
+    assert.equal(snapshots.at(-1)?.graphs.main?.nodes[1]?.type, 'system.print')
+  } finally {
+    await unmount()
+    useBlueprintStore.setState({ asset: null, assetPath: null, dirty: false })
+  }
+})
+
+test('DOM：编辑 main_test 只标脏当前页签，隐藏蓝图页签保持干净', async () => {
+  dom.document.body.innerHTML = ''
+  resetEditorStore()
+  const assetOf = (name: string): string =>
+    JSON.stringify({
+      version: 3,
+      name,
+      entry: name,
+      graphs: {
+        [name]: {
+          nodes: [
+            {
+              id: 'n_start',
+              type: 'event.start',
+              params: {},
+              pinDefaults: {},
+              position: { x: 120, y: 120 },
+            },
+          ],
+          edges: [],
+        },
+      },
+      variables: [],
+      events: [],
+      snippets: [],
+      layout: {},
+    })
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.startsWith('/api/file?')) {
+      const path = new URL(url, 'http://localhost').searchParams.get('path') ?? ''
+      const name = path.endsWith('/a.bp.json') ? 'a' : 'b'
+      return { json: async () => ({ ok: true, content: assetOf(name) }) } as Response
+    }
+    if (url.startsWith('/api/plugins')) {
+      return { json: async () => ({ ok: true, manifests: [], warnings: [] }) } as Response
+    }
+    if (url.startsWith('/api/personnel')) {
+      return { json: async () => ({ ok: true, people: [] }) } as Response
+    }
+    return { json: async () => ({ ok: false }) } as Response
+  }) as typeof fetch
+
+  const tabA = tabIdOf('blueprint', 'logic/a.bp.json')
+  const tabB = tabIdOf('blueprint', 'logic/b.bp.json')
+  useWorkspaceStore.setState({
+    currentProject: { name: 'demo', path: 'D:/proj/demo' },
+    openTabs: [
+      { id: tabA, kind: 'blueprint', assetPath: 'logic/a.bp.json', title: 'a' },
+      { id: tabB, kind: 'blueprint', assetPath: 'logic/b.bp.json', title: 'b' },
+    ],
+    activeTabId: tabA,
+  })
+  useDockStore.setState({ activePanelId: 'panel-a' })
+  useBlueprintStore.setState({ asset: null, assetPath: null, dirty: false })
+
+  const unmount = mount(
+    createElement(
+      'div',
+      null,
+      createElement(BlueprintTab, { assetPath: 'logic/a.bp.json', panelId: 'panel-a' }),
+      createElement(BlueprintTab, { assetPath: 'logic/b.bp.json', panelId: 'panel-b' }),
+    ),
+  )
+  try {
+    assert.ok(
+      await waitFor(
+        () =>
+          dom.document.querySelectorAll('.react-flow').length >= 2 &&
+          useBlueprintStore.getState().assetPath === 'logic/a.bp.json',
+      ),
+      '两个蓝图页签均完成加载，激活页签为 a',
+    )
+    act(() => {
+      useBlueprintStore.getState().addNode('system.print', { x: 320, y: 180 })
+    })
+    assert.ok(await waitFor(() => useWorkspaceStore.getState().openTabs[0]?.dirty === true), '激活页签标脏')
+    assert.equal(
+      Boolean(useWorkspaceStore.getState().openTabs[1]?.dirty),
+      false,
+      '隐藏页签不得被一起标脏',
+    )
+  } finally {
+    await unmount()
+    globalThis.fetch = originalFetch
+    useWorkspaceStore.setState({ currentProject: null, openTabs: [], activeTabId: null })
+    useDockStore.setState({ activePanelId: null })
+    useBlueprintStore.setState({ asset: null, assetPath: null, dirty: false })
   }
 })

@@ -31,10 +31,11 @@ import {
 /** 叠加层数据形态（T5.4 debugHighlight 由 src/shell/debug 注入；type-only，不依赖运行时） */
 type BPNodeDataWithDebug = BPNodeData & { debugHighlight?: DebugHighlightKind };
 
-/** 节点运行时叠加 class（data.debugHighlight → 描边脉冲 / 错误红晕，样式见 debug.css） */
+/** 节点运行时叠加 class（data.debugHighlight → 持久运行环 / 描边脉冲 / 错误红晕，样式见 debug.css） */
 function debugClassOf(data: BPNodeData): string {
   const kind = (data as BPNodeDataWithDebug).debugHighlight;
   if (kind === 'error') return ' bp-node--debug-error';
+  if (kind === 'running') return ' bp-node--debug-running';
   if (kind === 'active') return ' bp-node--debug-active';
   return '';
 }
@@ -138,6 +139,7 @@ function NumberDefaultEditor({ pin, value, onCommit }: EditorProps) {
 
 function SelectDefaultEditor({ pin, value, onCommit }: EditorProps) {
   const initial = String(initialValueOf(pin, value) ?? '');
+  const known = (pin.options ?? []).some((option) => option.value === initial);
   return (
     <select
       className="bp-pin-default bp-pin-default--select"
@@ -145,6 +147,11 @@ function SelectDefaultEditor({ pin, value, onCommit }: EditorProps) {
       onChange={(e) => onCommit(e.target.value)}
       onClick={(e) => e.stopPropagation()}
     >
+      {initial === '' || !known ? (
+        <option value="" disabled hidden>
+          请选择
+        </option>
+      ) : null}
       {(pin.options ?? []).map((option) => (
         <option key={option.value} value={option.value}>
           {option.label}
@@ -362,7 +369,7 @@ function paramValueText(value: unknown, fallback: unknown): string {
 /** 参数行（本期只读展示；编辑属 T2.4 检视器） */
 function NodeParamsBlock({ node, spec }: { node: IRNode; spec: NodeSpec }) {
   // 「内部设置」参数不占画布空间（仅检视面板编辑；如 agent 大模型 / 工作区等）
-  const params = (spec.params ?? []).filter((p) => p.group !== '内部设置');
+  const params = (spec.params ?? []).filter((p) => p.group !== '内部设置' && p.inspectorOnly !== true);
   if (params.length === 0) return null;
   return (
     <div className="bp-node-params">

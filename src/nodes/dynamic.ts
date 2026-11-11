@@ -90,6 +90,10 @@ export interface PluginInvokeConfig {
   fetchImpl?: typeof fetch;
   /** 直接调用桥（提供时优先于 HTTP；NodeRunContext.callPlugin 缺失时的兜底通道） */
   bridge?: PluginInvokeBridge;
+  /** 当前蓝图运行 id（每次运行新生成；personnel 派发幂等与溯源用） */
+  runId?: string;
+  /** 当前蓝图资产路径（personnel 任务 source 溯源用） */
+  assetPath?: string;
 }
 
 const moduleConfig: PluginInvokeConfig = {};
@@ -99,6 +103,8 @@ export function configurePluginInvoke(config: PluginInvokeConfig): void {
   if ('projectName' in config) moduleConfig.projectName = config.projectName;
   if ('fetchImpl' in config) moduleConfig.fetchImpl = config.fetchImpl;
   if ('bridge' in config) moduleConfig.bridge = config.bridge;
+  if ('runId' in config) moduleConfig.runId = config.runId;
+  if ('assetPath' in config) moduleConfig.assetPath = config.assetPath;
 }
 
 /** 清空模块级运行装配（测试隔离用） */
@@ -106,6 +112,8 @@ export function resetPluginInvokeConfig(): void {
   delete moduleConfig.projectName;
   delete moduleConfig.fetchImpl;
   delete moduleConfig.bridge;
+  delete moduleConfig.runId;
+  delete moduleConfig.assetPath;
 }
 
 /* ============================================================
@@ -242,6 +250,12 @@ function makePluginNodeRun(info: PluginRunInfo): NodeRunFn {
   return async (ctx, inputs) => {
     // 内部设置（ParamSpec）随 ctx.params 合入调用参数：引脚值优先，参数兜底
     const merged = { ...((ctx?.params ?? {}) as Record<string, unknown>), ...inputs };
+    // personnel 节点需要运行上下文做来源溯源与运行内幂等（其余插件保持原 args 形状）
+    if (info.pluginId === 'personnel') {
+      merged.__nodeId = ctx.nodeId;
+      if (moduleConfig.runId) merged.__runId = moduleConfig.runId;
+      if (moduleConfig.assetPath) merged.__assetPath = moduleConfig.assetPath;
+    }
     const outcome = await invokePluginNode(info.pluginId, info.nodeId, merged, ctx, {
       outputPins: info.outputPins,
       project: info.project,
@@ -277,7 +291,15 @@ export function pluginSpecsFromManifest(
   const isEventOf = (node: PluginNodeSpec): boolean => (node.kind ?? 'action') === 'event';
   return (manifest.nodes ?? []).map((node) => {
     const id = canonicalPluginNodeId(manifest, node);
-    const inputs = (node.inputs ?? []).map(pinFromManifest);
+    // 内部设置只允许在检视器编辑：即使清单误把同名参数重复声明为输入，也不生成画布引脚。
+    const inspectorOnlyIds = new Set(
+      (node.params ?? [])
+        .filter((param) => param.inspectorOnly === true)
+        .map((param) => param.id),
+    );
+    const inputs = (node.inputs ?? [])
+      .filter((pin) => pin.type === 'exec' || !inspectorOnlyIds.has(pin.id))
+      .map(pinFromManifest);
     const outputs = (node.outputs ?? []).map(pinFromManifest);
     const keywords: string[] = [];
     for (const k of [...(node.keywords ?? []), manifest.id, manifest.name, id]) {
@@ -527,6 +549,90 @@ async function enrichAgentSpecOptions(
     );
     return [...specs];
   }
+}
+
+/** 人员列表响应（GET /api/personnel 的最小形状；只取 id / name 生成下拉项） */
+interface PersonnelListBody {
+  ok?: boolean
+  people?: unknown
+}
+
+/**
+ * 读取人员列表，生成「派发人员任务」节点的人员下拉项。
+ * 失败或无人员时返回空数组（调用方保持文本框兜底，蓝图仍可手动填 id / 名字）。
+ */
+export async function loadPersonnelOptions(fetchImpl?: typeof fetch): Promise<ParamOption[]> {
+  const f = fetchImpl ?? moduleConfig.fetchImpl ?? fetch
+  try {
+    const res = await f('/api/personnel')
+    const body = (await res.json().catch(() => null)) as PersonnelListBody | null
+    if (!body || body.ok !== true || !Array.isArray(body.people)) return []
+    const options: ParamOption[] = []
+    const seen = new Set<string>()
+    for (const raw of body.people) {
+      if (!raw || typeof raw !== 'object') continue
+      const person = raw as { id?: unknown; name?: unknown }
+      const id = typeof person.id === 'string' ? person.id.trim() : ''
+      const name = typeof person.name === 'string' ? person.name.trim() : ''
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      options.push({ value: id, label: name || id })
+    }
+    return options
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 把人员下拉项注入 personnel.dispatch 的 personId 引脚。
+ * 无选项（接口失败 / 尚未创建人员）时移除 options，让引脚回退为可手动输入的文本框。
+ */
+export function applyPersonnelOptions(
+  specs: readonly NodeSpec[],
+  options: readonly ParamOption[],
+): NodeSpec[] {
+  return specs.map((spec) => {
+    if (spec.id !== 'personnel.dispatch') return spec
+    const inputs = spec.inputs.map((pin) => {
+      if (pin.id !== 'personId' || pin.type !== 'string') return pin
+      if (options.length === 0) {
+        const next = { ...pin }
+        delete next.options
+        return next
+      }
+      return { ...pin, options: [...options] }
+    })
+    return { ...spec, inputs }
+  })
+}
+
+/**
+ * 兼容旧「派发人员任务」节点：任务内容曾保存在 params.content，
+ * 现作为任务内容输入引脚，打开 / 运行时迁移到 pinDefaults.content。
+ * 已是新结构时原样返回，不修改入参。
+ */
+export function migratePersonnelDispatchContentToPin(asset: IRAsset): IRAsset {
+  let changed = false;
+  const graphs: IRAsset['graphs'] = {};
+  for (const [graphName, graph] of Object.entries(asset.graphs)) {
+    let graphChanged = false;
+    const nodes = graph.nodes.map((node) => {
+      if (node.type !== 'personnel.dispatch') return node;
+      const params = node.params ?? {};
+      if (!Object.prototype.hasOwnProperty.call(params, 'content')) return node;
+      graphChanged = true;
+      const { content, ...restParams } = params;
+      const pinDefaults = { ...(node.pinDefaults ?? {}) };
+      if (pinDefaults.content === undefined && typeof content === 'string') {
+        pinDefaults.content = content;
+      }
+      return { ...node, params: restParams, pinDefaults };
+    });
+    graphs[graphName] = graphChanged ? { ...graph, nodes } : graph;
+    changed = changed || graphChanged;
+  }
+  return changed ? { ...asset, graphs } : asset;
 }
 
 /**

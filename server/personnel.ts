@@ -13,7 +13,9 @@
  *           norms.md                     规范
  *           activity.jsonl               动态记录
  *           avatar.*                     头像
+ *           board-migrated.json          旧 tasks.json → TASKBOARD 迁移标记
  *         AGENTS.md                      DSH 会话唯一启动入口：身份 / 角色卡 / 规范 / 当前任务 / 工作协议
+ *         TASKBOARD/                    任务看板（pending / running / completed / failed / stopped）
  *         PERSON.md
  *         TASK.md
  *         STATE.md                     跨会话进度（构建时只在缺失时生成，绝不覆盖）
@@ -30,6 +32,20 @@ import { execFile } from 'node:child_process'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { agentGateway } from './agents/handler'
 import { isSessionArchived } from './agents/ledger'
+import { pluginPushHub } from './plugins/executor'
+import {
+  addBoardTask,
+  deleteBoardTask,
+  findBoardTask,
+  initBoardDirs,
+  isBoardInitialized,
+  migrateLegacyTasks,
+  movePendingTask,
+  normalizeTaskSource,
+  readBoardTasks,
+  retryBoardTask,
+  settleRunningTask,
+} from './person-board'
 import { FsError, isPathWithin, repoRoot } from './fs'
 import {
   PERSON_PLATFORMS,
@@ -48,6 +64,7 @@ import {
   type PersonSummary,
   type PersonTask,
   type PersonTaskCounts,
+  type PersonTaskSource,
   type PersonTaskStatus,
   type PersonType,
   type PersonWorkspaceSettings,
@@ -63,6 +80,7 @@ const DEFAULT_WORKSPACE_NAME = 'workspace'
 const TYPES_FILE_NAME = 'types.json'
 const TASKS_FILE_NAME = 'tasks.json'
 const TASKS_JSON_NAME = 'TASKS.json'
+const BOARD_MIGRATION_MARKER = 'board-migrated.json'
 const QUEUE_FILE_NAME = 'queue.json'
 const MAX_ACTIVITY = 500
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024
@@ -387,6 +405,7 @@ function normalizeConfig(raw: Partial<PersonConfig> | null, id: string): PersonC
     typeId: str(raw?.typeId),
     ...(str(raw?.avatarFile) ? { avatarFile: str(raw?.avatarFile) } : {}),
     ...(str(raw?.currentCardId) ? { currentCardId: str(raw?.currentCardId) } : {}),
+    parallelism: Math.min(8, Math.max(1, Math.round(num(raw?.parallelism) || 1))),
     createdAt: num(raw?.createdAt) || now,
     updatedAt: num(raw?.updatedAt) || now,
     task: typeof raw?.task === 'string' ? raw.task : defaultTask(name),
@@ -430,6 +449,10 @@ function activityPathOf(profileDir: string): string {
 
 function tasksPathOf(profileDir: string): string {
   return path.join(profileDir, TASKS_FILE_NAME)
+}
+
+function boardMigrationMarkerOf(profileDir: string): string {
+  return path.join(profileDir, BOARD_MIGRATION_MARKER)
 }
 
 function queuePathOf(personDir: string): string {
@@ -515,12 +538,112 @@ function normalizeTasks(raw: unknown): PersonTask[] {
   return out
 }
 
-function readTasks(profileDir: string): PersonTask[] {
+function removeIfExists(file: string): void {
+  try {
+    fs.rmSync(file, { force: true })
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/** 旧版服务端任务文件（仅迁移时读取） */
+function readLegacyTasks(profileDir: string): PersonTask[] {
   return normalizeTasks(readJsonFile<unknown>(tasksPathOf(profileDir), []))
 }
 
-function writeTasks(profileDir: string, tasks: PersonTask[]): void {
-  writeJsonAtomic(tasksPathOf(profileDir), tasks)
+/**
+ * 旧版 TASKS.json 镜像合并（仅迁移时使用）：
+ * 旧实现由执行会话回写镜像，服务端再同步回 tasks.json；迁移时把镜像里的
+ * status / result / error / artifacts 合并进旧任务，避免丢失最后一次执行结果。
+ */
+function mergeLegacyMirror(loaded: LoadedPerson, tasks: PersonTask[]): PersonTask[] {
+  const workspace = resolveActiveWorkspace(loaded.config, loaded.defaultWorkspace)
+  const file = path.join(workspace, TASKS_JSON_NAME)
+  if (!exists(file)) return tasks
+  const raw = readJsonFile<unknown>(file, null)
+  const list =
+    Array.isArray(raw)
+      ? raw
+      : raw !== null && typeof raw === 'object' && Array.isArray((raw as { tasks?: unknown }).tasks)
+        ? (raw as { tasks: unknown[] }).tasks
+        : []
+  if (list.length === 0) return tasks
+  const allowed = new Set<PersonTaskStatus>([
+    'pending',
+    'running',
+    'completed',
+    'failed',
+    'stopped',
+  ])
+  const remote = new Map<string, { status: PersonTaskStatus; result: string; error: string; artifacts: PersonArtifact[] }>()
+  for (const item of list) {
+    if (item === null || typeof item !== 'object') continue
+    const o = item as { id?: unknown; status?: unknown; result?: unknown; error?: unknown; artifacts?: unknown }
+    const id = str(o.id)
+    const status = str(o.status) as PersonTaskStatus
+    if (!id || !allowed.has(status)) continue
+    remote.set(id, {
+      status,
+      result: str(o.result).slice(0, 20_000),
+      error: str(o.error).slice(0, 2_000),
+      artifacts: normalizeArtifacts(o.artifacts),
+    })
+  }
+  if (remote.size === 0) return tasks
+  const now = Date.now()
+  return tasks.map((task) => {
+    const next = remote.get(task.id)
+    if (!next) return task
+    const merged: PersonTask = { ...task, status: next.status }
+    if (next.status === 'running') merged.startedAt = task.startedAt ?? now
+    if (next.status === 'completed' || next.status === 'failed' || next.status === 'stopped') {
+      merged.finishedAt = task.finishedAt ?? now
+    }
+    if (next.result) merged.result = next.result
+    if (next.error) merged.error = next.error
+    if (next.artifacts.length > 0) merged.artifacts = next.artifacts
+    return merged
+  })
+}
+
+/**
+ * 确保看板已初始化；首次访问时把旧 tasks.json（含 TASKS.json 镜像）迁移成五目录。
+ * 返回看板所在工作区。
+ */
+function ensurePersonBoard(loaded: LoadedPerson): string {
+  const workspace = resolveActiveWorkspace(loaded.config, loaded.defaultWorkspace)
+  const marker = boardMigrationMarkerOf(loaded.profileDir)
+  if (isBoardInitialized(workspace) && exists(marker)) return workspace
+  try {
+    const legacy = mergeLegacyMirror(loaded, readLegacyTasks(loaded.profileDir))
+    migrateLegacyTasks(workspace, legacy)
+    const legacyFile = tasksPathOf(loaded.profileDir)
+    if (exists(legacyFile)) {
+      try {
+        fs.renameSync(legacyFile, `${legacyFile}.migrated`)
+      } catch {
+        /* 备份失败不阻塞：看板已写入 */
+      }
+    }
+    removeIfExists(path.join(workspace, TASKS_JSON_NAME))
+    removeIfExists(path.join(loaded.defaultWorkspace, TASKS_JSON_NAME))
+    writeJsonAtomic(marker, { migratedAt: Date.now(), tasks: legacy.length })
+    appendActivity(loaded.profileDir, 'board_migrated', '任务看板已迁移为五目录结构')
+  } catch (err) {
+    console.warn(
+      `[人员] 任务看板初始化失败（${loaded.id}）：${err instanceof Error ? err.message : String(err)}`,
+    )
+    try {
+      initBoardDirs(workspace)
+    } catch {
+      /* 工作区不可写：读取时按空看板降级 */
+    }
+  }
+  return workspace
+}
+
+function readTasks(loaded: LoadedPerson): PersonTask[] {
+  return readBoardTasks(ensurePersonBoard(loaded))
 }
 
 function emptyQueueState(): PersonQueueState {
@@ -723,10 +846,7 @@ function loadPersonIdle(root: string, id: string): LoadedPerson {
 /** 任务看板编辑：执行中仍允许增删/排序未执行任务，只禁止操作 running 任务 */
 function loadPersonForTaskEdit(root: string, id: string): LoadedPerson {
   const loaded = loadPerson(root, id)
-  const queue = readQueueState(loaded)
-  if (queue.status === 'running' || queue.status === 'stopping') {
-    syncTasksFromWorkspace(loaded)
-  }
+  readQueueState(loaded)
   return loaded
 }
 
@@ -751,6 +871,25 @@ function appendActivity(profileDir: string, type: string, text: string): void {
   lines.push(JSON.stringify(entry))
   if (lines.length > MAX_ACTIVITY) lines = lines.slice(lines.length - MAX_ACTIVITY)
   writeTextFile(file, lines.join('\n') + '\n')
+}
+
+/**
+ * 人员看板变化通知：广播给所有已订阅项目。
+ * 人员数据跨项目共享，因此不限定 source.project；编辑器人员页收到后即时刷新看板，
+ * 不必等队列轮询启动或手动刷新页面。运行窗口只认识自己的事件类型，会忽略本消息。
+ */
+function broadcastPersonnelBoardChanged(
+  personId: string,
+  change: string,
+  extra: Record<string, unknown> = {},
+): void {
+  pluginPushHub.broadcastAll({
+    type: 'personnel.boardChanged',
+    personId,
+    change,
+    ts: Date.now(),
+    ...extra,
+  })
 }
 
 function readActivity(profileDir: string, limit = 120): PersonActivity[] {
@@ -897,37 +1036,63 @@ function agentsMarkdown(
         activeCard.tags.length ? `标签：${activeCard.tags.join('、')}\n` : ''
       }${activeCard.content}`
     : '（暂无角色卡）'
-  const taskSection =
+  const taskSnapshot =
     queueTasks && queueTasks.length > 0
-      ? `## 任务清单（按顺序执行）
+      ? `## 任务清单（初始快照）
 ${queueTasks
   .map(
     (task, index) =>
-      `### ${index + 1}. ${task.title}\n- id: ${task.id}\n- 初始状态：pending\n\n${task.content}`,
+      `### ${index + 1}. ${task.title}\n- id: ${task.id}\n\n${task.content}`,
   )
-  .join('\n\n')}
+  .join('\n\n')}`
+      : ''
+  const taskSection = `## 任务看板（目录即状态，唯一真源）
+工作区下的 \`TASKBOARD/\` 是任务看板：
+- \`pending/\` 待执行（只读；由服务端写入，会话不要新增或删除）
+- \`running/\` 执行中
+- \`completed/\` 已完成
+- \`failed/\` 执行失败
+- \`stopped/\` 已中断
 
-## 状态回写
-- 你是任务看板的工作者：每次只从 \`TASKS.json\` 领取一个 status=pending 的任务，不要并行。
-- 领取任务时先把它的 status 改为 running；完成改为 completed，失败改为 failed，停止改为 stopped，并写入 result / error。
-- 每完成一个任务后，重新读取 \`TASKS.json\`，领取下一个 pending 任务；执行期间任务看板可能新增或调整任务，以最新 \`TASKS.json\` 为准。
-- \`status\` 只能是 pending / running / completed / failed / stopped；不要修改任务 id、顺序或内容。
-- 如果本次任务有文件产物，按「交付要求」保存到指定目录，并在 TASKS.json 的 artifacts 中登记；没有产物就不要填 artifacts。
-- 每完成一个任务更新 STATE.md。
-- 全部任务结束后，在 STATE.md 写清最终结果。`
-      : `## 当前任务
-${config.task.trim() || defaultTask(config.name)}`
+任务文件形如 \`0001_task_xxx.md\`，**文件内容不可修改**；结果写同名 sidecar：
+- \`<任务文件名去掉 .md>.result.md\`：结果文本
+- \`<任务文件名去掉 .md>.error.txt\`：失败 / 中断原因
+- \`<任务文件名去掉 .md>.artifacts.json\`：产物登记 \`[{ path, kind, title }]\`
+
+## 执行协议（必须遵守）
+1. 每次领取前列出 \`pending/\` 下的 \`.md\` 文件，按文件名升序取第一个。
+2. 领取：\`mv pending/<file> running/<file>\`。rename 是原子的；如果失败，说明任务已被其他会话领走，重新列目录。
+3. 完成：先 \`mv running/<file> completed/<file>\`，再在 completed/ 写同名结果与产物 sidecar。
+4. 失败：先 \`mv running/<file> failed/<file>\`，再在 failed/ 写 \`<base>.error.txt\`。
+5. 收到停止要求：先 \`mv running/<file> stopped/<file>\`，再在 stopped/ 写 \`<base>.error.txt\`（说明“已手动停止”）。
+6. 每完成一个任务重新列出 \`pending/\`；执行期间服务端可能新增任务。
+7. 绝不编辑任务文件本身，绝不新增或改写 \`pending/\` 任务，绝不动不属于自己的 \`running/\` 文件。
+8. 所有状态变更只通过移动任务文件完成；服务端直接读取目录，不从其它文件同步状态。
+
+## 并行规则（当前并行数：${config.parallelism}）
+- 并行数为 1 时严格串行，不要开子会话。
+- 并行数大于 1 且 \`pending/\` 中仍有多个任务时，必须使用「主会话 + 子会话 / 子智能体」方式并行，最多同时 ${config.parallelism} 个。
+- **主会话是唯一看板写者**：子会话只领取和执行工作并回传结果，不写 TASKBOARD；由主会话写 \`.result.md\` / \`.artifacts.json\` 并移动任务文件。
+- 子会话完成后通知主会话；主会话确认结果后再移动任务文件。
+- 收到「停止任务 <id>」时只停对应子会话；收到「停止全部」时停掉全部子会话。
+- 每完成一个任务更新 STATE.md；全部任务结束后写清最终结果。`
+  const taskEntry = taskSnapshot
+    ? `${taskSnapshot}\n\n${taskSection}`
+    : `## 当前任务
+${config.task.trim() || defaultTask(config.name)}
+
+${taskSection}`
   const deliverySection =
     delivery && delivery.artifactKinds.length > 0
       ? `## 交付要求
 - 产物目录：${delivery.dir || '（未设置）'}
 - 允许的产物类型：${delivery.artifactKinds.join(' / ')}
 - 是否必需：${delivery.required ? '是' : '否'}
-${delivery.naming ? `- 文件命名：${delivery.naming}\n` : ''}- 产生文件产物后，必须在 TASKS.json 当前任务的 artifacts 数组中登记 \`{ path, kind, title }\`；path 使用相对工作区的路径。
+${delivery.naming ? `- 文件命名：${delivery.naming}\n` : ''}- 产生文件产物后，必须在当前任务同名 \`.artifacts.json\` 中登记 \`{ path, kind, title }\`；path 使用相对工作区的路径。
 - 没有文件产物时，不要伪造 artifacts。`
       : `## 交付要求
-- 本类型没有强制文件产物；任务结果写入 result 即可。
-- 如果确实产生了文件产物，可以在 TASKS.json 的 artifacts 中登记。`
+- 本类型没有强制文件产物；任务结果写入 \`.result.md\` 即可。
+- 如果确实产生了文件产物，可以在同名 \`.artifacts.json\` 中登记。`
   return `# ${config.name} · 工作区行为规范
 
 > 本文件由 Blueprint Studio 的人员页面自动生成；修改人员配置后会自动刷新，请不要直接编辑。
@@ -946,7 +1111,7 @@ ${norms || '（暂无规范）'}
 
 ${deliverySection}
 
-${taskSection}
+${taskEntry}
 
 ## 工作协议（跨会话）
 1. 每次会话开始，先读 STATE.md；如果存在 memory/MEMORY.md 也一起读。
@@ -982,6 +1147,7 @@ function writeContextBundle(
   } = {},
 ): void {
   fs.mkdirSync(dir, { recursive: true })
+  initBoardDirs(dir)
   const config = loaded.config
   writeTextFile(
     path.join(dir, 'AGENTS.md'),
@@ -1013,7 +1179,7 @@ function writeContextBundle(
 - AGENTS.md：身份、角色卡、规范、当前任务与工作协议（会话启动入口）
 - PERSON.md：人设摘要
 - TASK.md：当前任务记录（执行入口是 AGENTS.md）
-- TASKS.json：任务队列状态回写文件（执行任务队列时生成）
+- TASKBOARD/：任务看板（pending / running / completed / failed / stopped，目录即状态）
 - STATE.md：跨会话进度（请让执行会话持续更新）
 - memory/：长期记忆
 
@@ -1044,173 +1210,41 @@ function clearContextFiles(dir: string): void {
   }
 }
 
-/** 生成给 DSH 回写的任务状态文件 */
-function writeQueueTasksFile(dir: string, queueId: string, tasks: PersonTask[]): void {
-  writeJsonAtomic(path.join(dir, TASKS_JSON_NAME), {
-    queueId,
-    updatedAt: new Date().toISOString(),
-    tasks: tasks.map((task) => ({
-      id: task.id,
-      title: task.title,
-      content: task.content,
-      status: task.status,
-      result: task.result ?? '',
-      error: task.error ?? '',
-      artifacts: task.artifacts ?? [],
-    })),
-  })
+/** 队列跟踪的任务集合：启动快照 ∪ 运行中新增的 pending/running 任务 */
+function queueTasksFromBoard(loaded: LoadedPerson, queue: PersonQueueState): PersonTask[] {
+  const tasks = readTasks(loaded)
+  const ids = new Set(queue.taskIds ?? [])
+  for (const task of tasks) {
+    if (task.status === 'pending' || task.status === 'running') ids.add(task.id)
+  }
+  return tasks.filter((task) => ids.has(task.id))
 }
 
-/** 任务看板结构变化后，把最新任务快照同步给 DSH 正在执行的 TASKS.json */
-function mirrorTasksToQueueFile(loaded: LoadedPerson): void {
+/** 从看板同步队列计数与当前任务（看板目录是唯一状态真源） */
+function syncQueueFromBoard(loaded: LoadedPerson): PersonTask[] {
   const queue = readQueueStateRaw(loaded)
-  if (queue.status !== 'running' && queue.status !== 'stopping') return
-  const tasks = readTasks(loaded.profileDir)
-  const ids = new Set(
-    queue.taskIds ??
-      tasks
-        .filter((task) => task.status === 'pending' || task.status === 'running')
-        .map((task) => task.id),
-  )
-  const queueTasks = tasks.filter((task) => ids.has(task.id))
-  const workspace = resolveActiveWorkspace(loaded.config, loaded.defaultWorkspace)
-  writeQueueTasksFile(workspace, queue.queueId ?? '', queueTasks)
+  const tasks = readTasks(loaded)
+  if (queue.status !== 'running' && queue.status !== 'stopping') return tasks
+  const queueTasks = queueTasksFromBoard(loaded, queue)
   queue.taskIds = queueTasks.map((task) => task.id)
   queue.total = queueTasks.length
   queue.completed = queueTasks.filter((task) => task.status === 'completed').length
   queue.failed = queueTasks.filter(
     (task) => task.status === 'failed' || task.status === 'stopped',
   ).length
+  const running = queueTasks.find((task) => task.status === 'running')
+  if (running) {
+    queue.currentTaskId = running.id
+    queue.currentIndex = queueTasks.indexOf(running) + 1
+  } else {
+    delete queue.currentTaskId
+    delete queue.currentIndex
+  }
   writeQueueState(loaded, queue)
   const run = readRunStateRaw(loaded)
   if (run.status === 'running' || run.status === 'stopping') {
     run.taskTitle = `任务队列（${queueTasks.length} 个任务）`
     writeRunState(loaded, run)
-  }
-}
-
-/** 从工作区 TASKS.json 同步 DSH 自己写入的任务状态 */
-function syncTasksFromWorkspace(loaded: LoadedPerson): PersonTask[] {
-  const workspace = resolveActiveWorkspace(loaded.config, loaded.defaultWorkspace)
-  const file = path.join(workspace, TASKS_JSON_NAME)
-  if (!exists(file)) return readTasks(loaded.profileDir)
-
-  const raw = readJsonFile<unknown>(file, null)
-  const list =
-    Array.isArray(raw)
-      ? raw
-      : raw !== null && typeof raw === 'object' && Array.isArray((raw as { tasks?: unknown }).tasks)
-        ? (raw as { tasks: unknown[] }).tasks
-        : []
-  if (list.length === 0) return readTasks(loaded.profileDir)
-
-  const allowed = new Set<PersonTaskStatus>([
-    'pending',
-    'running',
-    'completed',
-    'failed',
-    'stopped',
-  ])
-  const remote = new Map<
-    string,
-    {
-      status: PersonTaskStatus
-      result: string
-      error: string
-      artifacts: PersonArtifact[]
-    }
-  >()
-  for (const item of list) {
-    if (item === null || typeof item !== 'object') continue
-    const o = item as {
-      id?: unknown
-      status?: unknown
-      result?: unknown
-      error?: unknown
-      artifacts?: unknown
-    }
-    const id = str(o.id)
-    const status = str(o.status) as PersonTaskStatus
-    if (!id || !allowed.has(status)) continue
-    remote.set(id, {
-      status,
-      result: str(o.result).slice(0, 20_000),
-      error: str(o.error).slice(0, 2_000),
-      artifacts: normalizeArtifacts(o.artifacts),
-    })
-  }
-  if (remote.size === 0) return readTasks(loaded.profileDir)
-
-  const tasks = readTasks(loaded.profileDir)
-  const now = Date.now()
-  let changed = false
-  for (const task of tasks) {
-    const next = remote.get(task.id)
-    if (!next) continue
-    if (next.status !== task.status) {
-      task.status = next.status
-      changed = true
-      if (next.status === 'running') {
-        task.startedAt = task.startedAt ?? now
-        delete task.finishedAt
-      } else if (next.status === 'pending') {
-        delete task.startedAt
-        delete task.finishedAt
-        delete task.result
-        delete task.error
-      } else {
-        task.startedAt = task.startedAt ?? now
-        task.finishedAt = task.finishedAt ?? now
-      }
-    }
-    if (next.result) {
-      if (task.result !== next.result) {
-        task.result = next.result
-        changed = true
-      }
-    } else if (task.result && next.status === 'pending') {
-      delete task.result
-      changed = true
-    }
-    if (next.error) {
-      if (task.error !== next.error) {
-        task.error = next.error
-        changed = true
-      }
-    } else if (task.error && next.status === 'pending') {
-      delete task.error
-      changed = true
-    }
-    if (JSON.stringify(next.artifacts) !== JSON.stringify(task.artifacts ?? [])) {
-      if (next.artifacts.length > 0) task.artifacts = next.artifacts
-      else delete task.artifacts
-      changed = true
-    }
-  }
-  if (changed) writeTasks(loaded.profileDir, tasks)
-
-  const queue = readQueueStateRaw(loaded)
-  if (queue.status === 'running' || queue.status === 'stopping') {
-    const queueIds = new Set(
-      queue.taskIds && queue.taskIds.length > 0 ? queue.taskIds : [...remote.keys()],
-    )
-    const queueTasks = tasks.filter((task) => queueIds.has(task.id))
-    if (queueTasks.length > 0) {
-      queue.total = queueTasks.length
-      queue.completed = queueTasks.filter((task) => task.status === 'completed').length
-      queue.failed = queueTasks.filter(
-        (task) => task.status === 'failed' || task.status === 'stopped',
-      ).length
-      const running = queueTasks.find((task) => task.status === 'running')
-      if (running) {
-        queue.currentTaskId = running.id
-        queue.currentIndex = queueTasks.indexOf(running) + 1
-      } else {
-        delete queue.currentTaskId
-        delete queue.currentIndex
-      }
-      writeQueueState(loaded, queue)
-    }
   }
   return tasks
 }
@@ -1499,6 +1533,8 @@ export function readPersonAvatar(
 const activeRuns = new Map<string, string>()
 /** 本进程内正在跑队列的人员（personId → queueId） */
 const activeQueues = new Map<string, string>()
+/** 停止指令的超时兜底定时器（personId → timer；正常结束后清除） */
+const stopFallbackTimers = new Map<string, NodeJS.Timeout>()
 
 function runStatePathOf(personDir: string): string {
   return path.join(personDir, 'run.json')
@@ -1561,16 +1597,13 @@ function readQueueState(loaded: LoadedPerson): PersonQueueState {
     activeQueues.get(loaded.id) !== queue.queueId
   ) {
     const now = Date.now()
-    const tasks = readTasks(loaded.profileDir)
+    const workspace = ensurePersonBoard(loaded)
+    const tasks = readBoardTasks(workspace)
     let interrupted = 0
     for (const task of tasks) {
       if (task.status !== 'running') continue
-      task.status = 'failed'
-      task.finishedAt = now
-      task.error = '服务重启，任务中断'
-      interrupted += 1
+      if (settleRunningTask(workspace, task.id, 'failed', '服务重启，任务中断')) interrupted += 1
     }
-    writeTasks(loaded.profileDir, tasks)
     const stopped: PersonQueueState = {
       ...queue,
       status: 'stopped',
@@ -1601,8 +1634,8 @@ function toSummary(loaded: LoadedPerson): PersonSummary {
   const queueBefore = readQueueState(loaded)
   const tasks =
     queueBefore.status === 'running' || queueBefore.status === 'stopping'
-      ? syncTasksFromWorkspace(loaded)
-      : readTasks(loaded.profileDir)
+      ? syncQueueFromBoard(loaded)
+      : readTasks(loaded)
   const queue = readQueueStateRaw(loaded)
   const run = readRunState(loaded)
   const memory = collectMemory(loaded, 0)
@@ -1664,7 +1697,7 @@ export function getPerson(id: string, root: string = resolvePeopleRoot()): Perso
     config: loaded.config,
     cards: loaded.cards,
     norms: loaded.norms,
-    tasks: filterExistingArtifacts(loaded, readTasks(loaded.profileDir)),
+    tasks: filterExistingArtifacts(loaded, readTasks(loaded)),
     memory: collectMemory(loaded, 20_000),
     activity: readActivity(loaded.profileDir),
   }
@@ -1714,7 +1747,7 @@ export function createPerson(root: string, input: CreatePersonInput): PersonDeta
   writeJsonAtomic(configPathOf(profileDir), config)
   writeJsonAtomic(cardsPathOf(profileDir), cards)
   writeTextFile(normsPathOf(profileDir), norms)
-  writeJsonAtomic(tasksPathOf(profileDir), [])
+  initBoardDirs(defaultWorkspace)
   writeJsonAtomic(queuePathOf(personDir), emptyQueueState())
   writeJsonAtomic(runStatePathOf(personDir), { status: 'idle' })
   const loaded: LoadedPerson = { id, personDir, defaultWorkspace, profileDir, config, cards, norms }
@@ -1732,6 +1765,7 @@ export interface UpdatePersonInput {
   norms?: string
   model?: Partial<PersonModelSettings>
   workspace?: Partial<PersonWorkspaceSettings>
+  parallelism?: number
 }
 
 /** 更新人员配置（名称 / 类型 / 任务 / 角色卡 / 规范 / 模型 / 工作区） */
@@ -1762,6 +1796,13 @@ export function updatePerson(id: string, root: string, input: UpdatePersonInput)
     if (task !== loaded.config.task) {
       loaded.config.task = task
       activity.push('更新了当前任务')
+    }
+  }
+  if (input.parallelism !== undefined) {
+    const next = Math.min(8, Math.max(1, Math.round(num(input.parallelism) || 1)))
+    if (next !== loaded.config.parallelism) {
+      loaded.config.parallelism = next
+      activity.push(`任务并行数改为 ${next}`)
     }
   }
   if (input.cards !== undefined) {
@@ -1851,6 +1892,7 @@ export function updatePerson(id: string, root: string, input: UpdatePersonInput)
 export interface AddTaskInput {
   title?: string
   content: string
+  source?: PersonTaskSource
 }
 
 /** 向任务看板添加任务（只入列，不执行） */
@@ -1859,29 +1901,25 @@ export function addPersonTask(id: string, root: string, input: AddTaskInput): Pe
   const loaded = loadPersonForTaskEdit(dir, id)
   const content = str(input.content).trim()
   if (!content) throw new FsError(400, '任务内容不能为空')
-  const tasks = readTasks(loaded.profileDir)
-  const task: PersonTask = {
-    id: newRecordId('task'),
-    title: str(input.title).trim().slice(0, 120) || taskTitleFromContent(content),
+  const workspace = ensurePersonBoard(loaded)
+  const task = addBoardTask(workspace, newRecordId('task'), {
+    title: str(input.title),
     content: content.slice(0, MAX_TASK_LENGTH),
-    status: 'pending',
     createdAt: Date.now(),
-  }
-  tasks.push(task)
-  writeTasks(loaded.profileDir, tasks)
+    ...(input.source ? { source: input.source } : {}),
+  })
   const queue = readQueueStateRaw(loaded)
   if (queue.status === 'running' || queue.status === 'stopping') {
-    if (!queue.taskIds) {
-      queue.taskIds = tasks
-        .filter((item) => item.status === 'pending' || item.status === 'running')
-        .map((item) => item.id)
-    }
+    if (!queue.taskIds) queue.taskIds = []
     if (!queue.taskIds.includes(task.id)) queue.taskIds.push(task.id)
     queue.total = queue.taskIds.length
     writeQueueState(loaded, queue)
-    mirrorTasksToQueueFile(loaded)
   }
   appendActivity(loaded.profileDir, 'task_added', `添加任务「${task.title}」`)
+  broadcastPersonnelBoardChanged(id, 'task_added', {
+    taskId: task.id,
+    status: task.status,
+  })
   return getPerson(id, dir)
 }
 
@@ -1889,22 +1927,19 @@ export function addPersonTask(id: string, root: string, input: AddTaskInput): Pe
 export function deletePersonTask(id: string, root: string, taskId: string): PersonDetail {
   const dir = ensurePeopleRoot(root)
   const loaded = loadPersonForTaskEdit(dir, id)
-  const tasks = readTasks(loaded.profileDir)
-  const target = tasks.find((task) => task.id === taskId)
-  if (!target) throw new FsError(404, '任务不存在')
-  if (target.status === 'running') throw new FsError(409, '任务正在执行，不能删除')
-  writeTasks(
-    loaded.profileDir,
-    tasks.filter((task) => task.id !== taskId),
-  )
+  const workspace = ensurePersonBoard(loaded)
+  const found = findBoardTask(workspace, taskId)
+  if (!found) throw new FsError(404, '任务不存在')
+  if (found.status === 'running') throw new FsError(409, '任务正在执行，不能删除')
+  deleteBoardTask(workspace, taskId)
   const queue = readQueueStateRaw(loaded)
   if (queue.taskIds) {
     queue.taskIds = queue.taskIds.filter((item) => item !== taskId)
-    queue.total = queue.taskIds.length
+    queue.total = Math.max(0, queue.total - 1)
     writeQueueState(loaded, queue)
   }
-  mirrorTasksToQueueFile(loaded)
-  appendActivity(loaded.profileDir, 'task_deleted', `删除任务「${target.title}」`)
+  appendActivity(loaded.profileDir, 'task_deleted', `删除任务「${found.task.title}」`)
+  broadcastPersonnelBoardChanged(id, 'task_deleted', { taskId })
   return getPerson(id, dir)
 }
 
@@ -1917,24 +1952,12 @@ export function movePersonTask(
 ): PersonDetail {
   const dir = ensurePeopleRoot(root)
   const loaded = loadPersonForTaskEdit(dir, id)
-  const tasks = readTasks(loaded.profileDir)
-  const index = tasks.findIndex((task) => task.id === taskId)
-  if (index < 0) throw new FsError(404, '任务不存在')
-  if (tasks[index]!.status !== 'pending') throw new FsError(400, '只能调整待执行任务的顺序')
-  let swapIndex = -1
-  const step = direction === 'up' ? -1 : 1
-  for (let i = index + step; i >= 0 && i < tasks.length; i += step) {
-    if (tasks[i]!.status === 'pending') {
-      swapIndex = i
-      break
-    }
-  }
-  if (swapIndex >= 0) {
-    const [task] = tasks.splice(index, 1)
-    tasks.splice(swapIndex, 0, task!)
-    writeTasks(loaded.profileDir, tasks)
-    mirrorTasksToQueueFile(loaded)
-  }
+  const workspace = ensurePersonBoard(loaded)
+  const found = findBoardTask(workspace, taskId)
+  if (!found) throw new FsError(404, '任务不存在')
+  if (found.status !== 'pending') throw new FsError(400, '只能调整待执行任务的顺序')
+  if (movePendingTask(workspace, taskId, direction)) syncQueueFromBoard(loaded)
+  broadcastPersonnelBoardChanged(id, 'task_moved', { taskId })
   return getPerson(id, dir)
 }
 
@@ -1942,31 +1965,22 @@ export function movePersonTask(
 export function retryPersonTask(id: string, root: string, taskId: string): PersonDetail {
   const dir = ensurePeopleRoot(root)
   const loaded = loadPersonForTaskEdit(dir, id)
-  const tasks = readTasks(loaded.profileDir)
-  const target = tasks.find((task) => task.id === taskId)
-  if (!target) throw new FsError(404, '任务不存在')
-  if (target.status !== 'failed' && target.status !== 'stopped') {
+  const workspace = ensurePersonBoard(loaded)
+  const found = findBoardTask(workspace, taskId)
+  if (!found) throw new FsError(404, '任务不存在')
+  if (found.status !== 'failed' && found.status !== 'stopped') {
     throw new FsError(400, '只有失败或已停止的任务可以重试')
   }
-  target.status = 'pending'
-  delete target.startedAt
-  delete target.finishedAt
-  delete target.result
-  delete target.error
-  writeTasks(loaded.profileDir, tasks)
+  if (!retryBoardTask(workspace, taskId)) throw new FsError(500, '任务重新排队失败')
   const queue = readQueueStateRaw(loaded)
   if (queue.status === 'running' || queue.status === 'stopping') {
-    if (!queue.taskIds) {
-      queue.taskIds = tasks
-        .filter((item) => item.status === 'pending' || item.status === 'running')
-        .map((item) => item.id)
-    }
-    if (!queue.taskIds.includes(target.id)) queue.taskIds.push(target.id)
+    if (!queue.taskIds) queue.taskIds = []
+    if (!queue.taskIds.includes(taskId)) queue.taskIds.push(taskId)
     queue.total = queue.taskIds.length
     writeQueueState(loaded, queue)
-    mirrorTasksToQueueFile(loaded)
   }
-  appendActivity(loaded.profileDir, 'task_retried', `重新排队任务「${target.title}」`)
+  appendActivity(loaded.profileDir, 'task_retried', `重新排队任务「${found.task.title}」`)
+  broadcastPersonnelBoardChanged(id, 'task_retried', { taskId, status: 'pending' })
   return getPerson(id, dir)
 }
 
@@ -1983,7 +1997,7 @@ export function getPersonTaskReport(
   taskId: string,
 ): PersonTaskReport {
   const loaded = loadPerson(ensurePeopleRoot(root), id)
-  const task = readTasks(loaded.profileDir).find((item) => item.id === taskId)
+  const task = readTasks(loaded).find((item) => item.id === taskId)
   if (!task) throw new FsError(404, '任务不存在')
   const artifact = (task.artifacts ?? []).find((item) => item.kind === 'markdown')
   if (!artifact) throw new FsError(404, '该任务没有可查看的 Markdown 产物')
@@ -2023,7 +2037,7 @@ export async function runPerson(id: string, root: string = resolvePeopleRoot()):
   readQueueState(loaded)
   readRunState(loaded)
   assertNotRunning(id)
-  const tasks = readTasks(loaded.profileDir)
+  const tasks = readTasks(loaded)
   const pending = tasks.filter((task) => task.status === 'pending')
   if (pending.length === 0) throw new FsError(400, '没有待执行的任务，请先在任务看板中发布任务')
 
@@ -2039,18 +2053,80 @@ export async function runPerson(id: string, root: string = resolvePeopleRoot()):
   activeQueues.set(id, queue.queueId!)
   writeQueueState(loaded, queue)
   appendActivity(loaded.profileDir, 'queue_started', `开始执行任务队列（${pending.length} 个）`)
+  broadcastPersonnelBoardChanged(id, 'queue_started', { queueStatus: queue.status })
   void processQueue(id, dir, queue.queueId!)
   return queue
 }
 
-/** 队列执行器：一个 DSH 会话执行 AGENTS.md 的整张任务清单，状态由 DSH 回写 TASKS.json */
+/**
+ * 看板事件轮询：队列执行期间每秒扫描一次，把任务状态变化按来源项目
+ * 经 WS 广播为 personnel.taskEvent（蓝图运行窗口订阅后驱动事件节点）。
+ * 只广播带 source.project 的蓝图任务；手动任务不发事件。
+ */
+function startBoardEventPoller(loaded: LoadedPerson): { stop: () => void; flush: () => void } {
+  const workspace = ensurePersonBoard(loaded)
+  const last = new Map<string, PersonTaskStatus>()
+  for (const task of readBoardTasks(workspace)) last.set(task.id, task.status)
+  let stopped = false
+  const scan = (): void => {
+    if (stopped) return
+    let tasks: PersonTask[]
+    try {
+      tasks = readBoardTasks(workspace)
+    } catch {
+      return
+    }
+    for (const task of tasks) {
+      const previous = last.get(task.id)
+      last.set(task.id, task.status)
+      if (previous === undefined || previous === task.status) continue
+      broadcastPersonnelBoardChanged(loaded.id, 'task_status', {
+        taskId: task.id,
+        status: task.status,
+      })
+      const project = task.source?.project
+      if (!project) continue
+      pluginPushHub.broadcast(project, {
+        type: 'personnel.taskEvent',
+        personId: loaded.id,
+        taskId: task.id,
+        status: task.status,
+        result: task.result ?? '',
+        error: task.error ?? '',
+        artifacts: task.artifacts ?? [],
+        source: task.source ?? {},
+      })
+    }
+    try {
+      syncQueueFromBoard(loaded)
+    } catch {
+      /* 队列计数同步失败不阻塞事件推送 */
+    }
+  }
+  const timer = setInterval(scan, 1000)
+  timer.unref?.()
+  return {
+    stop: () => {
+      stopped = true
+      clearInterval(timer)
+    },
+    flush: () => {
+      if (stopped) return
+      scan()
+    },
+  }
+}
+
+/** 队列执行器：一个 DSH 会话按 AGENTS.md 协议执行 TASKBOARD，服务端直接读看板目录同步状态 */
 async function processQueue(id: string, root: string, queueId: string): Promise<void> {
   const loaded = loadPerson(root, id)
   const types = loadTypes(root)
+  let poller: { stop: () => void; flush: () => void } | null = null
   try {
     const build = buildWorkspaceInternal(loaded)
     const target = build.workspaceDir
-    const queueTasks = readTasks(loaded.profileDir).filter((task) => task.status === 'pending')
+    ensurePersonBoard(loaded)
+    const queueTasks = readTasks(loaded).filter((task) => task.status === 'pending')
     if (queueTasks.length === 0) {
       const queue = readQueueStateRaw(loaded)
       queue.status = 'completed'
@@ -2061,10 +2137,10 @@ async function processQueue(id: string, root: string, queueId: string): Promise<
       delete queue.currentIndex
       writeQueueState(loaded, queue)
       appendActivity(loaded.profileDir, 'queue_completed', '任务队列没有待执行任务')
+      broadcastPersonnelBoardChanged(id, 'queue_finished', { queueStatus: queue.status })
       return
     }
 
-    writeQueueTasksFile(target, queueId, queueTasks)
     writeContextBundle(loaded, target, types, { queueTasks })
     writeContextBundle(loaded, loaded.defaultWorkspace, types, { queueTasks })
 
@@ -2121,6 +2197,7 @@ async function processQueue(id: string, root: string, queueId: string): Promise<
       'run_started',
       `开始执行任务队列（${queueTasks.length} 个任务）`,
     )
+    poller = startBoardEventPoller(loaded)
 
     let reply = ''
     let outcome: 'completed' | 'failed' | 'stopped' = 'failed'
@@ -2142,7 +2219,7 @@ async function processQueue(id: string, root: string, queueId: string): Promise<
       if (after.status === 'stopping' || after.status === 'stopped') {
         outcome = 'stopped'
       } else {
-        const synced = syncTasksFromWorkspace(loaded)
+        const synced = readTasks(loaded)
         const queueIds = new Set(queueTasks.map((task) => task.id))
         const queueSynced = synced.filter((task) => queueIds.has(task.id))
         const unresolved = queueSynced.filter(
@@ -2150,7 +2227,7 @@ async function processQueue(id: string, root: string, queueId: string): Promise<
         )
         if (unresolved.length > 0) {
           outcome = 'failed'
-          error = `智能体未完整回写 TASKS.json 任务状态（剩余 ${unresolved.length} 个）`
+          error = `智能体未完整回写任务看板（剩余 ${unresolved.length} 个未完成）`
         } else {
           outcome = 'completed'
         }
@@ -2161,31 +2238,24 @@ async function processQueue(id: string, root: string, queueId: string): Promise<
       outcome = after.status === 'stopping' || after.status === 'stopped' ? 'stopped' : 'failed'
     }
 
-    let tasks = syncTasksFromWorkspace(loaded)
+    const boardWorkspace = ensurePersonBoard(loaded)
+    const tasks = readTasks(loaded)
     const queueState = readQueueStateRaw(loaded)
     const queueIds = new Set(
       queueState.taskIds && queueState.taskIds.length > 0
         ? queueState.taskIds
         : queueTasks.map((task) => task.id),
     )
-    let statusChanged = false
     for (const task of tasks) {
       if (!queueIds.has(task.id)) continue
       if (outcome === 'stopped' && task.status === 'running') {
-        task.status = 'stopped'
-        task.finishedAt = task.finishedAt ?? Date.now()
-        task.error = '已手动停止'
-        statusChanged = true
+        settleRunningTask(boardWorkspace, task.id, 'stopped', '已手动停止')
       } else if (outcome === 'failed' && task.status === 'running') {
-        task.status = 'failed'
-        task.finishedAt = task.finishedAt ?? Date.now()
-        task.error = error || '任务队列失败'
-        statusChanged = true
+        settleRunningTask(boardWorkspace, task.id, 'failed', error || '任务队列失败')
       }
     }
-    if (statusChanged) writeTasks(loaded.profileDir, tasks)
 
-    const queueSynced = tasks.filter((task) => queueIds.has(task.id))
+    const queueSynced = readTasks(loaded).filter((task) => queueIds.has(task.id))
     const completed = queueSynced.filter((task) => task.status === 'completed').length
     const failed = queueSynced.filter(
       (task) => task.status === 'failed' || task.status === 'stopped',
@@ -2195,7 +2265,7 @@ async function processQueue(id: string, root: string, queueId: string): Promise<
     ).length
     if (outcome === 'completed' && unresolved > 0) {
       outcome = 'failed'
-      error = error || `智能体未完整回写 TASKS.json 任务状态（剩余 ${unresolved} 个）`
+      error = error || `智能体未完整回写任务看板（剩余 ${unresolved} 个未完成）`
     }
 
     const finishedAt = Date.now()
@@ -2246,6 +2316,7 @@ async function processQueue(id: string, root: string, queueId: string): Promise<
           ? '任务队列已停止'
           : `任务队列失败：${error || '未知错误'}`,
     )
+    broadcastPersonnelBoardChanged(id, 'queue_finished', { queueStatus: queue.status })
     if (outcome !== 'stopped' && loaded.config.workspace.deleteSessionAfterRun && sessionId) {
       await agentGateway.deleteSession('dsh', sessionId).catch(() => undefined)
       appendActivity(loaded.profileDir, 'session_archived', '已按设置归档任务队列会话')
@@ -2261,28 +2332,77 @@ async function processQueue(id: string, root: string, queueId: string): Promise<
       delete current.currentIndex
       writeQueueState(loaded, current)
       appendActivity(loaded.profileDir, 'queue_failed', `任务队列异常：${message}`)
+      broadcastPersonnelBoardChanged(id, 'queue_finished', { queueStatus: current.status })
     }
   } finally {
+    poller?.flush()
+    poller?.stop()
+    const timer = stopFallbackTimers.get(id)
+    if (timer) {
+      clearTimeout(timer)
+      stopFallbackTimers.delete(id)
+    }
     if (activeQueues.get(id) === queueId) activeQueues.delete(id)
     activeRuns.delete(id)
   }
 }
 
-/** 停止任务队列：取消当前任务，剩余 pending 任务保留 */
-export async function stopPerson(id: string, root: string = resolvePeopleRoot()): Promise<PersonQueueState> {
+/**
+ * 停止任务队列：
+ *  - 默认先向主会话发送停止指令（由会话把自己 running 的任务移入 stopped/ 并回复），
+ *    60 秒无响应再强制取消当前回合；
+ *  - taskId 非空时只停该任务对应的子会话，队列继续执行其余任务。
+ * 剩余 pending 任务保留。
+ */
+export async function stopPerson(
+  id: string,
+  root: string = resolvePeopleRoot(),
+  taskId = '',
+): Promise<PersonQueueState> {
   const dir = ensurePeopleRoot(root)
   const loaded = loadPerson(dir, id)
   const queue = readQueueState(loaded)
   if (queue.status !== 'running' && queue.status !== 'stopping') return queue
-  const stopping: PersonQueueState = { ...queue, status: 'stopping' }
-  writeQueueState(loaded, stopping)
   const run = readRunStateRaw(loaded)
-  if (run.status === 'running') {
-    writeRunState(loaded, { ...run, status: 'stopping' })
+  const target = str(taskId).trim()
+  const instruction = target
+    ? `只停止任务 ${target} 对应的子会话/执行：确认它已停止后，把该任务文件移入 TASKBOARD/stopped/ 并写 <同名>.error.txt 说明“已手动停止”；其余任务继续执行，不要停止整个队列。`
+    : '请立即停止当前所有任务与子会话：把 TASKBOARD/running/ 里属于本次队列的任务文件移入 stopped/，每个任务写 <同名>.error.txt 说明“已手动停止”，然后回复“已停止”。不要删除 pending 任务。'
+  const stopping: PersonQueueState = target ? queue : { ...queue, status: 'stopping' }
+  if (!target) {
+    writeQueueState(loaded, stopping)
+    if (run.status === 'running') writeRunState(loaded, { ...run, status: 'stopping' })
   }
   if (run.sessionId) {
-    await agentGateway.cancelSession('dsh', run.sessionId).catch(() => undefined)
+    try {
+      await agentGateway.sendMessage({
+        platform: 'dsh',
+        project: personProjectKey(id),
+        sessionId: run.sessionId,
+        message: instruction,
+        waitForCompletion: false,
+      })
+    } catch {
+      // 会话已不可用 / 不支持插话：退回强制取消
+      await agentGateway.cancelSession('dsh', run.sessionId).catch(() => undefined)
+    }
+    if (!target) {
+      const timer = setTimeout(() => {
+        stopFallbackTimers.delete(id)
+        if (activeQueues.get(id) !== queue.queueId) return
+        void agentGateway.cancelSession('dsh', run.sessionId!).catch(() => undefined)
+      }, 60_000)
+      timer.unref?.()
+      const previous = stopFallbackTimers.get(id)
+      if (previous) clearTimeout(previous)
+      stopFallbackTimers.set(id, timer)
+    }
   }
+  broadcastPersonnelBoardChanged(
+    id,
+    target ? 'task_stopping' : 'queue_stopping',
+    target ? { taskId: target } : { queueStatus: stopping.status },
+  )
   return stopping
 }
 
@@ -2545,9 +2665,11 @@ export async function handlePersonnelRequest(deps: PersonnelHttpDeps): Promise<b
   const action = segments.slice(1).join('/')
   if (action === 'tasks' && method === 'POST') {
     const body = await readJson(req)
+    const source = body.source ? normalizeTaskSource(body.source) : undefined
     const person = addPersonTask(id, root, {
       title: str(body.title),
       content: str(body.content),
+      ...(source ? { source } : {}),
     })
     sendJson(res, 201, { ok: true, person })
     return true
@@ -2605,7 +2727,8 @@ export async function handlePersonnelRequest(deps: PersonnelHttpDeps): Promise<b
     return true
   }
   if (action === 'stop' && method === 'POST') {
-    sendJson(res, 200, { ok: true, queue: await stopPerson(id, root) })
+    const body = await readJson(req)
+    sendJson(res, 200, { ok: true, queue: await stopPerson(id, root, str(body.taskId)) })
     return true
   }
   if (action === 'polish' && method === 'POST') {

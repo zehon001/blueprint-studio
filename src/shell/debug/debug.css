@@ -3,13 +3,27 @@
  *
  * 全部取值走 theme token（--error / --accent / --node-bg / …）。
  * 类挂载点：
- *  - .bp-node--debug-active / .bp-node--debug-error：BPNode 根元素（data.debugHighlight）；
+ *  - .bp-node--debug-running / .bp-node--debug-active / .bp-node--debug-error：
+ *    BPNode 根元素（data.debugHighlight）；
  *  - .bp-edge--flow：连线流动动画（T2.1 已预置于 styles.css，此处不重复定义）；
  *  - .bp-debug-pin*：端口实时值徽标（ViewportPortal 层）。
  */
 
-/* ============ 节点高亮：描边脉冲（2s 衰减，nodeEnter/nodeExit） ============ */
+/* ============ 节点高亮 ============ */
 
+/*
+ * 运行中：nodeEnter → nodeExit 期间常亮。
+ * 不用有限时长的 animation（等待人员完成等长任务会一直阻塞在 nodeEnter），
+ * 用静态 outline + box-shadow，跨任意时长都保持可见。
+ */
+.bp-node.bp-node--debug-running {
+  border-color: var(--accent-hover);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--selection);
+}
+
+/* 刚执行完：2s 描边脉冲（nodeEnter/nodeExit） */
 .bp-node.bp-node--debug-active {
   animation: bp-node-pulse 2s ease-out forwards;
 }

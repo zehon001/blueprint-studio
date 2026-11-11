@@ -35,6 +35,8 @@ export const ERROR_TTL_MS = 5000;
 export interface DebugOverlayState {
   /** 节点高亮：nodeId → 最近一次 nodeEnter/nodeExit 时间戳 */
   nodeHighlight: Map<string, number>;
+  /** 正在执行的节点（nodeEnter 加入，nodeExit/nodeError 移除；长任务保持常亮） */
+  runningNodes: Set<string>;
   /** exec 流动：edgeId → 触发时间戳（nodeEnter 写入，800ms 衰减） */
   flowingEdges: Map<string, number>;
   /** 端口实时值：'nodeId:pinId' → 最新值 + 时间戳（每引脚只留最新） */
@@ -49,6 +51,7 @@ export interface DebugOverlayState {
 export function emptyOverlayState(): DebugOverlayState {
   return {
     nodeHighlight: new Map(),
+    runningNodes: new Set(),
     flowingEdges: new Map(),
     pinValues: new Map(),
     nodeErrors: new Map(),
@@ -60,6 +63,7 @@ export function emptyOverlayState(): DebugOverlayState {
 export function isOverlayEmpty(state: DebugOverlayState): boolean {
   return (
     state.nodeHighlight.size === 0 &&
+    state.runningNodes.size === 0 &&
     state.flowingEdges.size === 0 &&
     state.pinValues.size === 0 &&
     state.nodeErrors.size === 0
@@ -94,6 +98,7 @@ export function applyDebugEvents(
   ctx: FoldContext,
 ): DebugOverlayState {
   const nodeHighlight = new Map(prev.nodeHighlight);
+  const runningNodes = new Set(prev.runningNodes);
   const flowingEdges = new Map(prev.flowingEdges);
   const pinValues = new Map(prev.pinValues);
   const nodeErrors = new Map(prev.nodeErrors);
@@ -103,6 +108,7 @@ export function applyDebugEvents(
       case 'nodeEnter': {
         if (!ev.nodeId) break;
         nodeHighlight.set(ev.nodeId, ts);
+        runningNodes.add(ev.nodeId);
         // exec 流动：进入节点 → 该节点的入向 exec 边亮起（刚流过的那一段）
         if (ctx.inExecEdges && (ctx.graphName === undefined || ev.graph === ctx.graphName)) {
           for (const edgeId of ctx.inExecEdges.get(ev.nodeId) ?? []) {
@@ -114,6 +120,7 @@ export function applyDebugEvents(
       case 'nodeExit': {
         if (!ev.nodeId) break;
         nodeHighlight.set(ev.nodeId, ts); // 脉冲时间戳刷新（离开后 2s 衰减）
+        runningNodes.delete(ev.nodeId);
         break;
       }
       case 'pinValue': {
@@ -123,6 +130,7 @@ export function applyDebugEvents(
       }
       case 'nodeError': {
         if (!ev.nodeId) break;
+        runningNodes.delete(ev.nodeId);
         nodeErrors.set(ev.nodeId, ts);
         break;
       }
@@ -130,7 +138,7 @@ export function applyDebugEvents(
         break; // emit：编辑器叠加层不用（事件面板 T5.2 职责）
     }
   }
-  return { nodeHighlight, flowingEdges, pinValues, nodeErrors, lastBatchAt: ctx.now };
+  return { nodeHighlight, runningNodes, flowingEdges, pinValues, nodeErrors, lastBatchAt: ctx.now };
 }
 
 /**
@@ -150,7 +158,14 @@ export function decayOverlay(state: DebugOverlayState, now: number): DebugOverla
   );
   const nodeErrors = filterFresh(state.nodeErrors, now, ERROR_TTL_MS, () => (changed = true));
   if (!changed) return state;
-  return { nodeHighlight, flowingEdges, pinValues, nodeErrors, lastBatchAt: state.lastBatchAt };
+  return {
+    nodeHighlight,
+    runningNodes: state.runningNodes,
+    flowingEdges,
+    pinValues,
+    nodeErrors,
+    lastBatchAt: state.lastBatchAt,
+  };
 }
 
 /** 按时间戳过滤过期键（值为 number 或 {ts}）；无变化返回原 Map 引用 */
@@ -178,7 +193,7 @@ function filterFresh<V>(
  * ============================================================ */
 
 /** 节点叠加标记（写入 FlowNode.data.debugHighlight；BPNode 读它加 class） */
-export type DebugHighlightKind = 'active' | 'error';
+export type DebugHighlightKind = 'running' | 'active' | 'error';
 
 /**
  * 把新鲜的节点高亮 / 错误标记写进受控节点数组：
@@ -197,9 +212,11 @@ export function applyNodeOverlay(
     const err = state.nodeErrors.get(node.id);
     const kind: DebugHighlightKind | undefined = err !== undefined && now - err <= ERROR_TTL_MS
       ? 'error'
-      : hl !== undefined && now - hl <= HIGHLIGHT_TTL_MS
-        ? 'active'
-        : undefined;
+      : state.runningNodes.has(node.id)
+        ? 'running'
+        : hl !== undefined && now - hl <= HIGHLIGHT_TTL_MS
+          ? 'active'
+          : undefined;
     const prevKind = (node.data as { debugHighlight?: DebugHighlightKind }).debugHighlight;
     if (kind === prevKind) continue; // 该节点视觉不变：保持原对象
     if (!out) out = nodes.slice();

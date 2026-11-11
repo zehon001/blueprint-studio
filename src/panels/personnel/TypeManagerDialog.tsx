@@ -124,7 +124,7 @@ function TypeDeliveryEditor(props: {
         onChange={(required) => patch({ required })}
       />
       <p className="pp-type-hint">
-        交付要求会写进该类型人员工作区的 AGENTS.md。任务产物需要在 TASKS.json 中登记，概览页才会出现查看入口。
+        交付要求会写进该类型人员工作区的 AGENTS.md。任务产物需要登记在同名 .artifacts.json 中，概览页才会出现查看入口。
       </p>
     </div>
   )

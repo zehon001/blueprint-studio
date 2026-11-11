@@ -85,6 +85,7 @@ export interface PersonUpdatePatch {
   name?: string
   typeId?: string
   task?: string
+  parallelism?: number
   currentCardId?: string
   cards?: RoleCard[]
   norms?: string
@@ -161,7 +162,11 @@ export const personnelApi = {
       body: JSON.stringify(input),
     }),
   run: (id: string) => request<PersonQueuePayload>(idPath(id, '/run'), { method: 'POST' }),
-  stop: (id: string) => request<PersonQueuePayload>(idPath(id, '/stop'), { method: 'POST' }),
+  stop: (id: string, taskId?: string) =>
+    request<PersonQueuePayload>(idPath(id, '/stop'), {
+      method: 'POST',
+      body: JSON.stringify(taskId ? { taskId } : {}),
+    }),
   clearMemory: (id: string) =>
     request<PersonMemoryPayload>(idPath(id, '/memory/clear'), { method: 'POST' }),
   organizeMemory: (id: string) =>

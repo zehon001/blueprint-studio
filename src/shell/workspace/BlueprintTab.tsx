@@ -49,6 +49,10 @@ export function BlueprintTab({ assetPath, panelId }: { assetPath: string; panelI
   const tabId = tabIdOf('blueprint', assetPath)
   const [state, setState] = useState<LoadState>({ status: 'loading', asset: null, message: '' })
   const [reloadKey, setReloadKey] = useState(0)
+  /** 编辑器最新内存快照：页签切走时保留，切回不再用首次读盘快照覆盖 store */
+  const syncAssetSnapshot = useCallback((next: IRAsset) => {
+    setState((s) => (s.status === 'ready' && s.asset !== next ? { ...s, asset: next } : s))
+  }, [])
   /* v3 T8.2：统一选择协议——本面板激活且就绪时发布蓝图选中节点/图名 */
   const uid = panelId ?? assetPanelId('blueprint', assetPath)
   const activePanelId = useDockStore((s) => s.activePanelId)
@@ -105,42 +109,61 @@ export function BlueprintTab({ assetPath, panelId }: { assetPath: string; panelI
     }
   }, [project?.path, assetPath, reloadKey])
 
-  /* 脏标记：命令栈新蓝图命令 / undo / redo */
+  /* 脏标记：只有当前激活的蓝图页签响应全局命令栈，隐藏页签不得被一起标脏 */
   useEffect(() => {
+    const active = activePanelId === uid
+    if (!active) return
     let lastLen = useEditorStore.getState().undoStack.length
     const unsubStore = useEditorStore.subscribe((s) => {
       if (s.undoStack.length > lastLen) {
         const top = peekUndo()
-        if (top?.domain === 'blueprint') markDirty(tabId)
+        if (top?.domain === 'blueprint' && useDockStore.getState().activePanelId === uid) {
+          markDirty(tabId)
+        }
       }
       lastLen = s.undoStack.length
     })
     const unsubReplay = subscribeReplay((notice) => {
-      if (notice.domains.includes('blueprint')) markDirty(tabId)
+      if (
+        notice.domains.includes('blueprint') &&
+        useDockStore.getState().activePanelId === uid
+      ) {
+        markDirty(tabId)
+      }
     })
     return () => {
       unsubStore()
       unsubReplay()
     }
-  }, [tabId, markDirty])
+  }, [activePanelId, uid, tabId, markDirty])
 
-  /* 保存：serializeIR → PUT → 清脏 */
+  /* 保存：serializeIR → PUT → 清脏；失败保留脏标记与内存快照 */
   const save = useCallback(
-    (asset: IRAsset) => {
-      if (!project) return
-      fetch('/api/file', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: fullPath(project.path, assetPath), content: serializeIR(asset) }),
-      })
-        .then((r) => r.json())
-        .then((json: { ok: boolean; message?: string }) => {
-          if (json.ok) clearDirty(tabId)
-          else console.error('[蓝图保存失败]', json.message)
+    async (asset: IRAsset): Promise<boolean> => {
+      if (!project) return false
+      try {
+        const res = await fetch('/api/file', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: fullPath(project.path, assetPath),
+            content: serializeIR(asset),
+          }),
         })
-        .catch((err: unknown) => console.error('[蓝图保存失败]', err))
+        const json = (await res.json()) as { ok: boolean; message?: string }
+        if (!json.ok) {
+          console.error('[蓝图保存失败]', json.message)
+          return false
+        }
+        syncAssetSnapshot(asset)
+        clearDirty(tabId)
+        return true
+      } catch (err) {
+        console.error('[蓝图保存失败]', err)
+        return false
+      }
     },
-    [project?.path, assetPath, tabId, clearDirty],
+    [project?.path, assetPath, tabId, clearDirty, syncAssetSnapshot],
   )
 
   /* 新建空蓝图（empty 项目里 tab 指向的资产还不存在时） */
@@ -179,6 +202,7 @@ export function BlueprintTab({ assetPath, panelId }: { assetPath: string; panelI
       asset={state.asset}
       assetPath={assetPath}
       onSave={save}
+      onAssetChange={syncAssetSnapshot}
       className="workspace-bp-panel"
       panelId={uid}
     />

@@ -1137,3 +1137,23 @@ test('DOM 冒烟：交互钩子接线——Tab/Esc/Ctrl+A/Delete/undo 链路与 
     resetEditorStore();
   }
 });
+
+test('DOM 冒烟：非激活编辑器不响应 Tab（多面板只由激活面板打开全局菜单）', async () => {
+  dom.document.body.innerHTML = '';
+  resetEditorStore();
+  useBlueprintStore.getState().openAsset(sampleAsset(), 'logic/inactive.bp.json');
+
+  function HookProbe(): ReturnType<typeof createElement> {
+    useCanvasInteractions({ active: false });
+    return createElement('div', { className: 'bp-canvas' });
+  }
+  const unmount = mount(createElement(ReactFlowProvider, null, createElement(HookProbe)));
+  try {
+    act(() => {
+      pressKey('Tab');
+    });
+    assert.equal(useBlueprintStore.getState().menu, null, '非激活面板不应打开搜索菜单');
+  } finally {
+    await unmount();
+  }
+});

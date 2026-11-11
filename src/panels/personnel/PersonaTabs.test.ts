@@ -93,6 +93,7 @@ function samplePerson(): PersonDetail {
       updatedAt: 1,
       task: '',
       currentCardId: 'card-1',
+      parallelism: 1,
       model: { platform: 'dsh', model: '', reasoning: '', permission: '' },
       workspace: {
         dir: '',

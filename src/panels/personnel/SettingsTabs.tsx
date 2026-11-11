@@ -122,6 +122,26 @@ export function GeneralTab(props: SettingsTabProps & {
           名字和头像直接点击上方人员卡片修改；这里只展示身份信息。
         </p>
       </PpSectionCard>
+
+      <PpSectionCard
+        title="任务执行"
+        desc="并行数大于 1 时，主会话按 AGENTS.md 协议开子会话并行执行；任务看板仍由主会话唯一写入。"
+      >
+        <PpRow label="并行任务数" hint="1 = 串行；建议 2~3，最多 8">
+          <PpSelect
+            value={String(detail.config.parallelism)}
+            options={Array.from({ length: 8 }, (_, index) => {
+              const value = String(index + 1)
+              return { value, label: value }
+            })}
+            onChange={(value) =>
+              void patch(detail.id, { parallelism: Number(value) }, onRefresh, '并行任务数已更新')
+            }
+            disabled={busy}
+            ariaLabel="并行任务数"
+          />
+        </PpRow>
+      </PpSectionCard>
     </div>
   )
 }

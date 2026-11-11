@@ -65,6 +65,26 @@ export interface PersonStats {
   lastRunAt?: number
 }
 
+/**
+ * 任务来源（蓝图派发时写入，用于溯源与幂等；手动任务省略或 kind='manual'）。
+ * runId 标识一次蓝图运行；resumeOf 标识显式续跑的上一次 runId。
+ */
+export interface PersonTaskSource {
+  kind: 'manual' | 'blueprint'
+  /** 蓝图项目文件夹名 */
+  project?: string
+  /** 蓝图资产路径（项目内相对路径） */
+  assetPath?: string
+  /** 派发节点所在图名 */
+  graphName?: string
+  /** 派发节点实例 id */
+  nodeId?: string
+  /** 本次蓝图运行 id（每次启动新生成，停止后不复用） */
+  runId?: string
+  /** 续跑来源：显式恢复的上一次 runId */
+  resumeOf?: string
+}
+
 /** 人员配置（.person/config.json） */
 export interface PersonConfig {
   id: string
@@ -78,6 +98,8 @@ export interface PersonConfig {
   task: string
   /** 当前使用的角色卡（多张卡只选一张生效） */
   currentCardId?: string
+  /** 任务并行数（1..8；>1 时由主会话按协议开子会话） */
+  parallelism: number
   model: PersonModelSettings
   workspace: PersonWorkspaceSettings
   stats: PersonStats
@@ -126,6 +148,8 @@ export interface PersonTask {
   result?: string
   error?: string
   artifacts?: PersonArtifact[]
+  /** 任务来源（蓝图派发溯源；手动任务可省略） */
+  source?: PersonTaskSource
 }
 
 /** 队列状态 */

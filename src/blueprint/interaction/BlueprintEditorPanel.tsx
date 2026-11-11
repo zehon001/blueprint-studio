@@ -85,6 +85,11 @@ export interface BlueprintEditorPanelProps {
   assetPath?: string;
   /** 保存回调（Ctrl+S 校验通过后触发；返回 false = 外部校验失败，不提示保存成功） */
   onSave?: (asset: IRAsset, assetPath?: string) => void | boolean | Promise<void | boolean>;
+  /**
+   * 最新内存资产快照回调：本面板激活且 store 正持有本资产时触发。
+   * 宿主用它同步受控 asset prop，避免页签切走再切回时用旧快照覆盖 store。
+   */
+  onAssetChange?: (asset: IRAsset) => void;
   /** 附加类名（dock 面板内控制尺寸用） */
   className?: string;
   /** 隐藏函数分节并禁止新建局部函数（单图嵌入场景） */
@@ -126,6 +131,7 @@ function BlueprintEditorInner({
   asset,
   assetPath,
   onSave,
+  onAssetChange,
   className,
   hideFunctionSection = false,
   graphScope = 'blueprint',
@@ -154,18 +160,27 @@ function BlueprintEditorInner({
     ro.observe(el);
     return () => ro.disconnect();
   }, [rf]);
-  const interactions = useCanvasInteractions();
+  const activePanelId = useDockStore((s) => s.activePanelId);
+  /** dock 页签里只有激活面板可以响应全局快捷键 / 渲染全局菜单（菜单状态是单例） */
+  const isActiveEditor = !panelId || activePanelId === panelId;
+  const interactions = useCanvasInteractions({ active: isActiveEditor });
 
   // store 状态订阅（编辑命令经 store action，本组件不直接改状态）
   const menu = useBlueprintStore((s) => s.menu);
   const specs = useBlueprintStore((s) => s.specs);
+  const storeAsset = useBlueprintStore((s) => s.asset);
+  const storeAssetPath = useBlueprintStore((s) => s.assetPath);
   const selection = useBlueprintStore((s) => s.selection);
   const dirty = useBlueprintStore((s) => s.dirty);
   const runtimeTarget = useRuntimeStore((s) => s.target);
+  const runtimeNonce = useRuntimeStore((s) => s.nonce);
   const projectParam = useWorkspaceStore((s) => {
     const project = s.currentProject;
     return project ? project.path || project.name : null;
   });
+  const isRunnableAsset = assetPath?.endsWith('.bp.json') === true;
+  const runningThisAsset =
+    isRunnableAsset && runtimeTarget?.bp === assetPath && runtimeTarget.project === projectParam;
   const recentSpecIds = useBlueprintStore((s) => s.recentSpecIds);
   const validation = useBlueprintStore((s) => s.validation);
   const toast = useBlueprintStore((s) => s.toast);
@@ -187,12 +202,23 @@ function BlueprintEditorInner({
     // 资产 prop（受控）变化 / 面板激活切换时重开：注册命令域 + 重置编辑态
   }, [asset, assetPath, panelId]);
 
-  const activePanelId = useDockStore((s) => s.activePanelId);
   useEffect(() => {
     if (!panelId || activePanelId !== panelId) return;
     if (useBlueprintStore.getState().assetPath === assetPath) return;
     useBlueprintStore.getState().openAsset(asset, assetPath);
   }, [activePanelId, panelId, asset, assetPath]);
+
+  useEffect(() => {
+    if (!isActiveEditor) useBlueprintStore.getState().closeMenu();
+  }, [isActiveEditor]);
+
+  // 把最新内存资产回传给宿主：多蓝图页签共享同一个 store，宿主缓存的 asset prop
+  // 若停留在首次读盘快照，切回该页签时会用旧快照覆盖当前节点。
+  useEffect(() => {
+    if (!onAssetChange || !storeAsset) return;
+    if (storeAssetPath !== (assetPath ?? null)) return;
+    onAssetChange(storeAsset);
+  }, [onAssetChange, storeAsset, storeAssetPath, assetPath]);
 
   // 面板关闭 / 布局移除时释放 store 归属：同路径重开（历史快照恢复重开页签等）才能重新读盘
   useEffect(() => {
@@ -273,7 +299,7 @@ function BlueprintEditorInner({
     console.log(`[blueprint] 保存资产 ${st.assetPath ?? '(未命名)'}：${text.length} 字节`);
     const result = await onSave?.(st.asset, st.assetPath ?? undefined);
     if (result === false) {
-      st.notify('保存被阻止：引用完整性校验未通过（见检视器/校验条）', 'error');
+      st.notify('保存失败：写盘或引用完整性校验未通过（见校验条 / 控制台）', 'error');
       return;
     }
     st.markSaved();
@@ -436,6 +462,11 @@ function BlueprintEditorInner({
     enabled: true,
     assetPath,
     foldContext: { inExecEdges, graphName },
+    runActive: runningThisAsset,
+    runKey:
+      runtimeTarget && runningThisAsset
+        ? `${runtimeTarget.project}:${runtimeTarget.bp}:${runtimeNonce}`
+        : 'idle',
   });
 
   // 受控视图叠加映射（纯视图层 state，不经命令栈；空闲时返回原数组引用，React memo 跳过）
@@ -636,10 +667,6 @@ function BlueprintEditorInner({
   const commentOfMenu: IRComment | null =
     menu?.kind === 'comment' ? (commentList.find((c) => c.id === menu.commentId) ?? null) : null;
 
-  const isRunnableAsset = assetPath?.endsWith('.bp.json') === true;
-  const runningThisAsset =
-    isRunnableAsset && runtimeTarget?.bp === assetPath && runtimeTarget.project === projectParam;
-
   /** 图签栏右侧操作（运行 / 保存）：水平位置沿用原画布右上浮层 */
   const graphActions = (
     <>
@@ -721,7 +748,7 @@ function BlueprintEditorInner({
               {/* T5.4 端口实时值徽标层：选中节点的输出引脚值显示在节点下方 */}
               <DebugPinValues state={overlay.state} tick={overlay.tick} />
             </BPGraphCanvas>
-            {menu?.kind === 'search' ? (
+            {isActiveEditor && menu?.kind === 'search' ? (
               <NodeSearchMenu
                 screen={menu.screen}
                 entries={searchEntries}
@@ -732,7 +759,7 @@ function BlueprintEditorInner({
                 onClose={closeMenu}
               />
             ) : null}
-            {menu?.kind === 'pin' ? (
+            {isActiveEditor && menu?.kind === 'pin' ? (
               <PinDragMenu
                 screen={menu.screen}
                 flow={menu.flow}
@@ -744,7 +771,7 @@ function BlueprintEditorInner({
                 onClose={closeMenu}
               />
             ) : null}
-            {menu?.kind === 'edge' ? (
+            {isActiveEditor && menu?.kind === 'edge' ? (
               <EdgeContextMenu
                 screen={menu.screen}
                 edgeSelected={selection.edgeIds.includes(menu.edgeId)}

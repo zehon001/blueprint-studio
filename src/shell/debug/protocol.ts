@@ -19,6 +19,9 @@ export type DebugClientMessage =
   | { type: 'debug.subscribe'; project: string; assetPaths: string[] }
   | { type: 'debug.unsubscribe'; project: string; assetPaths?: string[] }
   | { type: 'debug.attach'; project: string; assetPath: string }
+  /** 插件推送订阅（与 debug 共用 /ws；人员看板变化等跨面板事件） */
+  | { type: 'plugin.subscribe'; project: string }
+  | { type: 'plugin.unsubscribe'; project: string }
   /** 运行窗口批量推送（150ms 合并在客户端完成；服务端只按通道转发） */
   | {
       type: 'debug.batch';
@@ -33,6 +36,16 @@ export type DebugClientMessage =
 /** 服务端 → 客户端 */
 export type DebugServerMessage =
   | { type: 'hello'; hub: string; protocol: string }
+  /** 人员任务看板变化（广播给所有已订阅项目；人员页据此刷新） */
+  | {
+      type: 'personnel.boardChanged';
+      personId: string;
+      change: string;
+      taskId?: string;
+      status?: string;
+      queueStatus?: string;
+      ts?: number;
+    }
   | {
       type: 'debug.batch';
       project: string;

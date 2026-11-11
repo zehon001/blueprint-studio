@@ -44,7 +44,13 @@ import type {
 import { editorSpecMap } from '../my-blueprint/graph-op-specs';
 import { isReservedStructTypeName, isSafeStructFieldName, structPinsOf } from '../../ir/structs';
 import { nameKey, nextCopyName, nextSequentialName } from '../my-blueprint/model';
-import { loadPluginSpecs } from '../../nodes/dynamic';
+import {
+  applyPersonnelOptions,
+  loadPersonnelOptions,
+  loadPluginSpecs,
+  migratePersonnelDispatchContentToPin,
+  PLUGIN_CATEGORY,
+} from '../../nodes/dynamic';
 import { useWorkspaceStore } from '../../shell/workspace-store';
 import {
   clampCommentBounds,
@@ -382,7 +388,18 @@ async function refreshPluginSpecsInBackground(): Promise<void> {
     if (specs.length === 0) return;
     const merged = new Map(useBlueprintStore.getState().specs);
     for (const spec of specs) {
-      if (!merged.has(spec.id)) merged.set(spec.id, spec);
+      const current = merged.get(spec.id);
+      // 已加载的插件节点可刷新（例如插件清单 / 人员选项变化）；内置与编辑器 spec 保持权威
+      if (!current || current.category === PLUGIN_CATEGORY) merged.set(spec.id, spec);
+    }
+    // 人员插件：每次激活编辑器都拉取最新人员列表；失败 / 无人时回退为手动输入
+    if (specs.some((spec) => spec.id === 'personnel.dispatch')) {
+      const options = await loadPersonnelOptions();
+      const dispatch = merged.get('personnel.dispatch');
+      if (dispatch) {
+        const updated = applyPersonnelOptions([dispatch], options)[0];
+        if (updated) merged.set('personnel.dispatch', updated);
+      }
     }
     useBlueprintStore.getState().setSpecs(merged);
   } catch (err) {
@@ -446,7 +463,14 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
     const state = get();
     const spec = state.specs.get(specId);
     const graph = currentGraph(state.asset, state.graphName);
-    if (!spec || !graph) return null;
+    if (!spec) {
+      state.notify(`无法创建节点：节点定义不存在（${specId}）`, 'error');
+      return null;
+    }
+    if (!graph) {
+      state.notify(`无法创建节点：当前图不存在（${state.graphName || '未打开'}）`, 'error');
+      return null;
+    }
     // id / 连线 id 在命令前分配（确定性，避免 recipe 内产生闭包状态）
     const alloc = createIdAllocator([
       ...graph.nodes.map((n) => n.id),
@@ -496,7 +520,10 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
         g.edges.push({ id: edgeId, ...connection });
       }
     });
-    if (!ok) return null;
+    if (!ok) {
+      state.notify('无法创建节点：蓝图编辑区尚未就绪，请重新打开蓝图后再试', 'error');
+      return null;
+    }
     get().pushRecentSpec(specId);
     set({ selection: { nodeIds: [newId], edgeIds: [] } });
     return newId;
@@ -556,13 +583,14 @@ export const useBlueprintStore = create<BlueprintStore>()((set, get) => {
     /* ---------------- 资产 / 视图（不进命令栈） ---------------- */
 
     openAsset(asset, assetPath) {
+      const nextAsset = migratePersonnelDispatchContentToPin(asset);
       // 注册命令域（重开资产会替换域状态并剔除本域旧历史，保证补丁可重放）
-      registerDomainState('blueprint', { asset } satisfies BlueprintDomainState);
-      const firstGraph = Object.keys(asset.graphs)[0] ?? '';
+      registerDomainState('blueprint', { asset: nextAsset } satisfies BlueprintDomainState);
+      const firstGraph = Object.keys(nextAsset.graphs)[0] ?? '';
       set({
-        asset,
+        asset: nextAsset,
         assetPath: assetPath ?? null,
-        graphName: asset.entry in asset.graphs ? asset.entry : firstGraph,
+        graphName: nextAsset.entry in nextAsset.graphs ? nextAsset.entry : firstGraph,
         selection: EMPTY_SELECTION,
         dirty: false,
         menu: null,

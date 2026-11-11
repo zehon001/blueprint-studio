@@ -489,14 +489,23 @@ export function ParamFieldRow(props: {
         {props.param.label}
       </span>
       <div className="bp-det-control">
-        <ValueEditor
-          kind={kind}
-          value={inheritedActive ? props.inherited : props.value}
-          mixed={props.mixed}
-          options={props.param.options}
-          dim={inheritedActive}
-          onCommit={props.onCommit}
-        />
+        {kind === 'text' && props.param.multiLine === true ? (
+          <MultiLineTextEditor
+            value={inheritedActive ? props.inherited : props.value}
+            placeholder={props.param.placeholder}
+            onCommit={props.onCommit}
+          />
+        ) : (
+          <ValueEditor
+            kind={kind}
+            value={inheritedActive ? props.inherited : props.value}
+            mixed={props.mixed}
+            options={props.param.options}
+            dim={inheritedActive}
+            placeholder={props.param.placeholder}
+            onCommit={props.onCommit}
+          />
+        )}
       </div>
     </div>
   );
@@ -507,6 +516,7 @@ export function ParamFieldRow(props: {
  */
 function MultiLineTextEditor(props: {
   value: unknown;
+  placeholder?: string;
   onCommit: (value: unknown) => void;
 }) {
   const initial = typeof props.value === 'string' ? props.value : '';
@@ -517,6 +527,7 @@ function MultiLineTextEditor(props: {
       className="bp-det-input"
       style={{ minHeight: 72, resize: 'vertical', lineHeight: 1.5 }}
       value={draft}
+      placeholder={props.placeholder}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={() => {
         if (draft !== initial) props.onCommit(draft);

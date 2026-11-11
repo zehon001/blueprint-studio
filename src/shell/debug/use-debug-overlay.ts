@@ -44,6 +44,13 @@ export interface UseDebugOverlayOptions {
    * 画布每次连线 / 切图都重发 subscribe）：inExecEdges + graphName 见 FoldContext。
    */
   foldContext?: { inExecEdges?: ReadonlyMap<string, readonly string[]>; graphName?: string };
+  /**
+   * 本轮运行是否仍在进行（false = 已停止 / 未运行 → 立即清空叠加状态）。
+   * 停止运行不会产生 nodeExit，长任务节点必须靠这里清掉运行态残留。
+   */
+  runActive?: boolean;
+  /** 运行轮次标识（每次启动 / 重跑变化；变化时清空上一轮叠加，避免旧节点常亮） */
+  runKey?: string | number;
 }
 
 /** useDebugOverlay 返回 */
@@ -63,6 +70,8 @@ export function useDebugOverlay({
   assetPath,
   assetPaths,
   foldContext,
+  runActive = true,
+  runKey,
 }: UseDebugOverlayOptions): DebugOverlayApi {
   const project = useWorkspaceStore((s) => s.currentProject?.name ?? null);
   const paths = useMemo(
@@ -133,6 +142,22 @@ export function useDebugOverlay({
     setState(emptyOverlayState());
     setConnected(false);
   }, [active]);
+
+  /* —— 运行轮次切换 / 停止：清空上一轮叠加 —— */
+
+  const prevRunKeyRef = useRef(runKey);
+  useEffect(() => {
+    if (prevRunKeyRef.current === runKey) return;
+    prevRunKeyRef.current = runKey;
+    setState(emptyOverlayState());
+    lastToastAtRef.current.clear();
+  }, [runKey]);
+
+  useEffect(() => {
+    if (runActive) return;
+    setState(emptyOverlayState());
+    lastToastAtRef.current.clear();
+  }, [runActive]);
 
   return { state, tick, connected, active };
 }

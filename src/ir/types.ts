@@ -403,6 +403,12 @@ export interface ParamSpec {
   default?: unknown;
   /** 检视器分组名（同组参数折叠显示；省略归入默认组） */
   group?: string;
+  /** 文本 / 多行文本占位提示（留空时的说明文案） */
+  placeholder?: string;
+  /** string 参数在检视器中使用多行文本框（长文本，如任务内容） */
+  multiLine?: boolean;
+  /** 仅在检视器显示，不在画布节点体展开（内部设置） */
+  inspectorOnly?: boolean;
 }
 
 /** 蓝图引脚声明（输入 / 输出通用） */
